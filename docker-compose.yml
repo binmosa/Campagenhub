@@ -1,0 +1,63 @@
+# VPS deployment stack: Postgres + backend API + Caddy TLS proxy.
+# The frontend is NOT here — it deploys to Vercel.
+#
+# Usage on the VPS:
+#   1. Copy backend/.env.example to backend/.env and fill in production values
+#      (JWT_SECRET, DB_PASSWORD, OPENROUTER_API_KEY, CORS_ORIGINS=https://<vercel-domain>, ...)
+#   2. Set API_DOMAIN below (or export it) and point a DNS A record at this VPS.
+#   3. docker compose up -d
+#
+# Local dev shortcut: `docker compose up db` and run the backend natively.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: ${DB_NAME:-campaignhub}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-postgres}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      DB_HOST: db
+      DB_PORT: '5432'
+      UPLOADS_DIR: /data/public
+    volumes:
+      - uploads:/data/public
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - '3001'
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      API_DOMAIN: ${API_DOMAIN:-api.localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:

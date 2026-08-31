@@ -1,0 +1,10 @@
+# Reverse proxy with automatic HTTPS (Let's Encrypt).
+# API_DOMAIN comes from docker-compose (e.g. api.your-domain.com).
+{$API_DOMAIN} {
+	reverse_proxy backend:3001
+
+	# Payloads up to 50MB (base64 video pitches)
+	request_body {
+		max_size 50MB
+	}
+}

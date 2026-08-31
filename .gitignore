@@ -1,0 +1,20 @@
+node_modules/
+dist/
+build/
+.env
+.DS_Store
+*.log
+*.sqlite
+*.sqlite3
+
+# Garbage files
+pandoc.zip
+scraper_test.html
+tempdocx/
+~$*.docx
+
+# Local credentials — do not commit
+heroui-token.txt
+
+# Runtime state — never commit user uploads
+backend/public/uploads/

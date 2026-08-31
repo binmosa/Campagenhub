@@ -1,0 +1,427 @@
+/*
+ * Campgains Hub — Global Stylesheet
+ *
+ * Layer order (matters): tailwindcss → @heroui/styles → @heroui-pro/react/css
+ *                        → ./styles/theme.css → ./styles/landing-visitors.css
+ *
+ *   1. Tailwind utilities & engine
+ *   2. HeroUI base tokens + components (provides --background, --surface,
+ *      --accent, --foreground, --muted, the *-soft variants, etc.)
+ *   3. HeroUI Pro additions
+ *   4. Our theme.css — the *canonical* HeroUI theme per design-reference
+ *      (small tweaks only; mostly accepting the upstream defaults)
+ *   5. landing-visitors.css — scoped marketing-only theme for the landing
+ *      page; never bleeds into the dashboard
+ *
+ * ThemeContext sets `--accent` at the document root so admin brand-color
+ * switching cascades through every HeroUI component's color-mix derivatives.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Poppins:wght@400;500;600;700;800;900&display=swap');
+
+@import "tailwindcss";
+@import "@heroui/styles";
+@import "@heroui-pro/react/css";
+@import "./styles/theme.css";
+@import "./styles/landing-visitors.css";
+
+@source "../node_modules/@heroui-pro/react/dist";
+@source "../node_modules/@heroui/react/dist";
+
+/* ─── Legacy palette aliases (back-compat only) ──────────────────────
+ * Brand/manager/admin pages still ship the old `bg-brand-500` /
+ * `text-surface-400` Tailwind utilities. These mappings keep them
+ * rendering until those pages are migrated to semantic HeroUI tokens
+ * (bg-accent, text-muted, bg-surface, etc.). New code should NOT use
+ * the brand-* / surface-* numeric scales — use the canonical tokens.
+ */
+@theme inline {
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+  --color-brand-950: var(--brand-950);
+
+  --color-surface-50: var(--surface-50);
+  --color-surface-100: var(--surface-100);
+  --color-surface-200: var(--surface-200);
+  --color-surface-300: var(--surface-300);
+  --color-surface-400: var(--surface-400);
+  --color-surface-500: var(--surface-500);
+  --color-surface-600: var(--surface-600);
+  --color-surface-700: var(--surface-700);
+  --color-surface-800: var(--surface-800);
+  --color-surface-900: var(--surface-900);
+  --color-surface-950: var(--surface-950);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 80px;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased overflow-x-hidden;
+    @apply selection:bg-accent-soft selection:text-accent-soft-foreground;
+  }
+
+  /* Headings inherit canonical foreground; HeroUI ships their font scale. */
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-foreground tracking-tight;
+  }
+}
+
+/* ─── Legacy palette fallback ─────────────────────────────────────────
+ * Initial values until ThemeContext mounts and overrides them at runtime.
+ * These are the brand-indigo defaults, aligned with the new brand identity.
+ */
+@layer base {
+  :root {
+    /* Brand Indigo (default) — runtime-overridable by ThemeContext */
+    --brand-50:  #eef2ff;
+    --brand-100: #e0e7ff;
+    --brand-200: #c7d2fe;
+    --brand-300: #a5b4fc;
+    --brand-400: #818cf8;
+    --brand-500: #6366f1;
+    --brand-600: #5b5cf6;
+    --brand-700: #4f46e5;
+    --brand-800: #4338ca;
+    --brand-900: #3730a3;
+    --brand-950: #1e1b4b;
+
+    /* Legacy surface scale (light) — runtime-overridable */
+    --surface-50:  #f8fafc;
+    --surface-100: #f1f5f9;
+    --surface-200: #e2e8f0;
+    --surface-300: #cbd5e1;
+    --surface-400: #94a3b8;
+    --surface-500: #64748b;
+    --surface-600: #475569;
+    --surface-700: #334155;
+    --surface-800: #1e293b;
+    --surface-900: #0f172a;
+    --surface-950: #020617;
+  }
+}
+
+@layer utilities {
+  .card {
+    @apply bg-surface border border-border rounded-2xl shadow-surface;
+  }
+
+  .card-hover {
+    @apply hover:border-border-secondary hover:shadow-overlay hover:-translate-y-1 transition-all duration-300;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-accent-soft text-accent-soft-foreground;
+  }
+
+  .text-gradient-brand {
+    background-image: var(--brand-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .bg-gradient-brand {
+    background-image: var(--brand-gradient);
+  }
+
+  .bg-gradient-brand-soft {
+    background-image: var(--brand-gradient-soft);
+  }
+
+  /* ─── Vibrant Series-A palette ──────────────────────────────────
+   * These extend the brand identity with a saturated, high-end gradient
+   * vocabulary used by the public landing. All colors are defined inline
+   * (not theme tokens) because the landing intentionally feels more
+   * vibrant than the in-app UI.
+   */
+  .text-gradient-vibrant {
+    background-image: linear-gradient(
+      96deg,
+      #6366f1 0%,
+      #a855f7 28%,
+      #ec4899 58%,
+      #f59e0b 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .text-gradient-aurora {
+    background-image: linear-gradient(96deg, #22d3ee 0%, #818cf8 50%, #c084fc 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .bg-aurora {
+    background:
+      radial-gradient(900px 500px at 12% 18%, rgba(99, 102, 241, 0.30), transparent 60%),
+      radial-gradient(800px 480px at 88% 22%, rgba(236, 72, 153, 0.26), transparent 60%),
+      radial-gradient(900px 560px at 50% 95%, rgba(34, 211, 238, 0.22), transparent 60%),
+      radial-gradient(700px 400px at 30% 80%, rgba(168, 85, 247, 0.22), transparent 60%);
+  }
+
+  .bg-aurora-dark {
+    background:
+      radial-gradient(900px 500px at 12% 18%, rgba(99, 102, 241, 0.55), transparent 60%),
+      radial-gradient(800px 480px at 88% 22%, rgba(236, 72, 153, 0.45), transparent 60%),
+      radial-gradient(900px 560px at 50% 95%, rgba(34, 211, 238, 0.35), transparent 60%),
+      radial-gradient(700px 400px at 30% 80%, rgba(168, 85, 247, 0.40), transparent 60%);
+  }
+
+  .bg-grid-fade {
+    background-image:
+      linear-gradient(to right, rgba(99, 102, 241, 0.08) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(99, 102, 241, 0.08) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 35%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 35%, transparent 75%);
+  }
+
+  .bg-grid-dots {
+    background-image: radial-gradient(circle, rgba(99, 102, 241, 0.18) 1px, transparent 1px);
+    background-size: 22px 22px;
+    mask-image: radial-gradient(ellipse 60% 60% at 50% 50%, black 30%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse 60% 60% at 50% 50%, black 30%, transparent 80%);
+  }
+
+  .glass-card {
+    background: color-mix(in oklab, var(--surface) 78%, transparent);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid color-mix(in oklab, var(--accent) 18%, var(--border) 82%);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.5) inset,
+      0 20px 60px -20px rgba(99, 102, 241, 0.25);
+  }
+
+  .ring-glow {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--accent) 25%, transparent),
+      0 20px 60px -20px color-mix(in oklab, var(--accent) 60%, transparent),
+      0 8px 28px -8px rgba(236, 72, 153, 0.20);
+  }
+
+  .ring-glow-strong {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--accent) 35%, transparent),
+      0 30px 80px -20px color-mix(in oklab, var(--accent) 70%, transparent),
+      0 16px 48px -12px rgba(236, 72, 153, 0.30),
+      0 8px 24px -8px rgba(34, 211, 238, 0.25);
+  }
+
+  .border-gradient-vibrant {
+    position: relative;
+    background-clip: padding-box;
+    border: 1px solid transparent;
+  }
+  .border-gradient-vibrant::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, #6366f1, #ec4899 50%, #22d3ee);
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .chip-vibrant {
+    @apply inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold;
+    background: linear-gradient(
+      96deg,
+      color-mix(in oklab, #6366f1 14%, transparent),
+      color-mix(in oklab, #ec4899 14%, transparent) 50%,
+      color-mix(in oklab, #22d3ee 14%, transparent)
+    );
+    border: 1px solid color-mix(in oklab, #6366f1 30%, transparent);
+    color: var(--foreground);
+  }
+
+  .btn-vibrant {
+    background: linear-gradient(96deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+    color: white;
+    box-shadow:
+      0 10px 30px -8px rgba(99, 102, 241, 0.55),
+      0 6px 20px -6px rgba(236, 72, 153, 0.45);
+    transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms;
+  }
+  .btn-vibrant:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 14px 40px -10px rgba(99, 102, 241, 0.65),
+      0 8px 28px -6px rgba(236, 72, 153, 0.55);
+  }
+}
+
+/* ─── Animations ─────────────────────────────────────────────────── */
+@keyframes marquee {
+  0%   { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-marquee-fast {
+  animation: marquee 25s linear infinite;
+}
+
+.animate-fade-up {
+  animation: fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ─── Bento float — slow vertical drift for hero mock cards ── */
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-10px); }
+}
+
+.animate-float-slow    { animation: float-y 8s ease-in-out infinite; }
+.animate-float-slower  { animation: float-y 10s ease-in-out infinite 0.5s; }
+.animate-float-medium  { animation: float-y 6s ease-in-out infinite 1s; }
+
+/* ─── Aurora drift — slow color movement under hero ─────────── */
+@keyframes aurora-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(2%, -1.5%) scale(1.04); }
+  66%      { transform: translate(-1.5%, 2%) scale(0.98); }
+}
+.animate-aurora { animation: aurora-drift 18s ease-in-out infinite; }
+
+/* ─── Shimmer for proof bars / pills ───────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 3.2s linear infinite;
+}
+
+/* ─── Slow pulse glow ─────────────────────────────────────── */
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.7; }
+  50%      { opacity: 1; }
+}
+.animate-glow { animation: glow-pulse 4s ease-in-out infinite; }
+
+/* ─── Marquee reverse direction ───────────────────────────── */
+@keyframes marquee-reverse {
+  0%   { transform: translateX(-50%); }
+  100% { transform: translateX(0%); }
+}
+.animate-marquee-slow      { animation: marquee 45s linear infinite; }
+.animate-marquee-reverse   { animation: marquee-reverse 38s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-slow,
+  .animate-float-slower,
+  .animate-float-medium,
+  .animate-aurora,
+  .animate-shimmer,
+  .animate-glow,
+  .animate-marquee-fast,
+  .animate-marquee-slow,
+  .animate-marquee-reverse { animation: none; }
+}
+
+/* Strikethrough effect on hover for links */
+.link-hover {
+  @apply relative overflow-hidden;
+}
+.link-hover::after {
+  content: '';
+  @apply w-full h-px bg-accent absolute bottom-0 left-0 -translate-x-full transition-transform duration-300;
+}
+.link-hover:hover::after {
+  @apply translate-x-0;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--accent) 40%, transparent);
+  border-radius: 99px;
+  transition: background 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.pill-scroll::-webkit-scrollbar {
+  height: 3px;
+}
+
+.pill-scroll::-webkit-scrollbar-track {
+  background: var(--surface-secondary);
+  border-radius: 99px;
+}
+
+.pill-scroll::-webkit-scrollbar-thumb {
+  background: var(--brand-gradient);
+  border-radius: 99px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--accent) 40%, transparent) transparent;
+}
+
+/* HeroUI Pro Segment: library CSS targets separators as children of segment__item
+ * (`.segment__item:first-child > .segment__separator`), but the React anatomy
+ * renders separators as siblings between buttons. All separators end up
+ * `position: absolute; left: 0` relative to `.segment`, collapsing into a
+ * single vertical line on the far-left edge. Re-position them as in-flow
+ * sibling dividers and hide the ones adjacent to the selected item. */
+.segment > .segment__separator {
+  position: static;
+  width: 1px;
+  height: 50%;
+  align-self: center;
+  flex-shrink: 0;
+}
+.segment > .segment__separator:first-child,
+.segment > .segment__separator:last-child,
+.segment__item[data-selected='true'] + .segment__separator,
+.segment__separator:has(+ .segment__item[data-selected='true']) {
+  opacity: 0;
+}

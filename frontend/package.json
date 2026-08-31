@@ -1,0 +1,49 @@
+{
+  "name": "frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.27",
+    "postcss": "^8.5.9",
+    "tailwindcss": "^4.3.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.4"
+  },
+  "dependencies": {
+    "@heroui-pro/react": "^1.0.0-beta.5",
+    "@heroui/react": "^3.1.0",
+    "@heroui/styles": "^3.1.0",
+    "@number-flow/react": "^0.5.14",
+    "@tailwindcss/postcss": "^4.3.0",
+    "axios": "^1.15.0",
+    "embla-carousel": "^8.6.0",
+    "embla-carousel-react": "^8.6.0",
+    "heroui-native-pro": "^1.0.0-beta.4",
+    "lucide-react": "^1.8.0",
+    "marked": "^18.0.5",
+    "motion": "^12.40.0",
+    "platformscode-new-react": "^0.1.42",
+    "react": "^19.2.7",
+    "react-aria-components": "^1.18.0",
+    "react-dom": "^19.2.7",
+    "react-is": "^19.2.7",
+    "react-markdown": "^10.1.0",
+    "react-resizable-panels": "^4.11.2",
+    "react-router-dom": "^7.14.0",
+    "recharts": "^3.8.1",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1",
+    "shiki": "^4.2.0",
+    "streamdown": "^2.5.0",
+    "tailwind-merge": "^3.6.0",
+    "tailwind-variants": "^3.2.2"
+  }
+}

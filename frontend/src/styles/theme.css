@@ -1,0 +1,56 @@
+/*
+ * Campgains Hub — Canonical HeroUI Pro theme
+ * ─────────────────────────────────────────────
+ * Sourced from /public/design-reference/globals-3.css. This is the HeroUI
+ * Pro default theme: indigo accent (#5B5CF6), neutral grays, 8px radius.
+ *
+ * Loaded AFTER @heroui/styles + @heroui-pro/react/css so it overrides the
+ * upstream defaults only where the design reference specifies a change.
+ * Every value here uses the same token name HeroUI exposes — component
+ * code should reference the token (e.g. bg-surface, text-foreground)
+ * rather than these raw values.
+ *
+ * @see public/design-reference/DESIGN-2.md
+ */
+
+:root,
+.light,
+.default,
+[data-theme='light'],
+[data-theme='default'] {
+  --background: oklch(97.02% 0 276.27);
+  --muted: oklch(55.17% 0 276.27);
+  --scrollbar: oklch(87.10% 0 276.27);
+  --surface-secondary: oklch(95.24% 0 276.27);
+  --surface-tertiary: oklch(93.73% 0 276.27);
+  --default: oklch(94.00% 0 276.27);
+  --accent: oklch(56.72% 0.2241 276.27);
+  --field-border: oklch(90.00% 0 276.27);
+  --border: oklch(90.00% 0 276.27);
+  --separator: oklch(92.00% 0 276.27);
+
+  /* Border radius */
+  --field-radius: 0.5rem;
+}
+
+.dark,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --background: oklch(12.00% 0 276.27);
+  --muted: oklch(70.50% 0 276.27);
+  --scrollbar: oklch(70.50% 0 276.27);
+  --surface: oklch(21.03% 0 276.27);
+  --surface-secondary: oklch(25.70% 0 276.27);
+  --surface-secondary-foreground: oklch(25.70% 0 276.27);
+  --surface-tertiary: oklch(27.21% 0 276.27);
+  --surface-tertiary-foreground: oklch(27.21% 0 276.27);
+  --overlay: oklch(21.03% 0 276.27);
+  --default: oklch(27.40% 0 276.27);
+  --accent: oklch(56.72% 0.2241 276.27);
+  --field-background: oklch(21.03% 0 276.27);
+  --field-placeholder: oklch(70.50% 0 276.27);
+  --field-border: oklch(28.00% 0 276.27);
+  --segment: oklch(39.64% 0 276.27);
+  --border: oklch(28.00% 0 276.27);
+  --separator: oklch(25.00% 0 276.27);
+}
