@@ -117,27 +117,35 @@ export const FinalCta: React.FC<FinalCtaProps> = ({ settings }) => {
                 </Link>
               ) : (
                 <>
-                  <Link to="/register">
+                  <Link to="/register?role=creator">
                     <Button variant="primary" size="lg" className="!rounded-xl">
-                      Get started — free
+                      Join as a creator
                     </Button>
                   </Link>
-                  <Link to="/login">
+                  <Link to="/register?role=brand">
                     <Button
                       variant="ghost"
                       size="lg"
                       className="!rounded-xl"
                       style={{
                         color: '#fff',
-                        background: 'rgba(255,255,255,0.06)',
+                        background: 'rgba(255,255,255,0.10)',
+                        border: '1px solid rgba(255,255,255,0.22)',
                       }}
                     >
-                      Sign in
+                      Launch a campaign
                     </Button>
                   </Link>
                 </>
               )}
             </div>
+            {!token && (
+              <div className="mt-4" style={{ fontSize: 12.5 }}>
+                <Link to="/login" className="v-link" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                  Already have an account? Sign in
+                </Link>
+              </div>
+            )}
 
             <div className="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 max-w-[640px] mx-auto">
               {PROOF.map((p, i) => {

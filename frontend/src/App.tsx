@@ -34,7 +34,7 @@ import BrandApplications from './pages/brand/Applications';
 import CreatorApplications from './pages/creator/Applications';
 import PublicCampaigns from './pages/PublicCampaigns';
 import PublicManagers from './pages/PublicManagers';
-import PublicCreators from './pages/PublicCreators';
+
 import TalentNetwork from './pages/TalentNetwork';
 import Messages from './pages/Messages';
 import Analytics from './pages/Analytics';
@@ -100,7 +100,7 @@ function App() {
         <Route path="/" element={<GuestGuard><Landing /></GuestGuard>} />
         <Route path="/campaigns" element={<PublicCampaigns />} />
         <Route path="/managers" element={<PublicManagers />} />
-        <Route path="/creators" element={<PublicCreators />} />
+        <Route path="/creators" element={<Navigate to="/talent" replace />} />
         <Route path="/talent" element={<TalentNetwork />} />
         <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
         <Route path="/register" element={<GuestGuard><Register /></GuestGuard>} />

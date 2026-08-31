@@ -23,7 +23,7 @@ export class CreatorsController {
     return this.creatorsService.updateProfile(req.user.userId, data);
   }
 
-  // Public directory - no auth required
+  // Public directory - no auth required. Paginated: returns { items, total, hasMore }.
   @Get('public-list')
   async getAllPublic(
     @Query('search') search?: string,
@@ -31,9 +31,14 @@ export class CreatorsController {
     @Query('location') location?: string,
     @Query('minFollowers') minFollowers?: string,
     @Query('maxFollowers') maxFollowers?: string,
+    @Query('platforms') platforms?: string,
     @Query('sort') sort?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
   ) {
-    return this.creatorsService.getAllPublicCreators({ search, category, location, minFollowers, maxFollowers, sort });
+    return this.creatorsService.getAllPublicCreators({
+      search, category, location, minFollowers, maxFollowers, platforms, sort, limit, offset,
+    });
   }
 
   // Public read-only profile card - accessible by any authenticated user

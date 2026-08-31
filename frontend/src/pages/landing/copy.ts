@@ -52,8 +52,8 @@ export type NavItem =
   | { kind: 'route';  href: string; label: string };
 
 export const NAV_SECTIONS: NavItem[] = [
-  { kind: 'anchor', id: 'home',         label: 'Home' },
-  { kind: 'anchor', id: 'audiences',    label: 'Who it’s for' },
+  { kind: 'anchor', id: 'home',         label: 'For creators' },
+  { kind: 'anchor', id: 'console',      label: 'For brands' },
   { kind: 'anchor', id: 'how-it-works', label: 'How it works' },
   { kind: 'route',  href: '/talent',    label: 'Talent' },
   { kind: 'route',  href: '/campaigns', label: 'Campaigns' },
@@ -63,11 +63,20 @@ export const NAV_SECTIONS: NavItem[] = [
 // (BRAND_FEATURES + CREATOR_FEATURES removed — replaced by the unified
 // AUDIENCES data below, consumed by the Segment-driven <Audiences> section.)
 
+/** Brand-side journey (the original four steps were always brand-POV). */
 export const WORKFLOW_STEPS: WorkflowStep[] = [
-  { step: '01', title: 'Create your campaign', description: "Set your goals, choose a platform, define your budget, and describe what you're looking for.", icon: FileText },
-  { step: '02', title: 'Creators apply',       description: 'Talented creators discover your campaign and send applications with their pitch and portfolio.', icon: Search },
-  { step: '03', title: 'Review & accept',      description: 'Browse applications, review creator profiles, and accept the perfect match for your brand.', icon: UserCheck },
-  { step: '04', title: 'Track & pay',          description: 'Monitor performance in real-time and pay creators securely when the work is done.', icon: BarChart3 },
+  { step: '01', title: 'Post your brief', description: "Set your goals, choose a platform, define your budget, and describe what you're looking for.", icon: FileText },
+  { step: '02', title: 'Creators apply',  description: 'Vetted creators discover your campaign and send applications with their pitch and portfolio — most briefs get applications within 24 hours.', icon: Search },
+  { step: '03', title: 'Match & escrow',  description: 'Review AI-ranked applicants, accept your match, and fund the budget into escrow — protected until work ships.', icon: UserCheck },
+  { step: '04', title: 'Track & settle',  description: 'Watch reach and engagement live from every post. Escrow releases automatically when work is delivered.', icon: BarChart3 },
+];
+
+/** Creator-side journey — same machine, seen from the other side. */
+export const CREATOR_WORKFLOW_STEPS: WorkflowStep[] = [
+  { step: '01', title: 'Pick your briefs',  description: 'Browse live campaigns in your niche on the platforms you already post on. No cold outreach, no DMs.', icon: Search },
+  { step: '02', title: 'Apply in a tap',    description: 'Send your pitch and portfolio in one tap — or let the AI draft the pitch for you.', icon: FileText },
+  { step: '03', title: 'Create & post',     description: 'The budget is already escrowed before you hit record. Make the content you were going to make anyway.', icon: UserCheck },
+  { step: '04', title: 'Get paid',          description: 'Escrow releases as soon as your work ships. No invoices, no chasing, no 90-day payment terms.', icon: DollarSign },
 ];
 
 export const MOCK_TESTIMONIALS: Testimonial[] = [
@@ -121,7 +130,7 @@ export const AUDIENCES: AudienceContent[] = [
     description:
       'Browse real campaigns from real brands. Apply with one click. Get paid as soon as your work ships.',
     ctaLabel: 'Join as a creator',
-    ctaHref: '/register',
+    ctaHref: '/register?role=creator',
     benefits: [
       { icon: Target,        title: 'Real brand campaigns',     description: 'No middlemen. Direct briefs from brands on the platforms you publish on.' },
       { icon: DollarSign,    title: 'Pay on delivery',          description: 'Funds escrow at brief acceptance. Released as soon as your post ships.' },
@@ -136,7 +145,7 @@ export const AUDIENCES: AudienceContent[] = [
     description:
       'Post a brief, get matched with creators on TikTok, Instagram and YouTube, and only pay when work ships.',
     ctaLabel: 'Launch a campaign',
-    ctaHref: '/register',
+    ctaHref: '/register?role=brand',
     benefits: [
       { icon: UserCheck,     title: 'Match in minutes',         description: 'AI matcher surfaces 5 strong candidates per brief, filtered by niche + audience.' },
       { icon: BarChart3,     title: 'Live performance',         description: 'Reach, engagement, and click-through from every creator post — no manual rollups.' },
@@ -151,7 +160,7 @@ export const AUDIENCES: AudienceContent[] = [
     description:
       'Onboard creators, broker campaigns on their behalf, and collect commission — without juggling four spreadsheets.',
     ctaLabel: 'Manage talent',
-    ctaHref: '/register',
+    ctaHref: '/register?role=manager',
     benefits: [
       { icon: UsersIcon,     title: 'Roster in one place',      description: 'Onboard creators under your wing. Track their pipeline + earnings at a glance.' },
       { icon: Calendar,      title: 'Broker campaigns',         description: 'Negotiate briefs on behalf of your roster. One inbox, every deal.' },

@@ -26,6 +26,15 @@ import {
 } from '@heroui/react';
 import { Segment } from '@heroui-pro/react';
 import api from '../../lib/api';
+import {
+  SOCIAL_PLATFORMS,
+  parseSocialLinks,
+  serializeSocialLinks,
+  socialEntries,
+  type SocialMap,
+} from '../../lib/socialLinks';
+import PlatformIcon from '../landing/mocks/PlatformIcon';
+import { PLATFORM_ICON_KEY } from '../talent/shared';
 import AccountSettings from '../../components/AccountSettings';
 import PayoutSettings from '../../components/PayoutSettings';
 import { KycCard } from '../../components/common/KycCard';
@@ -83,6 +92,7 @@ const fieldStyle: React.CSSProperties = {
 const CreatorProfilePage: React.FC = () => {
   const [tab, setTab] = useState<'profile' | 'payout' | 'security'>('profile');
   const [profile, setProfile] = useState<ProfileShape>(EMPTY_PROFILE);
+  const [links, setLinks] = useState<SocialMap>({});
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>(
     'loading'
   );
@@ -109,6 +119,7 @@ const CreatorProfilePage: React.FC = () => {
             bio: res.data.bio || '',
             avatar_url: res.data.avatar_url || '',
           });
+          setLinks(parseSocialLinks(res.data.social_links));
         }
         setStatus('idle');
       })
@@ -133,7 +144,9 @@ const CreatorProfilePage: React.FC = () => {
     e.preventDefault();
     setStatus('loading');
     try {
-      await api.post('/creators/profile', profile);
+      const social_links = serializeSocialLinks(links);
+      await api.post('/creators/profile', { ...profile, social_links });
+      setProfile((p) => ({ ...p, social_links }));
       setStatus('success');
       window.dispatchEvent(new Event('profileUpdated'));
       setTimeout(() => {
@@ -334,16 +347,6 @@ const CreatorProfilePage: React.FC = () => {
                         label: 'Location',
                         value: profile.location || 'Not specified',
                       },
-                      {
-                        icon: Link2,
-                        label: 'Links',
-                        value: profile.social_links || 'No links added',
-                        href: profile.social_links
-                          ? profile.social_links.startsWith('http')
-                            ? profile.social_links
-                            : `https://${profile.social_links}`
-                          : undefined,
-                      },
                     ].map((row) => {
                       const Icon = row.icon;
                       return (
@@ -358,24 +361,46 @@ const CreatorProfilePage: React.FC = () => {
                             <div className="text-muted text-xs uppercase tracking-wider font-medium">
                               {row.label}
                             </div>
-                            {row.href ? (
-                              <a
-                                href={row.href}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-accent text-sm font-medium truncate block"
-                              >
-                                {row.value}
-                              </a>
-                            ) : (
-                              <div className="text-foreground text-sm font-medium truncate">
-                                {row.value}
-                              </div>
-                            )}
+                            <div className="text-foreground text-sm font-medium truncate">
+                              {row.value}
+                            </div>
                           </div>
                         </li>
                       );
                     })}
+                    {/* Social profiles — brand glyphs linking out */}
+                    <li className="flex items-center gap-3 px-5 py-3.5">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg shrink-0 bg-accent-soft text-accent">
+                        <Link2 size={13} />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-muted text-xs uppercase tracking-wider font-medium mb-1">
+                          Platforms
+                        </div>
+                        {socialEntries(profile.social_links).length > 0 ? (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {socialEntries(profile.social_links).map((l) => (
+                              <a
+                                key={l.id}
+                                href={l.url || undefined}
+                                target="_blank"
+                                rel="noreferrer"
+                                title={l.label}
+                                aria-label={l.label}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-lg transition-transform hover:-translate-y-0.5"
+                                style={{ background: `${l.color}14`, color: l.color }}
+                              >
+                                <PlatformIcon platform={PLATFORM_ICON_KEY[l.id]} size={14} />
+                              </a>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-muted text-sm">
+                            No platforms linked yet
+                          </div>
+                        )}
+                      </div>
+                    </li>
                   </ul>
                 </Card.Content>
               </Card>
@@ -533,23 +558,63 @@ const CreatorProfilePage: React.FC = () => {
                         ))}
                       </select>
                     </div>
-                    <div>
-                      <label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                        Social link
-                      </label>
-                      <input
-                        type="text"
-                        value={profile.social_links}
-                        onChange={(e) =>
-                          setProfile({
-                            ...profile,
-                            social_links: e.target.value,
-                          })
-                        }
-                        placeholder="instagram.com/you"
-                        className={fieldClass}
-                        style={fieldStyle}
-                      />
+                  </div>
+
+                  {/* Social profiles — one URL per platform */}
+                  <div>
+                    <label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
+                      Social profiles
+                    </label>
+                    <p className="text-muted text-xs mb-3">
+                      Add every platform you publish on, with your follower
+                      count — brands filter and decide by these numbers.
+                    </p>
+                    <div className="space-y-2.5">
+                      {SOCIAL_PLATFORMS.map((p) => (
+                        <div key={p.id} className="flex gap-2">
+                          <div className="relative flex-1 min-w-0">
+                            <span
+                              className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none inline-flex"
+                              style={{ color: p.color }}
+                            >
+                              <PlatformIcon platform={PLATFORM_ICON_KEY[p.id]} size={14} />
+                            </span>
+                            <input
+                              type="text"
+                              value={links[p.id]?.url || ''}
+                              onChange={(e) =>
+                                setLinks((prev) => ({
+                                  ...prev,
+                                  [p.id]: { ...prev[p.id], url: e.target.value },
+                                }))
+                              }
+                              placeholder={p.placeholder}
+                              aria-label={`${p.label} profile URL`}
+                              className={`${fieldClass} pl-9`}
+                              style={fieldStyle}
+                            />
+                          </div>
+                          <input
+                            type="number"
+                            min={0}
+                            value={links[p.id]?.followers ?? ''}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setLinks((prev) => ({
+                                ...prev,
+                                [p.id]: {
+                                  url: prev[p.id]?.url || '',
+                                  followers: v === '' ? undefined : Math.max(0, Math.round(Number(v))),
+                                },
+                              }));
+                            }}
+                            placeholder="Followers"
+                            aria-label={`${p.label} follower count`}
+                            className={`${fieldClass} !w-32 shrink-0`}
+                            style={fieldStyle}
+                          />
+                        </div>
+                      ))}
                     </div>
                   </div>
 

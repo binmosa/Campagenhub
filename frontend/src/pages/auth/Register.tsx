@@ -28,7 +28,11 @@ const Register: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [role, setRole] = useState<'creator' | 'brand' | 'manager'>('creator');
+  const [role, setRole] = useState<'creator' | 'brand' | 'manager'>(() => {
+    // Landing-page CTAs deep-link the audience: /register?role=brand etc.
+    const param = new URLSearchParams(window.location.search).get('role');
+    return param === 'brand' || param === 'manager' || param === 'creator' ? param : 'creator';
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 

@@ -28,8 +28,10 @@ export class ManagersController {
     @Query('search') search?: string,
     @Query('sort') sort?: string,
     @Query('minRating') minRating?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
   ) {
-    return this.managersService.getAllPublicManagers({ search, sort, minRating });
+    return this.managersService.getAllPublicManagers({ search, sort, minRating, limit, offset });
   }
 
   @Post('feedback')

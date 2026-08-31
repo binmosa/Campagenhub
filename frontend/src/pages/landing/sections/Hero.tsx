@@ -1,803 +1,798 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
-  ArrowUpRight,
+  BadgeCheck,
   CheckCircle2,
-  Clock,
-  DollarSign,
-  Hash,
-  Heart,
-  MessageCircle,
-  Search,
+  Dumbbell,
+  Gamepad2,
+  Lock,
+  Music,
+  Palette,
+  Plane,
+  Shirt,
   Sparkles,
-  TrendingUp,
-  Users,
+  UtensilsCrossed,
+  Cpu,
 } from 'lucide-react';
-import { Button, Chip } from '@heroui/react';
-import { RadarChart, Segment } from '@heroui-pro/react';
-import { AnimatePresence, motion } from 'motion/react';
+import { Button } from '@heroui/react';
+import { Segment } from '@heroui-pro/react';
+import { AnimatePresence, animate, motion, useMotionValue, useSpring } from 'motion/react';
+import type { LucideIcon } from 'lucide-react';
+import PlatformIcon, { type PlatformKey } from '../mocks/PlatformIcon';
 import type { LandingSettings } from '../useLandingData';
 
 /**
- * Hero — Campgains Hub centered display + interactive dashboard preview.
+ * Hero — one hero, two audiences.
  *
- * HeroUI Pro <Segment> drives the tab pill (it provides a smooth animated
- * selection indicator out of the box). HeroUI <Button> handles primary
- * CTAs. motion <AnimatePresence> fades pane bodies in/out.
+ * An "I'm a creator / I'm a brand" switch swaps the entire pitch:
+ *
+ *  · Creator mode — "what's my content worth?": pick a niche + audience
+ *    size, the phone restacks matching briefs and counts up a typical
+ *    payout range.
+ *  · Brand mode — "what does my budget buy?": pick a campaign niche +
+ *    budget band, the phone flips to ranked applicants and an
+ *    escrow-funded toast, with applicant + reach estimates.
+ *
+ * Both paths end in a labeled CTA that deep-links the register page
+ * with the right role (/register?role=creator|brand).
  */
+
 interface HeroProps {
   settings: LandingSettings;
 }
 
-type TabKey = 'overview' | 'campaigns' | 'creators' | 'insights' | 'payouts';
+type Mode = 'creator' | 'brand';
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'campaigns', label: 'Campaigns' },
-  { key: 'creators', label: 'Creators' },
-  { key: 'insights', label: 'Insights' },
-  { key: 'payouts', label: 'Payouts' },
-];
+/* ── Shared niche data ──────────────────────────────────────────── */
 
-const TINY_CHART = [
-  10, 14, 12, 18, 22, 19, 24, 28, 26, 32, 38, 35, 42, 48, 46, 54, 60, 58, 65, 72,
-];
+type NicheKey =
+  | 'beauty' | 'fitness' | 'food' | 'travel'
+  | 'tech' | 'gaming' | 'fashion' | 'music';
 
-/* Brand accents pulled from /design-theme/branding-info.txt */
+type Brief = {
+  brand: string;
+  title: string;
+  platform: PlatformKey;
+  payout: string;
+  color: string;
+};
+
 const BRAND = {
   purple: '#6c63ff',
-  teal: '#00d4c7',
   blue: '#4f7cff',
+  teal: '#00d4c7',
   navy: '#0b1736',
   success: '#16c784',
   warning: '#ffb547',
   error: '#ff5a5f',
-  lavender: '#f4f2ff',
-  cool: '#e9edf5',
 };
 
-const SIGNATURE_BAR = `linear-gradient(180deg, ${BRAND.purple} 0%, ${BRAND.blue} 60%, ${BRAND.teal} 100%)`;
+const NICHES: {
+  key: NicheKey;
+  label: string;
+  icon: LucideIcon;
+  range: [number, number];      // creator: typical per-brief payout at 1–10K followers
+  applicants: [number, number]; // brand: typical applicant pool at $1–5K budget
+  reachK: [number, number];     // brand: est. campaign reach (thousands) at $1–5K
+  briefs: Brief[];
+}[] = [
+  {
+    key: 'beauty', label: 'Beauty', icon: Palette,
+    range: [150, 900], applicants: [50, 110], reachK: [400, 1100],
+    briefs: [
+      { brand: 'Aurora Skin', title: 'Golden-hour skincare routine', platform: 'instagram', payout: '$180–$650', color: BRAND.error },
+      { brand: 'Velvet Lab', title: '15s "one product, one week" test', platform: 'tiktok', payout: '$150–$480', color: BRAND.purple },
+      { brand: 'Mise Beauty', title: 'Get-ready-with-me, no filter', platform: 'tiktok', payout: '$220–$900', color: BRAND.teal },
+    ],
+  },
+  {
+    key: 'fitness', label: 'Fitness', icon: Dumbbell,
+    range: [120, 800], applicants: [40, 90], reachK: [350, 900],
+    briefs: [
+      { brand: 'Glow Athletic', title: 'Summer outdoor workout UGC', platform: 'tiktok', payout: '$160–$700', color: BRAND.purple },
+      { brand: 'CoreFuel', title: 'Honest 30-day protein review', platform: 'youtube', payout: '$250–$800', color: BRAND.blue },
+      { brand: 'Stride', title: 'Sunrise run POV reel', platform: 'instagram', payout: '$120–$400', color: BRAND.teal },
+    ],
+  },
+  {
+    key: 'food', label: 'Food', icon: UtensilsCrossed,
+    range: [100, 700], applicants: [45, 100], reachK: [300, 800],
+    briefs: [
+      { brand: 'Mesa Coffee', title: 'Morning ritual photo set', platform: 'instagram', payout: '$140–$500', color: BRAND.warning },
+      { brand: 'Hyperloop Snacks', title: 'Gen-Z mealtime POV', platform: 'tiktok', payout: '$150–$600', color: BRAND.teal },
+      { brand: 'Sobremesa', title: '3-ingredient dinner series', platform: 'youtube', payout: '$200–$700', color: BRAND.error },
+    ],
+  },
+  {
+    key: 'travel', label: 'Travel', icon: Plane,
+    range: [200, 1200], applicants: [30, 70], reachK: [500, 1400],
+    briefs: [
+      { brand: 'Nomad Audio', title: 'Long-haul flight unboxing', platform: 'youtube', payout: '$400–$1.2k', color: BRAND.blue },
+      { brand: 'Atlas Stays', title: 'Hidden-gem weekend vlog', platform: 'tiktok', payout: '$250–$900', color: BRAND.purple },
+      { brand: 'Fjord & Co', title: 'Pack-with-me carry-on edit', platform: 'instagram', payout: '$200–$650', color: BRAND.teal },
+    ],
+  },
+  {
+    key: 'tech', label: 'Tech', icon: Cpu,
+    range: [250, 1500], applicants: [25, 60], reachK: [450, 1300],
+    briefs: [
+      { brand: 'Nomad Audio', title: 'Long-form earbuds review', platform: 'youtube', payout: '$500–$1.5k', color: BRAND.blue },
+      { brand: 'Keyframe', title: '60s editing-app speedrun', platform: 'tiktok', payout: '$250–$800', color: BRAND.purple },
+      { brand: 'Voltbox', title: 'Desk setup transformation', platform: 'instagram', payout: '$300–$1k', color: BRAND.warning },
+    ],
+  },
+  {
+    key: 'gaming', label: 'Gaming', icon: Gamepad2,
+    range: [150, 900], applicants: [35, 80], reachK: [400, 1000],
+    briefs: [
+      { brand: 'Hexline', title: 'First-play reaction stream clip', platform: 'twitch', payout: '$200–$900', color: BRAND.purple },
+      { brand: 'PixelForge', title: 'Speedrun challenge short', platform: 'youtube', payout: '$180–$700', color: BRAND.error },
+      { brand: 'LagZero', title: 'Setup tour + FPS test', platform: 'tiktok', payout: '$150–$500', color: BRAND.teal },
+    ],
+  },
+  {
+    key: 'fashion', label: 'Fashion', icon: Shirt,
+    range: [150, 1000], applicants: [45, 100], reachK: [420, 1100],
+    briefs: [
+      { brand: 'Loom & Fade', title: '5 outfits, 1 jacket transition', platform: 'tiktok', payout: '$200–$800', color: BRAND.purple },
+      { brand: 'Atelier Nine', title: 'Capsule wardrobe lookbook', platform: 'instagram', payout: '$250–$1k', color: BRAND.error },
+      { brand: 'Thrift Theory', title: 'Styled vs. thrifted haul', platform: 'youtube', payout: '$180–$600', color: BRAND.teal },
+    ],
+  },
+  {
+    key: 'music', label: 'Music', icon: Music,
+    range: [120, 850], applicants: [30, 75], reachK: [350, 900],
+    briefs: [
+      { brand: 'Reverb Rooms', title: 'Bedroom studio tour', platform: 'youtube', payout: '$200–$850', color: BRAND.blue },
+      { brand: 'Chorus', title: '15s sound-on transition edit', platform: 'tiktok', payout: '$120–$450', color: BRAND.purple },
+      { brand: 'Analog Wave', title: 'Vinyl unboxing + first spin', platform: 'instagram', payout: '$150–$550', color: BRAND.warning },
+    ],
+  },
+];
 
-/* ── Reusable shells ────────────────────────────────────────────── */
-const Pane: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+/* Creator: audience-size bands */
+type BandKey = 'micro' | 'mid' | 'macro';
+const BANDS: { key: BandKey; label: string; multiplier: number }[] = [
+  { key: 'micro', label: '1–10K', multiplier: 1 },
+  { key: 'mid', label: '10–100K', multiplier: 3.2 },
+  { key: 'macro', label: '100K+', multiplier: 8 },
+];
+
+/* Brand: budget bands */
+type BudgetKey = 'seed' | 'growth' | 'scale';
+const BUDGETS: { key: BudgetKey; label: string; multiplier: number; escrow: string }[] = [
+  { key: 'seed', label: '$1–5K', multiplier: 1, escrow: '$3,000' },
+  { key: 'growth', label: '$5–20K', multiplier: 2.4, escrow: '$12,000' },
+  { key: 'scale', label: '$20K+', multiplier: 5.5, escrow: '$35,000' },
+];
+
+/* Brand: ranked applicant rows shown in the phone */
+const APPLICANTS = [
+  { handle: '@mara.moves', followers: '48K', er: '6.2%', fit: 97, color: BRAND.purple },
+  { handle: '@jai.frames', followers: '210K', er: '4.1%', fit: 93, color: BRAND.teal },
+  { handle: '@nova.daily', followers: '96K', er: '5.4%', fit: 88, color: BRAND.warning },
+];
+
+const roundTo10 = (n: number) => Math.round(n / 10) * 10;
+const fmtMoney = (n: number) =>
+  n >= 1000 ? `$${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k` : `$${n}`;
+const fmtCount = (n: number) => `${Math.round(n)}`;
+const fmtReach = (k: number) =>
+  k >= 1000 ? `${(k / 1000).toFixed(1).replace(/\.0$/, '')}M` : `${Math.round(k)}K`;
+
+/* ── Count-up number ────────────────────────────────────────────── */
+const CountUp: React.FC<{ value: number; format?: (n: number) => string }> = ({
+  value,
+  format = fmtMoney,
+}) => {
+  const ref = useRef<HTMLSpanElement>(null);
+  const prev = useRef(value);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) {
+      el.textContent = format(value);
+      prev.current = value;
+      return;
+    }
+    const controls = animate(prev.current, value, {
+      duration: 0.6,
+      ease: [0.16, 1, 0.3, 1],
+      onUpdate: (v) => { el.textContent = format(v); },
+    });
+    prev.current = value;
+    return () => controls.stop();
+  }, [value, format]);
+
+  return <span ref={ref} className="tabular-nums">{format(value)}</span>;
+};
+
+/* ── Toasts ─────────────────────────────────────────────────────── */
+const Toast: React.FC<{ icon: React.ReactNode; title: string; sub: string; seq: number }> = ({
+  icon, title, sub, seq,
+}) => (
   <motion.div
-    initial={{ opacity: 0, y: 8 }}
-    animate={{ opacity: 1, y: 0 }}
-    exit={{ opacity: 0, y: -6 }}
-    transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-    className="px-4 sm:px-6 pt-5 pb-6"
+    key={seq}
+    initial={{ opacity: 0, y: -18, scale: 0.96 }}
+    animate={{ opacity: 1, y: 0, scale: 1 }}
+    transition={{ type: 'spring', stiffness: 380, damping: 26, delay: 0.35 }}
+    className="flex items-center gap-2 rounded-2xl px-3 py-2.5"
+    style={{
+      background: 'rgba(255,255,255,0.92)',
+      backdropFilter: 'blur(8px)',
+      boxShadow: 'rgba(11,23,54,0.14) 0 10px 30px -8px, rgba(11,23,54,0.05) 0 0 0 1px',
+    }}
   >
-    {children}
+    {icon}
+    <div className="min-w-0">
+      <div className="v-caption font-medium v-ink" style={{ fontSize: 12 }}>{title}</div>
+      <div className="v-caption v-quiet" style={{ fontSize: 10.5 }}>{sub}</div>
+    </div>
   </motion.div>
 );
 
-/* ── Sparkline (used in Overview + Insights) ────────────────────── */
-const HeroSparkline: React.FC<{ values?: number[] }> = ({ values = TINY_CHART }) => {
-  const width = 460;
-  const height = 120;
-  const max = Math.max(...values);
-  const min = Math.min(...values);
-  const step = width / (values.length - 1);
-
-  const points = values.map((v, i) => {
-    const x = i * step;
-    const y = height - ((v - min) / (max - min)) * (height - 12) - 6;
-    return [x, y] as const;
-  });
-
-  const pathD = points
-    .map(([x, y], i) =>
-      i === 0 ? `M${x.toFixed(1)},${y.toFixed(1)}` : `L${x.toFixed(1)},${y.toFixed(1)}`
-    )
-    .join(' ');
-  const areaD = `${pathD} L${width},${height} L0,${height} Z`;
+/* ── Phone: creator POV (briefs for you) ────────────────────────── */
+const CreatorPhone: React.FC<{
+  niche: (typeof NICHES)[number];
+  band: (typeof BANDS)[number];
+  seq: number;
+}> = ({ niche, band, seq }) => {
+  const lo = roundTo10(niche.range[0] * band.multiplier);
+  const hi = roundTo10(niche.range[1] * band.multiplier);
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[120px]" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="v-hero-area" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={BRAND.purple} stopOpacity="0.28" />
-          <stop offset="100%" stopColor={BRAND.teal} stopOpacity="0" />
-        </linearGradient>
-        <linearGradient id="v-hero-line" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor={BRAND.purple} />
-          <stop offset="50%" stopColor={BRAND.blue} />
-          <stop offset="100%" stopColor={BRAND.teal} />
-        </linearGradient>
-      </defs>
-      {[0.25, 0.5, 0.75].map((g) => (
-        <line key={g} x1={0} y1={height * g} x2={width} y2={height * g} stroke="#eef0f6" strokeWidth={1} />
-      ))}
-      <motion.path
-        d={areaD}
-        fill="url(#v-hero-area)"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.6 }}
-      />
-      <motion.path
-        d={pathD}
-        fill="none"
-        stroke="url(#v-hero-line)"
-        strokeWidth={2.4}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        initial={{ pathLength: 0 }}
-        animate={{ pathLength: 1 }}
-        transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }}
-      />
-      <circle cx={points[points.length - 1][0]} cy={points[points.length - 1][1]} r={4} fill={BRAND.success} />
-      <circle cx={points[points.length - 1][0]} cy={points[points.length - 1][1]} r={8} fill={BRAND.success} fillOpacity={0.18} />
-    </svg>
-  );
-};
-
-/* ── OVERVIEW PANE ──────────────────────────────────────────────── */
-const OverviewPane: React.FC = () => {
-  const [range, setRange] = useState<'7D' | '30D' | '90D'>('7D');
-  const rangeValues: Record<typeof range, number[]> = {
-    '7D': TINY_CHART,
-    '30D': [4, 8, 6, 12, 10, 16, 14, 18, 22, 19, 25, 28, 24, 30, 34, 30, 38, 42, 40, 48],
-    '90D': [2, 5, 3, 7, 6, 9, 8, 12, 14, 11, 16, 20, 18, 24, 28, 26, 33, 38, 36, 44],
-  };
-
-  return (
-    <Pane>
-      <div className="grid grid-cols-12 gap-3 sm:gap-4">
-        <div className="col-span-12 sm:col-span-4 v-hairline rounded-2xl p-4">
-          <div className="v-caption v-quiet">Reach this week</div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="v-ink font-medium tabular-nums" style={{ fontSize: 28, letterSpacing: '-0.018em' }}>
-              1.24M
-            </span>
-            <Chip color="success" variant="soft" size="sm">
-              <TrendingUp size={11} /> +24%
-            </Chip>
-          </div>
-          <div className="mt-3 h-[28px] flex items-end gap-[3px]">
-            {TINY_CHART.slice(0, 14).map((v, i) => (
-              <motion.span
-                key={i}
-                className="flex-1 rounded-sm"
-                initial={{ height: 0 }}
-                animate={{ height: `${(v / 72) * 100}%` }}
-                transition={{ duration: 0.5, delay: i * 0.02, ease: [0.16, 1, 0.3, 1] }}
-                style={{
-                  background:
-                    i === 13 ? SIGNATURE_BAR : 'rgba(108,99,255,0.28)',
-                }}
-              />
-            ))}
-          </div>
+    <div className="v-phone select-none" aria-label={`Example creator feed for ${niche.label}`}>
+      <div className="v-phone-screen">
+        <div className="flex items-center justify-between px-5 pt-3.5">
+          <span className="v-caption v-ink font-medium" style={{ fontSize: 12 }}>9:41</span>
+          <span className="h-[18px] w-[74px] rounded-full" style={{ background: BRAND.navy }} />
+          <span className="v-caption v-quiet" style={{ fontSize: 11 }}>5G</span>
         </div>
 
-        <div className="col-span-12 sm:col-span-4 v-hairline rounded-2xl p-4">
-          <div className="v-caption v-quiet">Active campaigns</div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="v-ink font-medium tabular-nums" style={{ fontSize: 28, letterSpacing: '-0.018em' }}>
-              248
-            </span>
-            <Chip color="success" variant="soft" size="sm">
-              <TrendingUp size={11} /> +12
-            </Chip>
-          </div>
-          <div className="mt-3 flex items-center gap-1.5">
-            {[BRAND.purple, BRAND.success, BRAND.warning, BRAND.error, BRAND.blue].map((c, i) => (
-              <span
-                key={i}
-                className="h-7 w-7 rounded-full border-2"
-                style={{ background: c, borderColor: '#fff', marginLeft: i === 0 ? 0 : -8 }}
-              />
-            ))}
-            <span className="v-caption v-quiet ml-2">+ 22 brands</span>
-          </div>
-        </div>
-
-        <div className="col-span-12 sm:col-span-4 v-hairline rounded-2xl p-4">
-          <div className="v-caption v-quiet">Paid to creators</div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="v-ink font-medium tabular-nums" style={{ fontSize: 28, letterSpacing: '-0.018em' }}>
-              $2.4M
-            </span>
-            <Chip color="success" variant="soft" size="sm">
-              <TrendingUp size={11} /> +18%
-            </Chip>
-          </div>
-          <div className="mt-3 v-caption v-muted">Settled across 1,287 collabs · YTD</div>
-        </div>
-
-        <div className="col-span-12 v-hairline rounded-2xl p-4">
-          <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
-            <div>
-              <div className="v-caption v-quiet">Engagement trend</div>
-              <div className="v-ink font-medium" style={{ fontSize: 18, letterSpacing: '-0.018em' }}>
-                24.7% avg ER
-              </div>
-            </div>
-            <Segment
-              selectedKey={range}
-              onSelectionChange={(k) => setRange(k as typeof range)}
-              size="sm"
-            >
-              <Segment.Item id="7D">7D</Segment.Item>
-              <Segment.Item id="30D">30D</Segment.Item>
-              <Segment.Item id="90D">90D</Segment.Item>
-            </Segment>
-          </div>
-          <HeroSparkline key={range} values={rangeValues[range]} />
-        </div>
-      </div>
-    </Pane>
-  );
-};
-
-/* ── CAMPAIGNS PANE ─────────────────────────────────────────────── */
-const CAMPAIGN_ROWS = [
-  { brand: 'Glow Athletic', title: 'Summer fitness UGC challenge', platform: 'TikTok', budget: '$8.5k', applicants: 147, status: 'Live' as const, color: BRAND.purple },
-  { brand: 'Aurora Skin', title: 'Reels: golden-hour routine', platform: 'Instagram', budget: '$4.2k', applicants: 89, status: 'Live' as const, color: BRAND.error },
-  { brand: 'Nomad Audio', title: 'Long-form unboxing review', platform: 'YouTube', budget: '$12k', applicants: 64, status: 'Live' as const, color: BRAND.blue },
-  { brand: 'Mesa Coffee', title: 'Morning ritual photo set', platform: 'Instagram', budget: '$3.6k', applicants: 38, status: 'Review' as const, color: BRAND.warning },
-  { brand: 'Hyperloop Snacks', title: 'Gen-Z mealtime POV', platform: 'TikTok', budget: '$6.0k', applicants: 112, status: 'Live' as const, color: BRAND.teal },
-];
-
-const CampaignsPane: React.FC = () => {
-  const [filter, setFilter] = useState<'all' | 'live' | 'review'>('all');
-  const rows = CAMPAIGN_ROWS.filter(
-    (r) => filter === 'all' || r.status.toLowerCase() === filter
-  );
-
-  return (
-    <Pane>
-      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <Segment
-            selectedKey={filter}
-            onSelectionChange={(k) => setFilter(k as 'all' | 'live' | 'review')}
-            size="sm"
-          >
-            <Segment.Item id="all">All</Segment.Item>
-            <Segment.Item id="live">Live</Segment.Item>
-            <Segment.Item id="review">Review</Segment.Item>
-          </Segment>
-          <span className="v-caption v-quiet">{rows.length} shown</span>
-        </div>
-        <Button size="sm" variant="primary" className="!rounded-lg">
-          + New brief
-        </Button>
-      </div>
-
-      <div className="v-hairline rounded-2xl overflow-hidden">
-        <div
-          className="hidden sm:grid grid-cols-[1.6fr_1fr_0.8fr_0.8fr_0.7fr] gap-3 px-4 py-2.5 v-caption v-quiet"
-          style={{ background: 'rgba(244,242,255,0.5)', borderBottom: '1px solid var(--color-cool-gray)' }}
-        >
-          <span>Campaign</span>
-          <span>Platform</span>
-          <span className="text-right">Budget</span>
-          <span className="text-right">Applicants</span>
-          <span className="text-right">Status</span>
-        </div>
-        <AnimatePresence mode="popLayout">
-          {rows.map((row, i) => (
-            <motion.div
-              key={row.title}
-              layout
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.24, delay: i * 0.03, ease: [0.16, 1, 0.3, 1] }}
-              className="grid grid-cols-[1.6fr_1fr_0.8fr_0.8fr_0.7fr] gap-3 px-4 py-3 items-center"
-              style={{ borderBottom: i === rows.length - 1 ? 'none' : '1px solid var(--color-cool-gray)' }}
-            >
-              <div className="min-w-0 flex items-center gap-2.5">
+        <div className="px-4 pt-3 h-[64px]">
+          <AnimatePresence mode="wait">
+            <Toast
+              seq={seq}
+              icon={
                 <span
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg font-medium shrink-0"
-                  style={{ background: row.color, color: '#fff', fontSize: 11 }}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full shrink-0"
+                  style={{ background: 'rgba(22,199,132,0.14)', color: BRAND.success }}
                 >
-                  {row.brand.slice(0, 2).toUpperCase()}
+                  <BadgeCheck size={14} />
                 </span>
-                <div className="min-w-0">
-                  <div className="v-body font-medium v-ink truncate" style={{ fontSize: 13 }}>
-                    {row.title}
-                  </div>
-                  <div className="v-caption v-quiet truncate">{row.brand}</div>
-                </div>
-              </div>
-              <div className="v-caption v-muted">{row.platform}</div>
-              <div className="v-body v-ink tabular-nums text-right font-medium" style={{ fontSize: 13 }}>
-                {row.budget}
-              </div>
-              <div className="v-caption v-muted tabular-nums text-right">{row.applicants}</div>
-              <div className="flex justify-end">
-                <Chip color={row.status === 'Live' ? 'success' : 'accent'} variant="soft" size="sm">
-                  {row.status}
-                </Chip>
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
-    </Pane>
-  );
-};
+              }
+              title={`Payout sent · ${fmtMoney(roundTo10((lo + hi) / 2))}`}
+              sub="escrow released → @you"
+            />
+          </AnimatePresence>
+        </div>
 
-/* ── CREATORS PANE ──────────────────────────────────────────────── */
-const CREATOR_ROWS = [
-  { handle: '@linaeats', niche: 'Food · Lifestyle', followers: '2.5M', er: '4.8%', fit: 96, color: BRAND.purple },
-  { handle: '@omarjourneys', niche: 'Travel', followers: '880K', er: '5.1%', fit: 91, color: BRAND.teal },
-  { handle: '@code.with.ada', niche: 'Tech · Career', followers: '410K', er: '6.4%', fit: 88, color: BRAND.warning },
-  { handle: '@studioveda', niche: 'Beauty', followers: '1.1M', er: '3.9%', fit: 84, color: BRAND.error },
-];
-
-const CreatorsPane: React.FC = () => (
-  <Pane>
-    <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-      <span className="v-pill-quiet">
-        <Users size={11} style={{ color: BRAND.purple }} />
-        12,847 creators · ranked by fit
-      </span>
-      <Button size="sm" variant="outline" className="!rounded-lg">
-        <Hash size={12} /> Filter by niche
-      </Button>
-    </div>
-
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {CREATOR_ROWS.map((c, i) => (
-        <motion.div
-          key={c.handle}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: i * 0.05, ease: [0.16, 1, 0.3, 1] }}
-          className="v-hairline rounded-2xl p-4 flex items-center gap-3"
-        >
-          <span
-            className="inline-flex h-11 w-11 items-center justify-center rounded-full font-medium shrink-0"
-            style={{ background: c.color, color: '#fff', fontSize: 13 }}
-          >
-            {c.handle.slice(1, 3).toUpperCase()}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <span className="v-body font-medium v-ink truncate" style={{ fontSize: 14 }}>
-                {c.handle}
-              </span>
-              <CheckCircle2 size={12} style={{ color: BRAND.purple }} />
-            </div>
-            <div className="v-caption v-quiet truncate">{c.niche}</div>
-            <div className="mt-1.5 flex items-center gap-3 v-caption v-muted">
-              <span>{c.followers} followers</span>
-              <span style={{ color: BRAND.success }}>{c.er} ER</span>
-            </div>
-          </div>
-          <div className="text-right shrink-0">
-            <div className="v-caption font-medium tabular-nums" style={{ color: BRAND.purple }}>
-              {c.fit}% fit
-            </div>
-            <div
-              className="mt-1 h-1 w-16 rounded-full overflow-hidden"
-              style={{ background: 'var(--color-cool-gray)' }}
-            >
-              <motion.div
-                className="h-1 rounded-full"
-                initial={{ width: 0 }}
-                animate={{ width: `${c.fit}%` }}
-                transition={{ duration: 0.8, delay: 0.1 + i * 0.05, ease: [0.16, 1, 0.3, 1] }}
-                style={{ background: `linear-gradient(90deg, ${BRAND.purple}, ${BRAND.teal})` }}
-              />
-            </div>
-          </div>
-        </motion.div>
-      ))}
-    </div>
-  </Pane>
-);
-
-/* ── INSIGHTS PANE — Campaign Comparison Compass ───────────────── */
-const COMPASS_DATA = [
-  { axis: 'Reach',         summer: 88, holiday: 72 },
-  { axis: 'Engagement',    summer: 92, holiday: 65 },
-  { axis: 'Conversion',    summer: 76, holiday: 80 },
-  { axis: 'Brand fit',     summer: 82, holiday: 90 },
-  { axis: 'Cost / impr.',  summer: 78, holiday: 70 },
-  { axis: 'Time to ship',  summer: 85, holiday: 60 },
-];
-
-const InsightsPane: React.FC = () => {
-  const totals = [
-    { label: 'Impressions', value: '8.4M', delta: '+12%', icon: TrendingUp },
-    { label: 'Engagements', value: '612K', delta: '+18%', icon: Heart },
-    { label: 'Comments', value: '94K', delta: '+9%', icon: MessageCircle },
-  ];
-  return (
-    <Pane>
-      <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-4">
-        {totals.map((t, i) => {
-          const Icon = t.icon;
-          return (
-            <motion.div
-              key={t.label}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: i * 0.05 }}
-              className="v-hairline rounded-2xl p-4"
-            >
-              <div className="flex items-center justify-between">
-                <span className="v-caption v-quiet">{t.label}</span>
-                <span
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg"
-                  style={{ background: BRAND.lavender, color: BRAND.purple }}
-                >
-                  <Icon size={12} />
-                </span>
-              </div>
-              <div
-                className="mt-1.5 v-ink font-medium tabular-nums"
-                style={{ fontSize: 22, letterSpacing: '-0.018em' }}
-              >
-                {t.value}
-              </div>
-              <Chip color="success" variant="soft" size="sm" className="!mt-1">
-                <ArrowUpRight size={11} />
-                {t.delta} vs last month
-              </Chip>
-            </motion.div>
-          );
-        })}
-      </div>
-
-      <div className="v-hairline rounded-2xl p-4">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="px-5 pt-2 flex items-end justify-between gap-2">
           <div>
-            <div className="v-caption v-quiet">Campaign comparison · 6-axis compass</div>
-            <div className="v-ink font-medium" style={{ fontSize: 17, letterSpacing: '-0.018em' }}>
-              Summer UGC outscores Holiday Push on reach + speed
+            <div className="v-caption v-quiet" style={{ fontSize: 10.5, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              Briefs for you
+            </div>
+            <div className="v-ink font-medium" style={{ fontSize: 17, letterSpacing: '-0.02em' }}>
+              {niche.label} · {band.label}
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <span className="size-2.5 rounded-full" style={{ background: BRAND.teal }} />
-              <span className="v-caption v-muted">Summer UGC</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="size-2.5 rounded-full" style={{ background: BRAND.purple }} />
-              <span className="v-caption v-muted">Holiday Push</span>
-            </div>
+          <div
+            className="rounded-full px-2.5 py-1 v-caption font-medium tabular-nums shrink-0"
+            style={{ background: 'rgba(22,199,132,0.12)', color: '#0e9f6a', fontSize: 11 }}
+          >
+            <CountUp value={lo} />–<CountUp value={hi} /> / brief
           </div>
         </div>
-        <div className="flex justify-center">
-          <RadarChart data={COMPASS_DATA} height={280}>
-            <RadarChart.Grid />
-            <RadarChart.AngleAxis dataKey="axis" />
-            <RadarChart.Radar
-              dataKey="summer"
-              name="Summer UGC"
-              dot={{ fill: 'var(--chart-1)', r: 3, strokeWidth: 0 }}
-              fill="var(--chart-1)"
-              fillOpacity={0.18}
-              stroke="var(--chart-1)"
-              strokeWidth={2}
-            />
-            <RadarChart.Radar
-              dataKey="holiday"
-              name="Holiday Push"
-              dot={{ fill: 'var(--chart-3)', r: 3, strokeWidth: 0 }}
-              fill="var(--chart-3)"
-              fillOpacity={0.18}
-              stroke="var(--chart-3)"
-              strokeWidth={2}
-            />
-            <RadarChart.Tooltip content={<RadarChart.TooltipContent />} />
-          </RadarChart>
+
+        <div className="px-4 pt-3 pb-2 flex flex-col gap-2.5">
+          <AnimatePresence mode="popLayout">
+            {niche.briefs.map((b, i) => (
+              <motion.div
+                layout
+                key={`${niche.key}-${b.brand}`}
+                initial={{ opacity: 0, y: 22, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -14, scale: 0.97 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 28, delay: i * 0.07 }}
+                className="rounded-2xl p-3 flex items-center gap-3"
+                style={{
+                  background: '#fff',
+                  border: '1px solid var(--color-cool-gray)',
+                  boxShadow: 'rgba(11,23,54,0.05) 0 4px 14px -6px',
+                }}
+              >
+                <span
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl font-medium shrink-0"
+                  style={{ background: b.color, color: '#fff', fontSize: 11 }}
+                >
+                  {b.brand.slice(0, 2).toUpperCase()}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="v-ink font-medium truncate" style={{ fontSize: 12.5, letterSpacing: '-0.01em' }}>
+                    {b.title}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1.5 v-caption v-quiet" style={{ fontSize: 10.5 }}>
+                    <PlatformIcon platform={b.platform} size={11} />
+                    {b.brand}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="v-caption font-medium tabular-nums" style={{ color: BRAND.purple, fontSize: 11.5 }}>
+                    {b.payout}
+                  </div>
+                  <div className="v-caption v-quiet" style={{ fontSize: 10 }}>escrowed</div>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+
+        <div className="px-4 pb-4 mt-auto">
+          <Link to="/register?role=creator" className="block">
+            <span
+              className="flex items-center justify-center gap-1.5 rounded-full py-2.5 font-medium"
+              style={{ background: 'var(--gradient-signature)', color: '#fff', fontSize: 13 }}
+            >
+              Apply in one tap <ArrowRight size={13} />
+            </span>
+          </Link>
         </div>
       </div>
-    </Pane>
+    </div>
   );
 };
 
-/* ── PAYOUTS PANE ───────────────────────────────────────────────── */
-const PAYOUT_ROWS = [
-  { to: '@omarjourneys', campaign: 'Nomad Audio · YT review', amount: '$1,250', when: '2m ago', status: 'Settled' as const, color: BRAND.success },
-  { to: '@linaeats', campaign: 'Glow Athletic · TikTok UGC', amount: '$2,400', when: '14m ago', status: 'Settled' as const, color: BRAND.purple },
-  { to: '@studioveda', campaign: 'Aurora Skin · Reels', amount: '$880', when: '1h ago', status: 'Pending' as const, color: BRAND.warning },
-  { to: '@code.with.ada', campaign: 'Hyperloop · POV', amount: '$1,650', when: '3h ago', status: 'Escrow' as const, color: BRAND.teal },
-];
+/* ── Phone: brand POV (ranked applicants) ───────────────────────── */
+const BrandPhone: React.FC<{
+  niche: (typeof NICHES)[number];
+  budget: (typeof BUDGETS)[number];
+  seq: number;
+}> = ({ niche, budget, seq }) => {
+  const aLo = Math.round(niche.applicants[0] * budget.multiplier);
+  const aHi = Math.round(niche.applicants[1] * budget.multiplier);
 
-const STATUS_COLOR: Record<'Settled' | 'Pending' | 'Escrow', 'success' | 'warning' | 'accent'> = {
-  Settled: 'success',
-  Pending: 'warning',
-  Escrow: 'accent',
-};
+  return (
+    <div className="v-phone select-none" aria-label={`Example brand view for a ${niche.label} campaign`}>
+      <div className="v-phone-screen">
+        <div className="flex items-center justify-between px-5 pt-3.5">
+          <span className="v-caption v-ink font-medium" style={{ fontSize: 12 }}>9:41</span>
+          <span className="h-[18px] w-[74px] rounded-full" style={{ background: BRAND.navy }} />
+          <span className="v-caption v-quiet" style={{ fontSize: 11 }}>5G</span>
+        </div>
 
-const PayoutsPane: React.FC = () => (
-  <Pane>
-    <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-4">
-      {[
-        { label: 'Paid today', value: '$18,420', helper: '42 settlements', icon: DollarSign },
-        { label: 'In escrow', value: '$54,900', helper: 'held until ship', icon: Clock },
-        { label: 'YTD payouts', value: '$2.4M', helper: '+18%', icon: TrendingUp, success: true },
-      ].map((t, i) => {
-        const Icon = t.icon;
-        return (
-          <motion.div
-            key={t.label}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: i * 0.05 }}
-            className="v-hairline rounded-2xl p-4"
+        <div className="px-4 pt-3 h-[64px]">
+          <AnimatePresence mode="wait">
+            <Toast
+              seq={seq}
+              icon={
+                <span
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full shrink-0"
+                  style={{ background: 'rgba(108,99,255,0.12)', color: BRAND.purple }}
+                >
+                  <Lock size={13} />
+                </span>
+              }
+              title={`Escrow funded · ${budget.escrow}`}
+              sub="protected until content ships"
+            />
+          </AnimatePresence>
+        </div>
+
+        <div className="px-5 pt-2 flex items-end justify-between gap-2">
+          <div>
+            <div className="v-caption v-quiet" style={{ fontSize: 10.5, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              Ranked applicants
+            </div>
+            <div className="v-ink font-medium" style={{ fontSize: 17, letterSpacing: '-0.02em' }}>
+              {niche.label} · {budget.label}
+            </div>
+          </div>
+          <div
+            className="rounded-full px-2.5 py-1 v-caption font-medium tabular-nums shrink-0"
+            style={{ background: 'rgba(108,99,255,0.10)', color: BRAND.purple, fontSize: 11 }}
           >
-            <div className="flex items-center justify-between">
-              <span className="v-caption v-quiet">{t.label}</span>
-              <Icon size={14} style={{ color: t.success ? BRAND.success : BRAND.purple }} />
-            </div>
-            <div
-              className="mt-1.5 v-ink font-medium tabular-nums"
-              style={{ fontSize: 22, letterSpacing: '-0.018em' }}
-            >
-              {t.value}
-            </div>
-            <div className="mt-1 v-caption v-muted">{t.helper}</div>
-          </motion.div>
-        );
-      })}
-    </div>
+            <CountUp value={aLo} format={fmtCount} />–<CountUp value={aHi} format={fmtCount} /> matched
+          </div>
+        </div>
 
-    <div className="v-hairline rounded-2xl overflow-hidden">
-      <div
-        className="hidden sm:grid grid-cols-[1.4fr_1.4fr_0.8fr_0.7fr_0.7fr] gap-3 px-4 py-2.5 v-caption v-quiet"
-        style={{ background: 'rgba(244,242,255,0.5)', borderBottom: '1px solid var(--color-cool-gray)' }}
-      >
-        <span>Creator</span>
-        <span>Campaign</span>
-        <span className="text-right">Amount</span>
-        <span className="text-right">When</span>
-        <span className="text-right">Status</span>
-      </div>
-      {PAYOUT_ROWS.map((r, i) => (
-        <motion.div
-          key={r.to + i}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.24, delay: i * 0.04 }}
-          className="grid grid-cols-[1.4fr_1.4fr_0.8fr_0.7fr_0.7fr] gap-3 px-4 py-3 items-center"
-          style={{ borderBottom: i === PAYOUT_ROWS.length - 1 ? 'none' : '1px solid var(--color-cool-gray)' }}
-        >
-          <div className="min-w-0 flex items-center gap-2.5">
+        <div className="px-4 pt-3 pb-2 flex flex-col gap-2.5">
+          <AnimatePresence mode="popLayout">
+            {APPLICANTS.map((a, i) => (
+              <motion.div
+                layout
+                key={`${niche.key}-${a.handle}`}
+                initial={{ opacity: 0, y: 22, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -14, scale: 0.97 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 28, delay: i * 0.07 }}
+                className="rounded-2xl p-3 flex items-center gap-3"
+                style={{
+                  background: '#fff',
+                  border: '1px solid var(--color-cool-gray)',
+                  boxShadow: 'rgba(11,23,54,0.05) 0 4px 14px -6px',
+                }}
+              >
+                <span
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full font-medium shrink-0"
+                  style={{ background: a.color, color: '#fff', fontSize: 11 }}
+                >
+                  {a.handle.slice(1, 3).toUpperCase()}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1">
+                    <span className="v-ink font-medium truncate" style={{ fontSize: 12.5, letterSpacing: '-0.01em' }}>
+                      {a.handle}
+                    </span>
+                    <CheckCircle2 size={11} style={{ color: BRAND.purple }} />
+                  </div>
+                  <div className="mt-0.5 v-caption v-quiet" style={{ fontSize: 10.5 }}>
+                    {niche.label} · {a.followers} · {a.er} ER
+                  </div>
+                </div>
+                <div className="text-right shrink-0" style={{ width: 62 }}>
+                  <div className="v-caption font-medium tabular-nums" style={{ color: BRAND.purple, fontSize: 11.5 }}>
+                    {a.fit}% fit
+                  </div>
+                  <div className="mt-1 h-1 rounded-full overflow-hidden" style={{ background: 'var(--color-cool-gray)' }}>
+                    <motion.div
+                      className="h-1 rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${a.fit}%` }}
+                      transition={{ duration: 0.7, delay: 0.15 + i * 0.07, ease: [0.16, 1, 0.3, 1] }}
+                      style={{ background: `linear-gradient(90deg, ${BRAND.purple}, ${BRAND.teal})` }}
+                    />
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+
+        <div className="px-4 pb-4 mt-auto">
+          <Link to="/register?role=brand" className="block">
             <span
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full font-medium shrink-0"
-              style={{ background: r.color, color: '#fff', fontSize: 11 }}
+              className="flex items-center justify-center gap-1.5 rounded-full py-2.5 font-medium"
+              style={{ background: 'var(--gradient-signature)', color: '#fff', fontSize: 13 }}
             >
-              {r.to.slice(1, 3).toUpperCase()}
+              Review ranked applicants <ArrowRight size={13} />
             </span>
-            <span className="v-body v-ink truncate font-medium" style={{ fontSize: 13 }}>
-              {r.to}
-            </span>
-          </div>
-          <div className="v-caption v-muted truncate">{r.campaign}</div>
-          <div className="v-body v-ink tabular-nums text-right font-medium" style={{ fontSize: 13 }}>
-            {r.amount}
-          </div>
-          <div className="v-caption v-quiet text-right">{r.when}</div>
-          <div className="flex justify-end">
-            <Chip color={STATUS_COLOR[r.status]} variant="soft" size="sm">
-              {r.status}
-            </Chip>
-          </div>
-        </motion.div>
-      ))}
+          </Link>
+        </div>
+      </div>
     </div>
-  </Pane>
-);
-
-/* ── Tab body switcher ──────────────────────────────────────────── */
-const TAB_BODIES: Record<TabKey, React.FC> = {
-  overview: OverviewPane,
-  campaigns: CampaignsPane,
-  creators: CreatorsPane,
-  insights: InsightsPane,
-  payouts: PayoutsPane,
+  );
 };
 
 /* ── Hero ───────────────────────────────────────────────────────── */
 export const Hero: React.FC<HeroProps> = ({ settings }) => {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-  const [tab, setTab] = useState<TabKey>('overview');
+  const [mode, setMode] = useState<Mode>('creator');
+  const [nicheKey, setNicheKey] = useState<NicheKey>('fitness');
+  const [bandKey, setBandKey] = useState<BandKey>('mid');
+  const [budgetKey, setBudgetKey] = useState<BudgetKey>('growth');
+  const [seq, setSeq] = useState(0);
 
-  const headline = settings.hero_title;
-  const subtitle =
-    settings.hero_subtitle ||
-    settings.about_text ||
-    'The end-to-end campaign console for brands, creators, and managers. Post a brief, match in minutes, only pay when work ships.';
+  const niche = useMemo(() => NICHES.find((n) => n.key === nicheKey)!, [nicheKey]);
+  const band = useMemo(() => BANDS.find((b) => b.key === bandKey)!, [bandKey]);
+  const budget = useMemo(() => BUDGETS.find((b) => b.key === budgetKey)!, [budgetKey]);
 
-  const ActiveBody = TAB_BODIES[tab];
+  const bump = () => setSeq((s) => s + 1);
+  const pick = (k: NicheKey) => { setNicheKey(k); bump(); };
+  const pickBand = (k: BandKey) => { setBandKey(k); bump(); };
+  const pickBudget = (k: BudgetKey) => { setBudgetKey(k); bump(); };
+  const pickMode = (m: Mode) => { if (m !== mode) { setMode(m); bump(); } };
+
+  /* pointer tilt (desktop, fine pointers, motion-safe only) */
+  const rx = useMotionValue(0);
+  const ry = useMotionValue(0);
+  const srx = useSpring(rx, { stiffness: 160, damping: 18 });
+  const sry = useSpring(ry, { stiffness: 160, damping: 18 });
+  const tiltOk = useRef(false);
+  useEffect(() => {
+    tiltOk.current =
+      window.matchMedia('(pointer: fine)').matches &&
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }, []);
+  const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!tiltOk.current) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    ry.set(((e.clientX - r.left) / r.width - 0.5) * 8);
+    rx.set(-((e.clientY - r.top) / r.height - 0.5) * 8);
+  };
+  const onLeave = () => { rx.set(0); ry.set(0); };
+
+  const isCreator = mode === 'creator';
+
+  /* estimates for the inline result line */
+  const estA = isCreator
+    ? { lo: roundTo10(niche.range[0] * band.multiplier), hi: roundTo10(niche.range[1] * band.multiplier) }
+    : { lo: Math.round(niche.applicants[0] * budget.multiplier), hi: Math.round(niche.applicants[1] * budget.multiplier) };
+  const reach = {
+    lo: niche.reachK[0] * budget.multiplier,
+    hi: niche.reachK[1] * budget.multiplier,
+  };
 
   return (
-    <section id="home" className="relative">
-      {/* ─── Top portion (canvas) ──────────────────────────────────── */}
-      <div className="relative pt-16 pb-12 sm:pt-20 sm:pb-16 px-6 lg:px-10">
-        <div aria-hidden className="absolute inset-0 v-bg-dots pointer-events-none" />
+    <section id="home" className="relative overflow-hidden">
+      <div aria-hidden className="absolute inset-0 v-bg-dots pointer-events-none" />
+      <div
+        aria-hidden
+        className="absolute pointer-events-none"
+        style={{
+          right: '-12%', top: '4%', width: '58%', height: '92%',
+          background:
+            'radial-gradient(45% 42% at 62% 38%, rgba(108,99,255,0.18), transparent 70%), radial-gradient(40% 38% at 42% 72%, rgba(0,212,199,0.16), transparent 70%), radial-gradient(30% 30% at 75% 70%, rgba(79,124,255,0.12), transparent 70%)',
+          filter: 'blur(2px)',
+        }}
+      />
 
-        <div className="relative max-w-[920px] mx-auto text-center">
+      <div className="relative max-w-[1100px] mx-auto px-6 lg:px-10 pt-12 sm:pt-16 pb-16 sm:pb-24">
+        {/* ── Audience switch — the first decision on the page ───── */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          className="flex justify-center lg:justify-start mb-10"
+        >
+          <Segment
+            selectedKey={mode}
+            onSelectionChange={(k) => pickMode(k as Mode)}
+            size="md"
+            aria-label="I am a…"
+          >
+            <Segment.Item id="creator">I&apos;m a creator</Segment.Item>
+            <Segment.Separator />
+            <Segment.Item id="brand">I&apos;m a brand</Segment.Item>
+          </Segment>
+        </motion.div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-12 lg:gap-8 items-center">
+          {/* ── Left: pitch + picker ─────────────────────────────── */}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={mode}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <div className="v-badge-new">
+                <Sparkles size={11} />
+                {isCreator ? 'For creators · free forever' : 'For brands + agencies · pay on delivery'}
+              </div>
+
+              <h1 className="mt-6 v-display">
+                {isCreator ? (
+                  settings.hero_title ? (
+                    settings.hero_title
+                  ) : (
+                    <>
+                      Make content.
+                      <br />
+                      Get paid. <span className="v-text-signature">Repeat.</span>
+                    </>
+                  )
+                ) : (
+                  <>
+                    Launch creator campaigns.
+                    <br />
+                    Pay on <span className="v-text-signature">delivery.</span>
+                  </>
+                )}
+              </h1>
+
+              <p className="mt-6 v-body-lg v-muted" style={{ maxWidth: 480 }}>
+                {isCreator
+                  ? settings.hero_subtitle ||
+                    'Real briefs from real brands on the platforms you already post on. Pick your niche, apply in a tap — the payout is escrowed before you hit record.'
+                  : 'Post a brief and get matched with vetted creators on TikTok, Instagram, and YouTube. Your budget sits in escrow until content ships — with reach and engagement tracked live.'}
+              </p>
+
+              {/* picker */}
+              <div className="mt-8">
+                <div className="v-caption v-quiet mb-2.5" style={{ letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                  {isCreator ? 'What do you post?' : "What's your campaign about?"}
+                </div>
+                <div className="flex flex-wrap gap-2" role="group" aria-label={isCreator ? 'Pick your niche' : 'Pick your campaign niche'}>
+                  {NICHES.map((n) => {
+                    const Icon = n.icon;
+                    const active = n.key === nicheKey;
+                    return (
+                      <button
+                        key={n.key}
+                        type="button"
+                        onClick={() => pick(n.key)}
+                        className="v-niche-chip"
+                        data-active={active || undefined}
+                        aria-pressed={active}
+                      >
+                        <Icon size={13} />
+                        {n.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 flex items-center gap-3 flex-wrap">
+                  {isCreator ? (
+                    <>
+                      <Segment
+                        selectedKey={bandKey}
+                        onSelectionChange={(k) => pickBand(k as BandKey)}
+                        size="sm"
+                        aria-label="Your audience size"
+                      >
+                        {BANDS.map((b, i) => (
+                          <React.Fragment key={b.key}>
+                            {i > 0 && <Segment.Separator />}
+                            <Segment.Item id={b.key}>{b.label}</Segment.Item>
+                          </React.Fragment>
+                        ))}
+                      </Segment>
+                      <span className="v-caption v-quiet">followers</span>
+                    </>
+                  ) : (
+                    <>
+                      <Segment
+                        selectedKey={budgetKey}
+                        onSelectionChange={(k) => pickBudget(k as BudgetKey)}
+                        size="sm"
+                        aria-label="Your campaign budget"
+                      >
+                        {BUDGETS.map((b, i) => (
+                          <React.Fragment key={b.key}>
+                            {i > 0 && <Segment.Separator />}
+                            <Segment.Item id={b.key}>{b.label}</Segment.Item>
+                          </React.Fragment>
+                        ))}
+                      </Segment>
+                      <span className="v-caption v-quiet">budget</span>
+                    </>
+                  )}
+                </div>
+
+                <div className="mt-4 v-body v-muted" aria-live="polite">
+                  {isCreator ? (
+                    <>
+                      Typical {niche.label.toLowerCase()} brief at your size:{' '}
+                      <span className="font-medium" style={{ color: 'var(--color-campaign-purple)' }}>
+                        <CountUp value={estA.lo} />
+                        {'–'}
+                        <CountUp value={estA.hi} />
+                      </span>{' '}
+                      <span className="v-quiet">· estimate from live briefs</span>
+                    </>
+                  ) : (
+                    <>
+                      Typical {niche.label.toLowerCase()} brief at this budget:{' '}
+                      <span className="font-medium" style={{ color: 'var(--color-campaign-purple)' }}>
+                        <CountUp value={estA.lo} format={fmtCount} />
+                        {'–'}
+                        <CountUp value={estA.hi} format={fmtCount} /> applicants
+                      </span>{' '}
+                      · est. reach{' '}
+                      <span className="font-medium" style={{ color: 'var(--color-campaign-purple)' }}>
+                        <CountUp value={reach.lo} format={fmtReach} />
+                        {'–'}
+                        <CountUp value={reach.hi} format={fmtReach} />
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* CTAs */}
+              <div className="mt-8 flex items-center gap-2 flex-wrap">
+                {token ? (
+                  <Link to="/dashboard">
+                    <Button variant="primary" size="lg" className="!rounded-xl">
+                      Open dashboard <ArrowRight size={16} />
+                    </Button>
+                  </Link>
+                ) : isCreator ? (
+                  <>
+                    <Link to="/register?role=creator">
+                      <Button variant="primary" size="lg" className="!rounded-xl">
+                        Start earning — free
+                      </Button>
+                    </Link>
+                    <a href="/#campaigns">
+                      <Button variant="ghost" size="lg" className="!rounded-xl">
+                        Browse open briefs <ArrowRight size={14} />
+                      </Button>
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    <Link to="/register?role=brand">
+                      <Button variant="primary" size="lg" className="!rounded-xl">
+                        Launch a campaign
+                      </Button>
+                    </Link>
+                    <a href="/#console">
+                      <Button variant="ghost" size="lg" className="!rounded-xl">
+                        See the console <ArrowRight size={14} />
+                      </Button>
+                    </a>
+                  </>
+                )}
+              </div>
+
+              <div className="mt-5 flex items-center gap-4 text-[12px] v-quiet flex-wrap">
+                {isCreator ? (
+                  <>
+                    <span>Free for creators</span>
+                    <span aria-hidden>·</span>
+                    <span>Payouts escrowed up front</span>
+                    <span aria-hidden>·</span>
+                    <span>No card required</span>
+                  </>
+                ) : (
+                  <>
+                    <span>AI-ranked applicants</span>
+                    <span aria-hidden>·</span>
+                    <span>Budget escrowed until delivery</span>
+                    <span aria-hidden>·</span>
+                    <span>Live performance tracking</span>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </AnimatePresence>
+
+          {/* ── Right: reactive phone ────────────────────────────── */}
           <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-            className="v-badge-new"
-          >
-            <Sparkles size={11} />
-            New · AI Studio just shipped
-          </motion.div>
-
-          <motion.h1
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
-            className="mt-8 v-display"
-          >
-            {headline ? (
-              headline
-            ) : (
-              <>
-                Launch campaigns.
-                <br />
-                Find creators. <span className="v-text-signature">Grow.</span>
-              </>
-            )}
-          </motion.h1>
-
-          <motion.p
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
-            className="mt-7 v-body-lg v-muted mx-auto"
-            style={{ maxWidth: 620 }}
-          >
-            {subtitle}
-          </motion.p>
-
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            className="mt-9 flex items-center justify-center gap-2 flex-wrap"
-          >
-            {token ? (
-              <Link to="/dashboard">
-                <Button variant="primary" size="lg" className="!rounded-xl">
-                  Open dashboard <ArrowRight size={16} />
-                </Button>
-              </Link>
-            ) : (
-              <>
-                <Link to="/register">
-                  <Button variant="primary" size="lg" className="!rounded-xl">
-                    Get started — free
-                  </Button>
-                </Link>
-                <Link to="/campaigns">
-                  <Button variant="ghost" size="lg" className="!rounded-xl">
-                    See it in action <ArrowRight size={14} />
-                  </Button>
-                </Link>
-              </>
-            )}
-          </motion.div>
-
-          <div className="mt-5 flex items-center justify-center gap-4 text-[12px] v-quiet">
-            <span>No card required</span>
-            <span aria-hidden>·</span>
-            <span>Pay on delivery</span>
-            <span aria-hidden>·</span>
-            <span>Launch in 60 seconds</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ─── Atmospheric gradient band + interactive preview ────────── */}
-      <div className="relative">
-        <div
-          className="absolute inset-x-0 top-[120px] h-[420px] sm:h-[460px]"
-          style={{
-            background:
-              'linear-gradient(180deg, rgba(244,242,255,0.0) 0%, rgba(108,99,255,0.18) 22%, rgba(79,124,255,0.22) 55%, rgba(0,212,199,0.18) 100%)',
-          }}
-          aria-hidden
-        />
-
-        <div className="relative max-w-[1100px] mx-auto px-6 lg:px-10 pb-24 sm:pb-28">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className="v-preview relative overflow-hidden mx-auto"
-            style={{ borderRadius: 20 }}
+            className="relative flex justify-center lg:justify-end"
+            onMouseMove={onMove}
+            onMouseLeave={onLeave}
+            style={{ perspective: 1200 }}
           >
-            {/* Browser chrome */}
-            <div
-              className="flex items-center justify-between px-4 sm:px-5 py-3.5 border-b"
-              style={{ borderColor: 'var(--color-cool-gray)' }}
-            >
-              <div className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: '#ff5f57' }} />
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: '#febc2e' }} />
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: '#28c840' }} />
-                <span className="ml-3 v-caption v-quiet">campgainshub.app/{tab}</span>
-              </div>
-              <div className="hidden sm:flex items-center gap-2">
-                <Chip color="success" variant="soft" size="sm">
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: BRAND.success }} />
-                  Live
-                </Chip>
-              </div>
-            </div>
+            <motion.div style={{ rotateX: srx, rotateY: sry }} className="relative">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={mode}
+                  initial={{ opacity: 0, rotateY: -12, scale: 0.97 }}
+                  animate={{ opacity: 1, rotateY: 0, scale: 1 }}
+                  exit={{ opacity: 0, rotateY: 12, scale: 0.97 }}
+                  transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  {isCreator ? (
+                    <CreatorPhone niche={niche} band={band} seq={seq} />
+                  ) : (
+                    <BrandPhone niche={niche} budget={budget} seq={seq} />
+                  )}
+                </motion.div>
+              </AnimatePresence>
 
-            {/* Tabs — HeroUI Pro Segment (smooth selection indicator) */}
-            <div className="px-4 sm:px-6 pt-5 overflow-x-auto">
-              <Segment
-                selectedKey={tab}
-                onSelectionChange={(k) => setTab(k as TabKey)}
-                size="md"
+              {/* floating platform chips */}
+              <div
+                className="absolute hidden sm:flex items-center justify-center v-card v-float-slow"
+                style={{ left: -26, top: 84, width: 44, height: 44, borderRadius: 14, padding: 0, color: '#ff2d78' }}
+                aria-hidden
               >
-                {TABS.map((t, i) => (
-                  <React.Fragment key={t.key}>
-                    {i > 0 && <Segment.Separator />}
-                    <Segment.Item id={t.key}>{t.label}</Segment.Item>
-                  </React.Fragment>
-                ))}
-              </Segment>
-            </div>
-
-            {/* Body */}
-            <AnimatePresence mode="wait">
-              <ActiveBody key={tab} />
-            </AnimatePresence>
-          </motion.div>
-
-          {/* Floating side glass — left search */}
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.6, delay: 0.6 }}
-            className="absolute hidden lg:flex items-center gap-2 v-card v-float-fast"
-            style={{
-              left: -32,
-              top: 360,
-              padding: '10px 14px',
-              borderRadius: 9999,
-              boxShadow: 'rgba(11,23,54,0.10) 0 8px 24px',
-            }}
-          >
-            <Search size={14} className="v-quiet" />
-            <span className="v-body v-muted">Search 12,847 creators</span>
-            <span
-              className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-md v-caption"
-              style={{
-                background: 'var(--color-cool-gray)',
-                color: 'var(--color-graphite)',
-                fontSize: 10,
-              }}
-            >
-              ⌘K
-            </span>
-          </motion.div>
-
-          {/* Floating tag — right */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.6, delay: 0.7 }}
-            className="absolute hidden lg:flex items-center gap-2 v-card v-float-slow"
-            style={{
-              right: -28,
-              top: 280,
-              padding: '10px 14px',
-              borderRadius: 12,
-              boxShadow: 'rgba(11,23,54,0.10) 0 8px 24px',
-            }}
-          >
-            <span className="h-2 w-2 rounded-full" style={{ background: BRAND.success }} />
-            <span className="v-body v-ink font-medium">Payout sent</span>
-            <span className="v-caption v-quiet">$1,250 → @omar</span>
+                <PlatformIcon platform="instagram" size={20} />
+              </div>
+              <div
+                className="absolute hidden sm:flex items-center justify-center v-card v-float-fast"
+                style={{ right: -24, top: 200, width: 44, height: 44, borderRadius: 14, padding: 0, color: 'var(--color-deep-navy)' }}
+                aria-hidden
+              >
+                <PlatformIcon platform="tiktok" size={20} />
+              </div>
+              <div
+                className="absolute hidden sm:flex items-center justify-center v-card v-float-slow"
+                style={{ left: -18, bottom: 120, width: 44, height: 44, borderRadius: 14, padding: 0, color: '#ff0000', animationDelay: '2s' }}
+                aria-hidden
+              >
+                <PlatformIcon platform="youtube" size={20} />
+              </div>
+            </motion.div>
           </motion.div>
         </div>
       </div>

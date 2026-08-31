@@ -17,12 +17,88 @@ export class CampaignsService {
     private telegramService: TelegramService,
   ) {}
 
+  /** Safe field list for PUBLIC campaign responses — never the full brand
+   *  User row (which carries password_hash + KYC documents). */
+  private publicCampaignQb() {
+    return this.campaignsRepository
+      .createQueryBuilder('c')
+      .leftJoin('c.brand', 'b')
+      .leftJoin('b.brandProfile', 'bp')
+      .where('c.status = :status', { status: 'active' })
+      .select([
+        'c.id', 'c.title', 'c.description', 'c.budget', 'c.platform',
+        'c.target_audience', 'c.deadline', 'c.status', 'c.cover_image',
+        'c.contract_template', 'c.created_at',
+        'b.id', 'b.account_status',
+        'bp.id', 'bp.company_name', 'bp.logo_url', 'bp.industry',
+      ]);
+  }
+
   async getActiveCampaigns(): Promise<Campaign[]> {
-    return this.campaignsRepository.find({
-      where: { status: 'active' },
-      relations: ['brand', 'brand.brandProfile'],
-      order: { created_at: 'DESC' },
-    });
+    return this.publicCampaignQb().orderBy('c.created_at', 'DESC').getMany();
+  }
+
+  /**
+   * Public campaign directory — filtered, sorted, and paginated in SQL,
+   * with an applicant count per campaign. Returns { items, total, hasMore }.
+   */
+  async getPublicCampaigns(filters: {
+    search?: string;
+    platform?: string;
+    sort?: string;
+    limit?: string;
+    offset?: string;
+  }): Promise<{ items: any[]; total: number; limit: number; offset: number; hasMore: boolean }> {
+    const limit = Math.min(Math.max(parseInt(filters.limit || '18') || 18, 1), 100);
+    const offset = Math.max(parseInt(filters.offset || '0') || 0, 0);
+
+    const qb = this.publicCampaignQb();
+
+    if (filters.search) {
+      qb.andWhere(
+        '(c.title ILIKE :s OR c.description ILIKE :s OR bp.company_name ILIKE :s)',
+        { s: `%${filters.search}%` },
+      );
+    }
+    if (filters.platform) {
+      const p = filters.platform.toLowerCase().trim();
+      if (p === 'twitter') {
+        qb.andWhere("(c.platform ILIKE '%twitter%' OR LOWER(TRIM(c.platform)) = 'x')");
+      } else if (p === 'other') {
+        qb.andWhere(
+          "(c.platform IS NULL OR (c.platform NOT ILIKE '%tiktok%' AND c.platform NOT ILIKE '%instagram%' AND c.platform NOT ILIKE '%youtube%' AND c.platform NOT ILIKE '%twitter%' AND LOWER(TRIM(c.platform)) != 'x' AND c.platform NOT ILIKE '%twitch%' AND c.platform NOT ILIKE '%linkedin%'))",
+        );
+      } else {
+        qb.andWhere('c.platform ILIKE :pf', { pf: `%${p}%` });
+      }
+    }
+
+    const total = await qb.getCount();
+
+    if (filters.sort === 'budget') {
+      qb.orderBy('c.budget', 'DESC', 'NULLS LAST');
+    } else if (filters.sort === 'deadline') {
+      qb.orderBy('c.deadline', 'ASC', 'NULLS LAST');
+    } else {
+      qb.orderBy('c.created_at', 'DESC'); // default: newest briefs first
+    }
+    qb.addOrderBy('c.id', 'ASC'); // stable tiebreak so pages never overlap
+
+    // Applicant count per campaign (applications has FK column campaign_id).
+    qb.addSelect(
+      (sub) =>
+        sub.select('COUNT(*)').from('applications', 'a').where('a.campaign_id = c.id'),
+      'applicants_count',
+    );
+
+    const { entities, raw } = await qb.offset(offset).limit(limit).getRawAndEntities();
+
+    const items = entities.map((c, i) => ({
+      ...c,
+      applicants_count: Number(raw[i]?.applicants_count) || 0,
+    }));
+
+    return { items, total, limit, offset, hasMore: offset + items.length < total };
   }
 
   async getCampaignsByBrand(brandId: string): Promise<Campaign[]> {

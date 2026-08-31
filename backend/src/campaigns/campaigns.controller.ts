@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards, Request, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, Request, Patch, Param, Delete, Query } from '@nestjs/common';
 import { CampaignsService } from './campaigns.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -12,6 +12,18 @@ export class CampaignsController {
   @Get('active')
   async getActive() {
     return this.campaignsService.getActiveCampaigns();
+  }
+
+  // Public directory - no auth required. Paginated: returns { items, total, hasMore }.
+  @Get('public-list')
+  async getPublicList(
+    @Query('search') search?: string,
+    @Query('platform') platform?: string,
+    @Query('sort') sort?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.campaignsService.getPublicCampaigns({ search, platform, sort, limit, offset });
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

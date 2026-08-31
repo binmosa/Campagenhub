@@ -17,38 +17,105 @@ export class CreatorsService {
     return this.profileRepository.findOne({ where: { user: { id: userId } } });
   }
 
+  /**
+   * Public creator directory — filtered, sorted, and paginated in SQL so it
+   * stays fast at hundreds/thousands of records.
+   *
+   * `follower_range` is a display string ("10K-100K"), so numeric comparisons
+   * use a SQL expression that strips non-digits and casts — the same lossy
+   * parse the old in-memory code did, but done by Postgres with LIMIT/OFFSET.
+   *
+   * Returns { items, total, limit, offset, hasMore }.
+   */
   async getAllPublicCreators(filters: {
     search?: string;
     category?: string;
     location?: string;
     minFollowers?: string;
     maxFollowers?: string;
+    platforms?: string;
     sort?: string;
-  }): Promise<any[]> {
-    // Fetch all active creators
-    const all = await this.profileRepository.find({
-      relations: ['user'],
-      where: { user: { account_status: 'active', role: 'creator' } },
-      select: {
-        id: true,
-        full_name: true,
-        username: true,
-        bio: true,
-        category: true,
-        location: true,
-        follower_range: true,
-        avatar_url: true,
-        social_links: true,
-        user: { id: true, account_status: true }
+    limit?: string;
+    offset?: string;
+  }): Promise<{ items: any[]; total: number; limit: number; offset: number; hasMore: boolean }> {
+    // Lower bound of the follower_range string with proper K/M units:
+    // "500K+" -> 500000, "100K-500K" -> 100000, "1M+" -> 1000000.
+    const FIRST_NUM =
+      "COALESCE(NULLIF(SUBSTRING(COALESCE(p.follower_range,'') FROM '(\\d+(?:\\.\\d+)?)'), '')::numeric, 0)";
+    const FOLLOWERS_SQL = `(CASE
+      WHEN COALESCE(p.follower_range,'') ~* '^\\s*\\d+(\\.\\d+)?\\s*M' THEN ${FIRST_NUM} * 1000000
+      WHEN COALESCE(p.follower_range,'') ~* '^\\s*\\d+(\\.\\d+)?\\s*K' THEN ${FIRST_NUM} * 1000
+      ELSE ${FIRST_NUM}
+    END)`;
+
+    const limit = Math.min(Math.max(parseInt(filters.limit || '24') || 24, 1), 100);
+    const offset = Math.max(parseInt(filters.offset || '0') || 0, 0);
+
+    const qb = this.profileRepository
+      .createQueryBuilder('p')
+      .innerJoin('p.user', 'u')
+      .where('u.account_status = :status', { status: 'active' })
+      .andWhere('u.role = :role', { role: 'creator' })
+      .select([
+        'p.id', 'p.full_name', 'p.username', 'p.bio', 'p.category',
+        'p.location', 'p.follower_range', 'p.avatar_url', 'p.social_links',
+        'u.id',
+      ]);
+
+    if (filters.search) {
+      qb.andWhere(
+        '(p.full_name ILIKE :s OR p.username ILIKE :s OR p.bio ILIKE :s OR p.category ILIKE :s)',
+        { s: `%${filters.search}%` },
+      );
+    }
+    if (filters.category) {
+      qb.andWhere('p.category ILIKE :cat', { cat: `%${filters.category}%` });
+    }
+    if (filters.location) {
+      qb.andWhere('p.location ILIKE :loc', { loc: `%${filters.location}%` });
+    }
+    if (filters.minFollowers) {
+      qb.andWhere(`${FOLLOWERS_SQL} >= :minF`, { minF: parseInt(filters.minFollowers) || 0 });
+    }
+    if (filters.maxFollowers) {
+      qb.andWhere(`${FOLLOWERS_SQL} <= :maxF`, { maxF: parseInt(filters.maxFollowers) || 0 });
+    }
+    if (filters.platforms) {
+      // CSV of platform keys; matched against the creator's social links JSON.
+      const keys = filters.platforms.split(',').map((k) => k.trim().toLowerCase()).filter(Boolean).slice(0, 6);
+      if (keys.length) {
+        const clauses = keys.map((_, i) => `p.social_links ILIKE :pf${i}`);
+        const params: Record<string, string> = {};
+        keys.forEach((k, i) => { params[`pf${i}`] = `%${k}%`; });
+        qb.andWhere(`(${clauses.join(' OR ')})`, params);
       }
-    });
+    }
+
+    const total = await qb.getCount();
+
+    if (filters.sort === 'name') {
+      qb.orderBy('p.full_name', 'ASC', 'NULLS LAST');
+    } else if (filters.sort === 'followers_asc') {
+      qb.orderBy(FOLLOWERS_SQL, 'ASC');
+    } else {
+      qb.orderBy(FOLLOWERS_SQL, 'DESC'); // default: biggest audiences first
+    }
+    qb.addOrderBy('p.id', 'ASC'); // stable tiebreak so pages never overlap
+
+    // .offset/.limit (raw SQL) rather than .skip/.take: take() builds a
+    // pagination subquery that cannot parse the raw ORDER BY expression, and
+    // the user join is 1:1 so raw LIMIT/OFFSET is exact here.
+    const rows = await qb.offset(offset).limit(limit).getMany();
 
     const parseFollowers = (range: string | null): number => {
       if (!range) return 0;
-      return parseInt(range.replace(/[^0-9]/g, '')) || 0;
+      const m = range.match(/(\d+(?:\.\d+)?)\s*([KkMm]?)/);
+      if (!m) return 0;
+      const unit = (m[2] || '').toLowerCase();
+      return Math.round(parseFloat(m[1]) * (unit === 'm' ? 1_000_000 : unit === 'k' ? 1000 : 1));
     };
 
-    let results = all.map(c => ({
+    const items = rows.map((c) => ({
       id: c.user?.id || c.id,
       full_name: c.full_name,
       username: c.username,
@@ -61,41 +128,7 @@ export class CreatorsService {
       social_links: c.social_links,
     }));
 
-    // Apply filters
-    if (filters.search) {
-      const s = filters.search.toLowerCase();
-      results = results.filter(c =>
-        c.full_name?.toLowerCase().includes(s) ||
-        c.username?.toLowerCase().includes(s) ||
-        c.bio?.toLowerCase().includes(s) ||
-        c.category?.toLowerCase().includes(s)
-      );
-    }
-    if (filters.category) {
-      results = results.filter(c => c.category?.toLowerCase().includes(filters.category!.toLowerCase()));
-    }
-    if (filters.location) {
-      results = results.filter(c => c.location?.toLowerCase().includes(filters.location!.toLowerCase()));
-    }
-    if (filters.minFollowers) {
-      const min = parseInt(filters.minFollowers);
-      results = results.filter(c => c.follower_count >= min);
-    }
-    if (filters.maxFollowers) {
-      const max = parseInt(filters.maxFollowers);
-      results = results.filter(c => c.follower_count <= max);
-    }
-
-    // Sort
-    if (filters.sort === 'followers_desc') {
-      results.sort((a, b) => b.follower_count - a.follower_count);
-    } else if (filters.sort === 'followers_asc') {
-      results.sort((a, b) => a.follower_count - b.follower_count);
-    } else if (filters.sort === 'name') {
-      results.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
-    }
-
-    return results;
+    return { items, total, limit, offset, hasMore: offset + items.length < total };
   }
   async updateProfile(userId: string, data: Partial<CreatorProfile>): Promise<CreatorProfile> {
     let profile = await this.getProfile(userId);

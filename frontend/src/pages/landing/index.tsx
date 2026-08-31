@@ -3,13 +3,14 @@ import { useLandingData } from './useLandingData';
 
 import LandingNav from './sections/LandingNav';
 import Hero from './sections/Hero';
-import TrustedBy from './sections/TrustedBy';
-import Stats from './sections/Stats';
-import AiStudio from './sections/AiStudio';
-import Audiences from './sections/Audiences';
-import HowItWorks from './sections/HowItWorks';
-import RealResults from './sections/RealResults';
+import PayoutTicker from './sections/PayoutTicker';
 import ActiveCampaigns from './sections/ActiveCampaigns';
+import Audiences from './sections/Audiences';
+import ConsoleShowcase from './sections/ConsoleShowcase';
+import Stats from './sections/Stats';
+import HowItWorks from './sections/HowItWorks';
+import AiStudio from './sections/AiStudio';
+import RealResults from './sections/RealResults';
 import Testimonials from './sections/Testimonials';
 import Faq from './sections/Faq';
 import FinalCta from './sections/FinalCta';
@@ -23,10 +24,12 @@ import Footer from './sections/Footer';
  * design tokens (color, type, radius, shadow) override the in-app theme
  * on this route only. The rest of the app keeps its existing palette.
  *
- * Page flow:
- *   Nav → Hero → TrustedBy → Stats → AiStudio → Audiences
- *      → HowItWorks → ActiveCampaigns → Testimonials → Faq
- *      → FinalCta → Contact → Footer
+ * Creator-first narrative arc:
+ *   Hero (what's my content worth?) → PayoutTicker (money in motion)
+ *   → ActiveCampaigns (real briefs, real data) → Audiences (who it's for)
+ *   → ConsoleShowcase (the machinery, for brands + managers)
+ *   → Stats → HowItWorks → AiStudio → RealResults → Testimonials
+ *   → Faq → FinalCta → Contact → Footer
  */
 const LandingPage: React.FC = () => {
   const { settings, reviews, activeCampaigns, campaignsLoading, refetchReviews } = useLandingData();
@@ -37,12 +40,7 @@ const LandingPage: React.FC = () => {
 
       <main className="flex-1">
         <Hero settings={settings} />
-        <TrustedBy settings={settings} />
-        <Stats settings={settings} />
-        <AiStudio settings={settings} />
-        <Audiences />
-        <HowItWorks settings={settings} />
-        <RealResults />
+        <PayoutTicker settings={settings} />
         <section id="campaigns">
           <ActiveCampaigns
             settings={settings}
@@ -50,6 +48,12 @@ const LandingPage: React.FC = () => {
             loading={campaignsLoading}
           />
         </section>
+        <Audiences />
+        <ConsoleShowcase />
+        <Stats settings={settings} />
+        <HowItWorks settings={settings} />
+        <AiStudio settings={settings} />
+        <RealResults />
         <Testimonials
           settings={settings}
           reviews={reviews}

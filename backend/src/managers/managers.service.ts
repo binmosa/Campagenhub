@@ -54,7 +54,13 @@ export class ManagersService {
     return this.managersRepo.save(profile!);
   }
 
-  async getAllPublicManagers(filters?: { search?: string; sort?: string; minRating?: string }) {
+  async getAllPublicManagers(filters?: {
+    search?: string;
+    sort?: string;
+    minRating?: string;
+    limit?: string;
+    offset?: string;
+  }) {
     // Auto-sync missing profiles for any managers previously approved
     const activeManagers = await this.managersRepo.manager.query(`
        SELECT id, email FROM users
@@ -107,7 +113,14 @@ export class ManagersService {
       results.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
     }
 
-    return results;
+    // Paginated envelope, matching /creators/public-list. Manager counts are
+    // small so in-memory filter+slice is fine here for now.
+    const limit = Math.min(Math.max(parseInt(filters?.limit || '24') || 24, 1), 100);
+    const offset = Math.max(parseInt(filters?.offset || '0') || 0, 0);
+    const total = results.length;
+    const items = results.slice(offset, offset + limit);
+
+    return { items, total, limit, offset, hasMore: offset + items.length < total };
   }
 
 

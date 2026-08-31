@@ -9,7 +9,7 @@ import React from 'react';
  * on the platforms you already use."
  */
 
-export type PlatformKey = 'instagram' | 'tiktok' | 'youtube' | 'x' | 'twitch' | 'linkedin';
+export type PlatformKey = 'instagram' | 'tiktok' | 'youtube' | 'x' | 'twitch' | 'linkedin' | 'facebook';
 
 interface Props {
   platform: PlatformKey;
@@ -55,6 +55,12 @@ const ICONS: Record<PlatformKey, React.ReactNode> = {
       fill="currentColor"
     />
   ),
+  facebook: (
+    <path
+      d="M22 12.06C22 6.5 17.52 2 12 2S2 6.5 2 12.06c0 5.02 3.66 9.18 8.44 9.94v-7.03H5.9v-2.91h2.54V9.85c0-2.52 1.5-3.92 3.79-3.92 1.1 0 2.24.2 2.24.2v2.47H13.2c-1.24 0-1.63.78-1.63 1.57v1.89h2.78l-.45 2.9h-2.33V22c4.78-.75 8.43-4.91 8.43-9.94z"
+      fill="currentColor"
+    />
+  ),
 };
 
 export const PlatformIcon: React.FC<Props> = ({ platform, size = 22, className = '' }) => (
@@ -78,6 +84,7 @@ export const PLATFORM_LABELS: Record<PlatformKey, string> = {
   x: 'X',
   twitch: 'Twitch',
   linkedin: 'LinkedIn',
+  facebook: 'Facebook',
 };
 
 export default PlatformIcon;

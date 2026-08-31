@@ -416,6 +416,171 @@
   .landing-visitors .v-slot-5 { flex: 0 0 20% !important; }
 }
 
+/* ── Hero simulator: niche chips ────────────────────────────────── */
+.landing-visitors .v-niche-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-cool-gray);
+  background: var(--color-paper);
+  color: var(--color-graphite);
+  font-family: var(--font-visitors);
+  font-weight: 500;
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: border-color 160ms, color 160ms, background-color 160ms,
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms;
+}
+.landing-visitors .v-niche-chip:hover {
+  border-color: #d6dbe8;
+  color: var(--color-deep-navy);
+  transform: translateY(-1px);
+}
+.landing-visitors .v-niche-chip[data-active] {
+  border-color: transparent;
+  background: var(--gradient-signature);
+  color: #fff;
+  box-shadow: rgba(108, 99, 255, 0.35) 0 6px 16px -6px;
+}
+.landing-visitors .v-niche-chip:focus-visible {
+  outline: 2px solid var(--color-campaign-purple);
+  outline-offset: 2px;
+}
+
+/* ── Hero simulator: phone frame ────────────────────────────────── */
+.landing-visitors .v-phone {
+  width: min(330px, 86vw);
+  border-radius: 42px;
+  padding: 10px;
+  background: linear-gradient(160deg, #1a2547 0%, var(--color-deep-navy) 60%);
+  box-shadow: rgba(11, 23, 54, 0.10) 0 2px 6px,
+    rgba(11, 23, 54, 0.28) 0 30px 70px -20px,
+    rgba(108, 99, 255, 0.25) 0 18px 60px -18px;
+}
+.landing-visitors .v-phone-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 520px;
+  border-radius: 34px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #fbfaff 0%, #f4f2ff 100%);
+}
+
+/* ── Payout ticker receipts ─────────────────────────────────────── */
+.landing-visitors .v-ticket {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  padding: 8px 14px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-cool-gray);
+  background: var(--color-paper);
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+}
+.landing-visitors .v-ticket-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: rgba(22, 199, 132, 0.12);
+  color: var(--color-signal-green);
+}
+.landing-visitors .v-ticket-amount {
+  font-weight: 600;
+  color: var(--color-campaign-purple);
+}
+
+/* ── Talent directory card ──────────────────────────────────────── */
+.landing-visitors .v-talent-card {
+  background: var(--color-paper);
+  border: 1px solid var(--color-cool-gray);
+  border-radius: 18px;
+  overflow: hidden;
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 200ms, box-shadow 220ms;
+}
+.landing-visitors .v-talent-card:hover {
+  transform: translateY(-3px);
+  border-color: #d6dbe8;
+  box-shadow: rgba(11, 23, 54, 0.05) 0 3px 6px,
+    rgba(11, 23, 54, 0.10) 0 18px 36px -14px;
+}
+
+/* Social platform tile on talent cards — brand glyph on a tinted chip */
+.landing-visitors .v-social-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  border: 1px solid var(--color-cool-gray);
+  background: var(--color-paper);
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 160ms, box-shadow 180ms;
+}
+a.v-social-tile:hover {
+  transform: translateY(-2px);
+  border-color: #d6dbe8;
+  box-shadow: rgba(11, 23, 54, 0.10) 0 6px 14px -6px;
+}
+/* Platform chip with follower count — glyph + compact number */
+.landing-visitors .v-social-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 9px;
+  border: 1px solid var(--color-cool-gray);
+  background: var(--color-paper);
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 160ms, box-shadow 180ms;
+}
+a.v-social-chip:hover {
+  transform: translateY(-2px);
+  border-color: #d6dbe8;
+  box-shadow: rgba(11, 23, 54, 0.10) 0 6px 14px -6px;
+}
+.landing-visitors .v-social-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 9px;
+  border: 1px dashed var(--color-fog);
+  color: var(--color-ash);
+  font-size: 11px;
+}
+
+/* Card entrance (CSS, not JS — cheap at hundreds of cards) */
+@keyframes v-card-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.landing-visitors .v-card-in {
+  animation: v-card-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Skeleton shimmer */
+@keyframes v-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.landing-visitors .v-skel {
+  border-radius: 8px;
+  background: linear-gradient(90deg, #eef0f6 25%, #f7f8fc 50%, #eef0f6 75%);
+  background-size: 200% 100%;
+  animation: v-shimmer 1.4s linear infinite;
+}
+
 /* Pulse halo for live dots */
 @keyframes v-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -449,7 +614,9 @@
   .landing-visitors .v-float-slow,
   .landing-visitors .v-float-fast,
   .landing-visitors .v-pulse-dot::before,
-  .landing-visitors .v-fade-in {
+  .landing-visitors .v-fade-in,
+  .landing-visitors .v-card-in,
+  .landing-visitors .v-skel {
     animation: none !important;
   }
   .landing-visitors [data-slot="button"] {
