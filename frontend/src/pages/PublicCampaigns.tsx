@@ -4,33 +4,25 @@ import {
   AlertCircle,
   Briefcase,
   Check,
-  Clock,
   DollarSign,
-  Eye,
   FileText,
   Layers,
-  Lock,
   Search as SearchIcon,
-  ShieldCheck,
   Star,
-  Users,
   Video,
   Zap,
 } from 'lucide-react';
 import { Button, Chip, Modal, SearchField, Card } from '@heroui/react';
 import { EmptyState, Segment } from '@heroui-pro/react';
+import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
-import {
-  brandInitials,
-  brandName,
-  deadlineLabel,
-  formatBudget,
-  postedLabel,
-} from '../lib/campaignFormat';
+import { formatBudget } from '../lib/campaignFormat';
 import LandingNav from './landing/sections/LandingNav';
 import Footer from './landing/sections/Footer';
-import PlatformIcon, { type PlatformKey as GlyphKey } from './landing/mocks/PlatformIcon';
-import { accentFor } from './talent/shared';
+import FacetPopover from '../components/common/FacetPopover';
+import CampaignCard, { PLATFORM_META, type PlatformId } from '../components/common/CampaignCard';
+import SearchSelect from '../components/common/SearchSelect';
+import PlatformIcon from './landing/mocks/PlatformIcon';
 import { VideoPitchRecorder } from '../components/common/VideoPitchRecorder';
 import { PitchModal } from '../components/common/PitchModal';
 
@@ -51,172 +43,56 @@ interface PublicCampaignsProps {
 
 const PAGE_SIZE = 18;
 
-/* ── Platform metadata ─────────────────────────────────────────── */
-type PlatformId = 'tiktok' | 'instagram' | 'youtube' | 'twitter' | 'twitch' | 'linkedin' | 'other';
-
-const PLATFORM_META: { id: PlatformId; label: string; glyph?: GlyphKey; color: string }[] = [
-  { id: 'tiktok', label: 'TikTok', glyph: 'tiktok', color: '#0b1736' },
-  { id: 'instagram', label: 'Instagram', glyph: 'instagram', color: '#E1306C' },
-  { id: 'youtube', label: 'YouTube', glyph: 'youtube', color: '#FF0000' },
-  { id: 'twitter', label: 'X / Twitter', glyph: 'x', color: '#0b1736' },
-  { id: 'twitch', label: 'Twitch', glyph: 'twitch', color: '#9146FF' },
-  { id: 'linkedin', label: 'LinkedIn', glyph: 'linkedin', color: '#0A66C2' },
-  { id: 'other', label: 'Other', color: '#6c63ff' },
-];
-
-const normalizePlatform = (p?: string): PlatformId => {
-  if (!p) return 'other';
-  const k = p.toLowerCase().trim();
-  if (k === 'x' || k.includes('twitter')) return 'twitter';
-  for (const m of PLATFORM_META) {
-    if (m.id !== 'other' && k.includes(m.id)) return m.id;
-  }
-  return 'other';
-};
-
 type SortKey = 'newest' | 'budget' | 'deadline';
 
-/* ── Campaign card ─────────────────────────────────────────────── */
-const CampaignCard = React.memo<{
-  camp: any;
-  index: number;
-  applied: boolean;
-  loggedIn: boolean;
-  isCreator: boolean;
-  onApply: (camp: any) => void;
-  onViewContract: (contract: string) => void;
-}>(({ camp, index, applied, loggedIn, isCreator, onApply, onViewContract }) => {
-  const name = brandName(camp);
-  const verified = camp.brand?.account_status === 'active';
-  const accent = accentFor(String(camp.brand?.id || name));
-  const platform = PLATFORM_META.find((m) => m.id === normalizePlatform(camp.platform))!;
-  const due = deadlineLabel(camp.deadline);
-  const posted = postedLabel(camp.created_at);
-  const applicants = Number(camp.applicants_count) || 0;
-  const logo = camp.brand?.brandProfile?.logo_url;
+/* Budget bands for the facet filter (applied in SQL via min/maxBudget) */
+const BUDGET_RANGES = [
+  { id: 'any', label: 'Any budget', min: 0, max: 0 },
+  { id: 'starter', label: 'Under $1K', min: 0, max: 999 },
+  { id: 'small', label: '$1K – $5K', min: 1000, max: 5000 },
+  { id: 'growth', label: '$5K – $20K', min: 5000, max: 20000 },
+  { id: 'scale', label: '$20K+', min: 20000, max: 0 },
+];
 
-  return (
-    <article
-      className="v-talent-card v-card-in p-4 flex flex-col"
-      style={{ animationDelay: `${(index % PAGE_SIZE) * 28}ms` }}
-    >
-      {/* brand row */}
-      <div className="flex items-center gap-2.5">
-        {logo ? (
-          <img
-            src={logo}
-            alt=""
-            loading="lazy"
-            className="h-9 w-9 rounded-lg object-cover shrink-0"
-            style={{ boxShadow: 'inset 0 0 0 1px rgba(11,23,54,0.08)' }}
-          />
-        ) : (
-          <span
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[11px] font-medium text-white shrink-0"
-            style={{ background: `linear-gradient(135deg, ${accent.from}, ${accent.to})` }}
-          >
-            {brandInitials(name)}
-          </span>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1 min-w-0">
-            <span className="v-ink font-medium truncate" style={{ fontSize: 13 }}>
-              {name}
-            </span>
-            {verified && (
-              <ShieldCheck size={12} className="shrink-0" style={{ color: 'var(--color-campaign-purple)' }} />
-            )}
-          </div>
-          {posted && (
-            <div className="v-caption v-quiet" style={{ fontSize: 10.5 }}>
-              posted {posted}
-            </div>
-          )}
-        </div>
-        <span
-          className="v-social-chip shrink-0"
-          title={platform.label}
-          style={{ color: platform.color }}
+type FacetData = {
+  sectors: { value: string; count: number }[];
+  objectives: { value: string; count: number }[];
+};
+
+/* Radio-style option rows used inside facet panels */
+const OptionRows: React.FC<{
+  options: { id: string; label: string; hint?: string }[];
+  value: string;
+  onSelect: (id: string) => void;
+}> = ({ options, value, onSelect }) => (
+  <div className="space-y-1">
+    {options.map((o) => {
+      const active = value === o.id;
+      return (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onSelect(o.id)}
+          className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+            active
+              ? 'bg-accent-soft border-accent/40 text-foreground'
+              : 'bg-surface border-border text-foreground hover:border-accent/40'
+          }`}
         >
-          {platform.glyph ? <PlatformIcon platform={platform.glyph} size={13} /> : <Briefcase size={12} />}
-          <span className="v-ink font-medium" style={{ fontSize: 11 }}>
-            {platform.label}
+          <span className="inline-flex items-center gap-2 min-w-0">
+            <span className="truncate">{o.label}</span>
+            {o.hint && <span className="text-muted text-xs shrink-0 tabular-nums">{o.hint}</span>}
           </span>
-        </span>
-      </div>
-
-      {/* brief */}
-      <h3
-        className="mt-3 v-ink font-medium line-clamp-2"
-        style={{ fontSize: 15, lineHeight: 1.3, letterSpacing: '-0.015em', minHeight: 39 }}
-      >
-        {camp.title}
-      </h3>
-      <p className="mt-1.5 v-body v-muted line-clamp-2" style={{ fontSize: 12.5, minHeight: 38 }}>
-        {camp.description || 'No brief details provided yet.'}
-      </p>
-
-      {/* signals */}
-      <div className="mt-2.5 flex items-center gap-3 flex-wrap v-caption v-quiet" style={{ fontSize: 11 }}>
-        {due && (
-          <span className="inline-flex items-center gap-1" style={{ color: '#b45309' }}>
-            <Clock size={10.5} /> {due}
-          </span>
-        )}
-        <span className="inline-flex items-center gap-1">
-          <Users size={10.5} /> {applicants === 0 ? 'Be the first to apply' : `${applicants} applied`}
-        </span>
-        {camp.contract_template && (
-          <button
-            type="button"
-            onClick={() => onViewContract(camp.contract_template)}
-            className="inline-flex items-center gap-1 hover:underline"
-            style={{ color: 'var(--color-campaign-purple)' }}
-          >
-            <Eye size={10.5} /> Contract
-          </button>
-        )}
-      </div>
-
-      {/* footer: the money + the action */}
-      <div className="mt-3 pt-3 border-t border-border flex items-center justify-between gap-2 mt-auto">
-        <div className="inline-flex items-baseline gap-1.5 min-w-0">
           <span
-            className="font-medium tabular-nums"
-            style={{ fontSize: 17, letterSpacing: '-0.018em', color: '#0b6e3e' }}
-          >
-            {formatBudget(camp.budget)}
-          </span>
-          <span className="v-caption v-quiet" style={{ fontSize: 11 }}>
-            budget
-          </span>
-        </div>
-
-        {applied ? (
-          <Chip color="success" variant="soft" size="sm">
-            <Check size={11} />
-            <Chip.Label>Applied</Chip.Label>
-          </Chip>
-        ) : !loggedIn ? (
-          <Link to="/login" title="Sign in to apply">
-            <Button variant="ghost" size="sm" className="!px-2.5">
-              <Lock size={11} /> Sign in
-            </Button>
-          </Link>
-        ) : isCreator ? (
-          <Button variant="primary" size="sm" onPress={() => onApply(camp)}>
-            Apply
-          </Button>
-        ) : (
-          <span className="v-caption v-quiet" style={{ fontSize: 11 }}>
-            Creators only
-          </span>
-        )}
-      </div>
-    </article>
-  );
-});
-CampaignCard.displayName = 'CampaignCard';
+            className={`size-4 rounded-full border-2 transition-colors shrink-0 ${
+              active ? 'border-accent bg-accent' : 'border-border bg-transparent'
+            }`}
+          />
+        </button>
+      );
+    })}
+  </div>
+);
 
 /* ── Skeleton card ─────────────────────────────────────────────── */
 const SkeletonCard: React.FC = () => (
@@ -241,6 +117,7 @@ const SkeletonCard: React.FC = () => (
 
 /* ── Page ──────────────────────────────────────────────────────── */
 const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }) => {
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const loggedIn = !!localStorage.getItem('token');
   const role = localStorage.getItem('role') || '';
@@ -255,8 +132,20 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
 
   const [search, setSearch] = useState('');
   const [platformFilter, setPlatformFilter] = useState<'all' | PlatformId>('all');
+  const [budgetId, setBudgetId] = useState('any');
+  const [sector, setSector] = useState('');
+  const [orientation, setOrientation] = useState('');
   const [sort, setSort] = useState<SortKey>('newest');
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'applied'>('all');
+
+  /* Facet values that actually exist among active campaigns */
+  const [facets, setFacets] = useState<FacetData>({ sectors: [], objectives: [] });
+  useEffect(() => {
+    api
+      .get('/campaigns/facets')
+      .then((res) => setFacets({ sectors: res.data?.sectors || [], objectives: res.data?.objectives || [] }))
+      .catch(() => {});
+  }, []);
 
   const [selectedCampaign, setSelectedCampaign] = useState<any>(null);
   const [pitch, setPitch] = useState('');
@@ -290,9 +179,15 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
           limit: String(PAGE_SIZE),
           offset: String(offsetRef.current),
           sort,
+          lang: i18n.language,
         };
         if (search) params.search = search;
         if (platformFilter !== 'all') params.platform = platformFilter;
+        const range = BUDGET_RANGES.find((r) => r.id === budgetId);
+        if (range?.min) params.minBudget = String(range.min);
+        if (range?.max) params.maxBudget = String(range.max);
+        if (sector) params.industry = sector;
+        if (orientation) params.objective = orientation;
 
         const res = await api.get('/campaigns/public-list', { params, signal: ctrl.signal });
         const data = res.data || {};
@@ -311,7 +206,7 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
         setLoadingMore(false);
       }
     },
-    [search, platformFilter, sort],
+    [search, platformFilter, budgetId, sector, orientation, sort, i18n.language],
   );
 
   useEffect(() => {
@@ -396,7 +291,7 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
           videoUrl = uploadRes.data.url;
         } catch (uploadErr: any) {
           setApplyError(
-            `Video upload failed: ${uploadErr.message || 'the file might be too large'}. Try applying without a video or record a shorter one.`,
+            t('board.videoUploadFailed', { reason: uploadErr.message || t('board.fileTooLarge') }),
           );
           setApplyStatus('error');
           return;
@@ -417,7 +312,7 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
         setApplyStatus('idle');
       }, 2000);
     } catch (err: any) {
-      setApplyError(err.response?.data?.message || 'Failed to submit application. Please try again.');
+      setApplyError(err.response?.data?.message || t('board.applyFailed'));
       setApplyStatus('error');
     }
   };
@@ -444,14 +339,13 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
               <>
                 <Chip color="accent" variant="soft" size="md" className="!mb-4">
                   <Zap size={12} />
-                  <Chip.Label>Live opportunities</Chip.Label>
+                  <Chip.Label>{t('board.pill')}</Chip.Label>
                 </Chip>
                 <h1 className="v-heading-xl mb-2">
-                  Briefs open <span className="v-text-signature">right now.</span>
+                  {t('board.titleA')} <span className="v-text-signature">{t('board.titleB')}</span>
                 </h1>
                 <p className="v-body-lg v-muted max-w-2xl mx-auto">
-                  Real budgets from real brands. Pick a brief in your lane, apply
-                  in a tap — the payout escrows before you film.
+                  {t('board.desc')}
                 </p>
               </>
             )}
@@ -467,22 +361,16 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                 <SearchField aria-label="Search campaigns" value={search} onChange={setSearch}>
                   <SearchField.Group>
                     <SearchField.SearchIcon />
-                    <SearchField.Input placeholder="Search briefs or brands…" />
+                    <SearchField.Input placeholder={t('board.searchPh')} />
                     <SearchField.ClearButton />
                   </SearchField.Group>
                 </SearchField>
               </div>
 
               <p className="hidden lg:block text-muted text-xs whitespace-nowrap" aria-live="polite">
-                {loading ? (
-                  'Searching…'
-                ) : (
-                  <>
-                    <span className="text-foreground font-semibold tabular-nums">{visible.length}</span>
-                    {' of '}
-                    <span className="tabular-nums">{total}</span> briefs
-                  </>
-                )}
+                {loading
+                  ? t('common.searching')
+                  : t('board.count', { shown: visible.length, total })}
               </p>
 
               <div className="ml-auto flex items-center gap-2 flex-wrap">
@@ -493,9 +381,9 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                     onSelectionChange={(k) => setStatusFilter(k as typeof statusFilter)}
                     aria-label="Application status"
                   >
-                    <Segment.Item id="all">All</Segment.Item>
-                    <Segment.Item id="open">Open</Segment.Item>
-                    <Segment.Item id="applied">Applied</Segment.Item>
+                    <Segment.Item id="all">{t('board.statusAll')}</Segment.Item>
+                    <Segment.Item id="open">{t('board.statusOpen')}</Segment.Item>
+                    <Segment.Item id="applied">{t('board.statusApplied')}</Segment.Item>
                   </Segment>
                 )}
                 <Segment
@@ -504,9 +392,9 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                   onSelectionChange={(k) => setSort(k as SortKey)}
                   aria-label="Sort briefs"
                 >
-                  <Segment.Item id="newest">Newest</Segment.Item>
-                  <Segment.Item id="budget">Top budget</Segment.Item>
-                  <Segment.Item id="deadline">Deadline</Segment.Item>
+                  <Segment.Item id="newest">{t('board.sortNewest')}</Segment.Item>
+                  <Segment.Item id="budget">{t('board.sortBudget')}</Segment.Item>
+                  <Segment.Item id="deadline">{t('board.sortDeadline')}</Segment.Item>
                 </Segment>
               </div>
             </div>
@@ -520,7 +408,7 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                 data-active={platformFilter === 'all' || undefined}
                 aria-pressed={platformFilter === 'all'}
               >
-                All platforms
+                {t('board.allPlatforms')}
               </button>
               {PLATFORM_META.filter((m) => m.id !== 'other').map((m) => {
                 const active = platformFilter === m.id;
@@ -540,6 +428,53 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                   </button>
                 );
               })}
+
+              {/* Facet dropdowns — budget band, brand sector, campaign orientation */}
+              <div className="ml-auto flex items-center gap-2 flex-wrap">
+                <FacetPopover
+                  label={t('board.fBudget')}
+                  width={230}
+                  badge={budgetId !== 'any' ? t(`board.br.${budgetId}`) : undefined}
+                >
+                  <OptionRows
+                    options={BUDGET_RANGES.map((r) => ({ id: r.id, label: t(`board.br.${r.id}`, { defaultValue: r.label }) }))}
+                    value={budgetId}
+                    onSelect={setBudgetId}
+                  />
+                </FacetPopover>
+                <FacetPopover label={t('board.fSector')} width={260} badge={sector || undefined}>
+                  <SearchSelect
+                    aria-label="Brand sector"
+                    placeholder={facets.sectors.length ? t('board.sectorPh') : t('board.noSectors')}
+                    disabled={facets.sectors.length === 0}
+                    options={facets.sectors.map((s) => ({
+                      value: s.value,
+                      label: s.value,
+                      hint: String(s.count),
+                    }))}
+                    value={sector}
+                    onChange={setSector}
+                  />
+                </FacetPopover>
+                <FacetPopover
+                  label={t('board.fOrientation')}
+                  width={240}
+                  badge={orientation ? t(`objectives.${orientation}`, { defaultValue: orientation }) : undefined}
+                >
+                  <OptionRows
+                    options={[
+                      { id: '', label: t('common.any') },
+                      ...facets.objectives.map((o) => ({
+                        id: o.value,
+                        label: t(`objectives.${o.value}`, { defaultValue: o.value }),
+                        hint: String(o.count),
+                      })),
+                    ]}
+                    value={orientation}
+                    onSelect={setOrientation}
+                  />
+                </FacetPopover>
+              </div>
             </div>
 
             {/* Results */}
@@ -556,13 +491,13 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                     <EmptyState.Media>
                       <AlertCircle className="size-7" />
                     </EmptyState.Media>
-                    <EmptyState.Title>Couldn&apos;t load campaigns</EmptyState.Title>
+                    <EmptyState.Title>{t('board.errTitle')}</EmptyState.Title>
                     <EmptyState.Description>
-                      Something went wrong while fetching briefs. Check your connection and try again.
+                      {t('board.errDesc')}
                     </EmptyState.Description>
                     <EmptyState.Content>
                       <Button variant="primary" size="md" onPress={() => fetchPage(true)}>
-                        Try again
+                        {t('common.tryAgain')}
                       </Button>
                     </EmptyState.Content>
                   </EmptyState>
@@ -575,11 +510,9 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                     <EmptyState.Media>
                       <SearchIcon className="size-7" />
                     </EmptyState.Media>
-                    <EmptyState.Title>No briefs found</EmptyState.Title>
+                    <EmptyState.Title>{t('board.emptyTitle')}</EmptyState.Title>
                     <EmptyState.Description>
-                      {items.length === 0
-                        ? 'No campaigns match your filters right now — new briefs land daily.'
-                        : 'Nothing matches this view. Try a different status filter.'}
+                      {items.length === 0 ? t('board.emptyNone') : t('board.emptyStatus')}
                     </EmptyState.Description>
                     <EmptyState.Content>
                       <Button
@@ -589,9 +522,12 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                           setSearch('');
                           setPlatformFilter('all');
                           setStatusFilter('all');
+                          setBudgetId('any');
+                          setSector('');
+                          setOrientation('');
                         }}
                       >
-                        Reset filters
+                        {t('board.resetFilters')}
                       </Button>
                     </EmptyState.Content>
                   </EmptyState>
@@ -626,13 +562,13 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                 {hasMore && !loadingMore && (
                   <div className="flex justify-center mt-6">
                     <Button variant="outline" size="md" onPress={() => fetchPage(false)}>
-                      Load more ({total - items.length} remaining)
+                      {t('common.loadMore', { n: total - items.length })}
                     </Button>
                   </div>
                 )}
                 {!hasMore && items.length > PAGE_SIZE && (
                   <p className="text-center text-muted text-xs mt-6">
-                    You&apos;ve seen all {total} open briefs.
+                    {t('board.seenAll', { total })}
                   </p>
                 )}
               </>
@@ -649,14 +585,13 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
           <Modal.Container>
             <Modal.Dialog>
               <Modal.Header>
-                <Modal.Heading>Apply for Campaign</Modal.Heading>
+                <Modal.Heading>{t('board.applyTitle')}</Modal.Heading>
               </Modal.Header>
               <Modal.Body>
                 {selectedCampaign && (
                   <div className="space-y-5">
                     <p className="v-body v-muted">
-                      Submit your application to{' '}
-                      <span className="v-ink font-medium">{selectedCampaign.title}</span>.
+                      {t('board.applyTo', { title: selectedCampaign.title })}
                     </p>
 
                     {/* Payout pill */}
@@ -672,13 +607,20 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                         className="v-body font-medium flex items-center gap-2"
                         style={{ color: '#0b6e3e' }}
                       >
-                        <DollarSign size={16} /> Base Payout
+                        <DollarSign size={16} /> {t('board.basePayout')}
                       </span>
-                      <span
-                        className="font-semibold tabular-nums"
-                        style={{ color: '#0b6e3e', fontSize: 22, letterSpacing: '-0.018em' }}
-                      >
-                        {formatBudget(selectedCampaign.budget)}
+                      <span className="text-right">
+                        <span
+                          className="font-semibold tabular-nums block"
+                          style={{ color: '#0b6e3e', fontSize: 22, letterSpacing: '-0.018em' }}
+                        >
+                          {formatBudget(selectedCampaign.budget, selectedCampaign.currency)}
+                        </span>
+                        {selectedCampaign.currency !== 'USD' && selectedCampaign.budget_usd ? (
+                          <span className="v-caption block" style={{ color: '#0b6e3e', opacity: 0.7, fontSize: 11.5 }}>
+                            ≈ {formatBudget(selectedCampaign.budget_usd, 'USD')}
+                          </span>
+                        ) : null}
                       </span>
                     </div>
 
@@ -691,7 +633,7 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                         }}
                       >
                         <div className="v-caption v-quiet font-medium uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                          <Briefcase size={11} /> Contract Terms
+                          <Briefcase size={11} /> {t('board.contractTerms')}
                         </div>
                         <div className="v-body v-ink whitespace-pre-wrap" style={{ fontSize: 13, lineHeight: 1.55 }}>
                           {selectedCampaign.contract_template}
@@ -703,7 +645,7 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                       <div>
                         <label className="v-caption v-quiet font-medium uppercase tracking-wider flex items-center gap-1.5 mb-2">
                           <Video size={12} style={{ color: 'var(--color-campaign-purple)' }} />
-                          Video pitch (recommended)
+                          {t('board.videoPitch')}
                         </label>
                         <VideoPitchRecorder
                           onRecordingComplete={(b64) => setVideoBase64(b64)}
@@ -714,7 +656,7 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <label className="v-caption v-quiet font-medium uppercase tracking-wider flex items-center gap-1.5">
-                            <Layers size={12} /> Written pitch (optional)
+                            <Layers size={12} /> {t('board.writtenPitch')}
                           </label>
                           <button
                             type="button"
@@ -722,13 +664,13 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                             className="v-caption font-medium flex items-center gap-1"
                             style={{ color: 'var(--color-campaign-purple)' }}
                           >
-                            <Star size={11} fill="currentColor" /> AI pitch gen
+                            <Star size={11} fill="currentColor" /> {t('board.aiPitchGen')}
                           </button>
                         </div>
                         <textarea
                           value={pitch}
                           onChange={(e) => setPitch(e.target.value)}
-                          placeholder="Tell the brand why they should choose you…"
+                          placeholder={t('board.pitchPh')}
                           className={`${fieldClass} resize-none h-24`}
                           style={fieldStyle}
                         />
@@ -755,7 +697,7 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
               </Modal.Body>
               <Modal.Footer>
                 <Button variant="ghost" onPress={() => setSelectedCampaign(null)}>
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
                 <Button
                   variant="primary"
@@ -766,10 +708,10 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                 >
                   {applyStatus === 'success' ? (
                     <>
-                      <Check size={14} /> Sent
+                      <Check size={14} /> {t('board.sentBtn')}
                     </>
                   ) : (
-                    'Confirm & send'
+                    t('board.confirmSend')
                   )}
                 </Button>
               </Modal.Footer>
@@ -793,7 +735,7 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
               <Modal.Header>
                 <Modal.Heading className="flex items-center gap-2">
                   <FileText size={18} style={{ color: 'var(--color-campaign-purple)' }} />
-                  Contract Terms
+                  {t('board.contractTerms')}
                 </Modal.Heading>
               </Modal.Header>
               <Modal.Body>
@@ -813,7 +755,7 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
               </Modal.Body>
               <Modal.Footer>
                 <Button variant="primary" onPress={() => setViewingContract(null)}>
-                  Close
+                  {t('common.close')}
                 </Button>
               </Modal.Footer>
             </Modal.Dialog>

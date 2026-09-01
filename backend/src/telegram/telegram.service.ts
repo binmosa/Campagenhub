@@ -119,7 +119,11 @@ export class TelegramService {
       await this.usersRepository.save(user);
     }
 
-    const inviteLink = `https://t.me/official_CampaignHub_bot?start=REF_${user.referral_code}`;
+    const botUsername = process.env.TELEGRAM_BOT_USERNAME;
+    if (!botUsername) {
+      return ctx.reply('⚠️ Referral links are not configured on this deployment yet.');
+    }
+    const inviteLink = `https://t.me/${botUsername}?start=REF_${user.referral_code}`;
     await ctx.reply(`🚀 *Refer & Earn*\n\nShare this link to invite users to CampaignHub via Telegram:\n${inviteLink}\n\nEarn 250 points when someone connects their account using your link!`, { parse_mode: 'Markdown' });
   }
 

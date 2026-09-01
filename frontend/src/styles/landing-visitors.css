@@ -121,6 +121,19 @@
   --font-heading: var(--font-visitors);
 }
 
+/* ── Amharic (Ge'ez script) — Fredoka has no Ethiopic glyphs, so when the
+   UI language is Amharic every landing surface swaps to Noto Sans Ethiopic
+   (Fredoka stays in the stack for any embedded Latin text). Add similar
+   blocks per new script (e.g. Arabic → RTL + its font). ─────────────── */
+html[lang='am'] .landing-visitors {
+  --font-visitors: 'Noto Sans Ethiopic', 'Fredoka', 'Inter', ui-sans-serif,
+    system-ui, sans-serif;
+}
+html[lang='am'] {
+  --font-sans: 'Noto Sans Ethiopic', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-heading: 'Noto Sans Ethiopic', 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
 /* Belt-and-suspenders: cover any descendant that picks font-family from
    the user-agent stylesheet (form controls, etc.) so nothing inside the
    landing scope falls back to a system font. */
@@ -497,20 +510,122 @@
   color: var(--color-campaign-purple);
 }
 
-/* ── Talent directory card ──────────────────────────────────────── */
+/* ── Directory card (talent + campaigns) ────────────────────────── */
+/* AI Studio's surface language (lavender→paper wash, #d6dbe8 hover
+   border, layered shadow); the brand gradient itself lives in the
+   avatar's story ring, not on the card chrome. */
 .landing-visitors .v-talent-card {
-  background: var(--color-paper);
+  position: relative;
+  background: linear-gradient(180deg, rgba(244, 242, 255, 0.55) 0%, var(--color-paper) 100%);
   border: 1px solid var(--color-cool-gray);
   border-radius: 18px;
   overflow: hidden;
-  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 200ms, box-shadow 220ms;
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 240ms, box-shadow 240ms;
 }
 .landing-visitors .v-talent-card:hover {
   transform: translateY(-3px);
   border-color: #d6dbe8;
-  box-shadow: rgba(11, 23, 54, 0.05) 0 3px 6px,
-    rgba(11, 23, 54, 0.10) 0 18px 36px -14px;
+  box-shadow: rgba(11, 23, 54, 0.05) 0 2px 6px 0,
+    rgba(11, 23, 54, 0.08) 0 16px 32px -16px,
+    rgba(108, 99, 255, 0.10) 0 18px 40px -16px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-visitors .v-talent-card {
+    transition: none;
+  }
+}
+
+/* ── Story ring — the signature touch on directory cards ─────────
+   A creator-culture signal: the avatar wears the brand gradient the way
+   a live story does. Rotates slowly while the card is hovered. */
+@property --v-ring-a {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.landing-visitors .v-story-ring {
+  display: inline-flex;
+  padding: 2.5px;
+  border-radius: 9999px;
+  background: conic-gradient(
+    from var(--v-ring-a, 210deg),
+    #6c63ff, #4f7cff, #00d4c7, #7b61ff, #6c63ff
+  );
+  flex-shrink: 0;
+}
+.landing-visitors .v-story-ring > img,
+.landing-visitors .v-story-ring > span {
+  border: 2px solid #fff; /* the white gap, exactly like a story ring */
+  border-radius: 9999px;
+}
+@keyframes v-ring-spin {
+  to { --v-ring-a: 570deg; }
+}
+.landing-visitors .v-talent-card:hover .v-story-ring {
+  animation: v-ring-spin 2.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-visitors .v-talent-card:hover .v-story-ring {
+    animation: none;
+  }
+}
+
+/* ── Facet toolbar (desktop directory filters) ──────────────────── */
+.landing-visitors .v-facet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-cool-gray);
+  background: var(--color-paper);
+  color: var(--color-graphite);
+  font-family: var(--font-visitors);
+  font-weight: 500;
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: border-color 160ms, color 160ms, box-shadow 180ms;
+}
+.landing-visitors .v-facet-btn:hover {
+  border-color: #d6dbe8;
+  color: var(--color-deep-navy);
+}
+.landing-visitors .v-facet-btn[data-active] {
+  border-color: rgba(108, 99, 255, 0.45);
+  background: var(--color-soft-lavender);
+  color: var(--color-deep-navy);
+}
+.landing-visitors .v-facet-btn:focus-visible {
+  outline: 2px solid var(--color-campaign-purple);
+  outline-offset: 2px;
+}
+.landing-visitors .v-facet-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  background: var(--color-campaign-purple);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 500;
+}
+.landing-visitors .v-facet-panel {
+  background: var(--color-paper);
+  border: 1px solid #d6dbe8;
+  border-radius: 14px;
+  padding: 12px;
+  box-shadow: rgba(11, 23, 54, 0.06) 0 4px 10px,
+    rgba(11, 23, 54, 0.14) 0 20px 44px -16px;
+  /* No overflow clipping: nested dropdowns (country/city SearchSelect)
+     must be able to extend past the panel. Long lists scroll inside the
+     SearchSelect itself. */
+  overflow: visible;
 }
 
 /* Social platform tile on talent cards — brand glyph on a tinted chip */

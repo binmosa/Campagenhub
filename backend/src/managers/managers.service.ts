@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { ManagerProfile } from './manager-profile.entity';
 import { ManagerFeedback } from './manager-feedback.entity';
 import { UsersService } from '../users/users.service';
+import { withDerivedFullName } from '../core/name.util';
 
 @Injectable()
 export class ManagersService {
@@ -43,6 +44,7 @@ export class ManagersService {
   }
 
   async createProfile(userId: string, data: any) {
+    data = withDerivedFullName(data);
     const user = await this.usersService.findById(userId);
     if (!user) throw new BadRequestException('User not found');
     let profile = await this.managersRepo.findOne({ where: { user: { id: userId } } });
@@ -85,6 +87,8 @@ export class ManagersService {
       relations: ['user'],
       select: {
          id: true,
+         first_name: true,
+         last_name: true,
          full_name: true,
          bio: true,
          rating: true,

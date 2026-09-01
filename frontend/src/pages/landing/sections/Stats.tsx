@@ -1,6 +1,7 @@
 import React from 'react';
 import { KPI } from '@heroui-pro/react';
 import { motion } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 import type { LandingSettings } from '../useLandingData';
 
 /**
@@ -49,6 +50,7 @@ const TRENDS = {
 };
 
 export const Stats: React.FC<StatsProps> = ({ settings }) => {
+  const { t } = useTranslation();
   const creators = parseStat(settings.stats_val_1, 12_847);
   const brands = parseStat(settings.stats_val_2, 520);
   const paid = parseStat(settings.stats_val_3, 2_400_000);
@@ -68,13 +70,13 @@ export const Stats: React.FC<StatsProps> = ({ settings }) => {
               className="h-1.5 w-1.5 rounded-full"
               style={{ background: 'var(--color-campaign-purple)' }}
             />
-            By the numbers
+            {t('stats.pill')}
           </span>
           <h2 className="mt-5 v-heading-xl">
-            The platform, in measurements that matter.
+            {t('stats.title')}
           </h2>
           <p className="mt-4 v-body-lg v-muted">
-            Real campaigns. Real payouts. Real momentum — measured every week.
+            {t('stats.desc')}
           </p>
         </div>
 
@@ -88,17 +90,17 @@ export const Stats: React.FC<StatsProps> = ({ settings }) => {
           <KPI>
             <KPI.Header>
               <KPI.Title>
-                {settings.stats_lbl_1 || 'Active creators'}
+                {settings.stats_lbl_1 || t('stats.lbl1')}
               </KPI.Title>
             </KPI.Header>
             <KPI.Content>
               <div className="flex items-baseline gap-2 flex-wrap">
                 <KPI.Value value={creators} maximumFractionDigits={0} />
                 <span className="v-quiet text-sm">
-                  from {creatorsPrev.toLocaleString()}
+                  {t('stats.from', { value: creatorsPrev.toLocaleString() })}
                 </span>
               </div>
-              <KPI.Trend trend="up">+312 this week</KPI.Trend>
+              <KPI.Trend trend="up">{t('stats.trend1')}</KPI.Trend>
               <KPI.Chart
                 data={TRENDS.creators}
                 dataKey="v"
@@ -113,15 +115,15 @@ export const Stats: React.FC<StatsProps> = ({ settings }) => {
           <KPI>
             <KPI.Header>
               <KPI.Title>
-                {settings.stats_lbl_2 || 'Brands shipping'}
+                {settings.stats_lbl_2 || t('stats.lbl2')}
               </KPI.Title>
             </KPI.Header>
             <KPI.Content>
               <div className="flex items-baseline gap-2 flex-wrap">
                 <KPI.Value value={brands} maximumFractionDigits={0} />
-                <span className="v-quiet text-sm">from {brandsPrev}</span>
+                <span className="v-quiet text-sm">{t('stats.from', { value: brandsPrev })}</span>
               </div>
-              <KPI.Trend trend="up">+24% QoQ</KPI.Trend>
+              <KPI.Trend trend="up">{t('stats.trend2')}</KPI.Trend>
               <KPI.Chart
                 data={TRENDS.brands}
                 dataKey="v"
@@ -136,7 +138,7 @@ export const Stats: React.FC<StatsProps> = ({ settings }) => {
           <KPI>
             <KPI.Header>
               <KPI.Title>
-                {settings.stats_lbl_3 || 'Paid to creators'}
+                {settings.stats_lbl_3 || t('stats.lbl3')}
               </KPI.Title>
             </KPI.Header>
             <KPI.Content>
@@ -148,9 +150,9 @@ export const Stats: React.FC<StatsProps> = ({ settings }) => {
                   notation="compact"
                   maximumFractionDigits={1}
                 />
-                <span className="v-quiet text-sm">from $2.03M</span>
+                <span className="v-quiet text-sm">{t('stats.from', { value: '$2.03M' })}</span>
               </div>
-              <KPI.Trend trend="up">+18% YTD</KPI.Trend>
+              <KPI.Trend trend="up">{t('stats.trend3')}</KPI.Trend>
               <KPI.Chart
                 data={TRENDS.paid}
                 dataKey="v"
@@ -165,7 +167,7 @@ export const Stats: React.FC<StatsProps> = ({ settings }) => {
           <KPI>
             <KPI.Header>
               <KPI.Title>
-                {settings.stats_lbl_4 || 'Reach delivered'}
+                {settings.stats_lbl_4 || t('stats.lbl4')}
               </KPI.Title>
             </KPI.Header>
             <KPI.Content>
@@ -175,9 +177,9 @@ export const Stats: React.FC<StatsProps> = ({ settings }) => {
                   notation="compact"
                   maximumFractionDigits={1}
                 />
-                <span className="v-quiet text-sm">cumulative</span>
+                <span className="v-quiet text-sm">{t('stats.cumulative')}</span>
               </div>
-              <KPI.Trend trend="up">+1.8B impr. YTD</KPI.Trend>
+              <KPI.Trend trend="up">{t('stats.trend4')}</KPI.Trend>
               <KPI.Chart
                 data={TRENDS.reach}
                 dataKey="v"

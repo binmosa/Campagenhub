@@ -34,6 +34,8 @@ const fieldClass =
 
 const Profile: React.FC = () => {
   const [profile, setProfile] = useState({
+    first_name: '',
+    last_name: '',
     full_name: '',
     bio: '',
     avatar_url: '',
@@ -73,6 +75,8 @@ const Profile: React.FC = () => {
       .then((res) => {
         if (res.data) {
           setProfile({
+            first_name: res.data.first_name || '',
+            last_name: res.data.last_name || '',
             full_name: res.data.full_name || '',
             bio: res.data.bio || '',
             avatar_url: res.data.avatar_url || '',
@@ -90,7 +94,10 @@ const Profile: React.FC = () => {
     e.preventDefault();
     setStatus('loading');
     try {
-      await api.post('/managers/profile', profile);
+      const full_name =
+        `${profile.first_name} ${profile.last_name}`.trim() || profile.full_name;
+      await api.post('/managers/profile', { ...profile, full_name });
+      setProfile((prev) => ({ ...prev, full_name }));
       setStatus('success');
       window.dispatchEvent(new Event('profileUpdated'));
       setTimeout(() => {
@@ -225,18 +232,39 @@ const Profile: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <TextField
-                  value={profile.full_name}
-                  onChange={(v) =>
-                    setProfile((prev) => ({ ...prev, full_name: v }))
-                  }
-                  aria-label="Full name"
-                >
+                <div>
                   <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5 inline-flex items-center gap-1.5">
-                    <User size={11} /> Full name
+                    <User size={11} /> Name
                   </Label>
-                  <Input className={fieldClass} placeholder="Your full name" />
-                </TextField>
+                  <div className="grid grid-cols-2 gap-2">
+                    <TextField
+                      value={profile.first_name}
+                      onChange={(v) =>
+                        setProfile((prev) => ({ ...prev, first_name: v }))
+                      }
+                      aria-label="First name"
+                    >
+                      <Input
+                        className={fieldClass}
+                        placeholder="First"
+                        autoComplete="given-name"
+                      />
+                    </TextField>
+                    <TextField
+                      value={profile.last_name}
+                      onChange={(v) =>
+                        setProfile((prev) => ({ ...prev, last_name: v }))
+                      }
+                      aria-label="Last name"
+                    >
+                      <Input
+                        className={fieldClass}
+                        placeholder="Last"
+                        autoComplete="family-name"
+                      />
+                    </TextField>
+                  </div>
+                </div>
                 <TextField
                   value={profile.location}
                   onChange={(v) =>

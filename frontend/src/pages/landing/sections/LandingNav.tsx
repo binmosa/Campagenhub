@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, LogOut, Menu, User, X } from 'lucide-react';
+import { Globe, LayoutDashboard, LogOut, Menu, User, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { SUPPORTED_LANGUAGES, setLanguage } from '../../../i18n';
 import { Avatar, Button, Dropdown, Label, Separator } from '@heroui/react';
 import api from '../../../lib/api';
 import { NAV_SECTIONS } from '../copy';
@@ -17,6 +19,23 @@ export const LandingNav: React.FC = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const { t, i18n } = useTranslation();
+
+  /* Nav labels come from the locale files; copy.ts labels are the fallback */
+  const NAV_LABEL_KEYS: Record<string, string> = {
+    home: 'nav.forCreators',
+    console: 'nav.forBrands',
+    'how-it-works': 'nav.howItWorks',
+    faqs: 'nav.faqs',
+    '/talent': 'nav.talent',
+    '/campaigns': 'nav.campaigns',
+  };
+  const navLabel = (s: { kind: string; label: string } & Record<string, any>) => {
+    const key = NAV_LABEL_KEYS[s.kind === 'anchor' ? s.id : s.href];
+    return key ? t(key, { defaultValue: s.label }) : s.label;
+  };
+  const otherLang =
+    SUPPORTED_LANGUAGES.find((l) => l.code !== i18n.language) || SUPPORTED_LANGUAGES[0];
   const isLanding = location.pathname === '/';
   const token =
     typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -241,8 +260,12 @@ export const LandingNav: React.FC = () => {
       >
         <button
           type="button"
-          onClick={() => scrollTo('home')}
-          aria-label="Back to top"
+          onClick={() => {
+            // On the landing: scroll to the top. Anywhere else: go home.
+            if (isLanding) scrollTo('home');
+            else navigate('/');
+          }}
+          aria-label="Campgains Hub — home"
           className="flex items-center gap-2 cursor-pointer select-none"
         >
           <img
@@ -300,7 +323,7 @@ export const LandingNav: React.FC = () => {
                   onMouseEnter={enter}
                   onMouseLeave={leave}
                 >
-                  {s.label}
+                  {navLabel(s)}
                 </Link>
               );
             }
@@ -314,7 +337,7 @@ export const LandingNav: React.FC = () => {
                 onMouseEnter={enter}
                 onMouseLeave={leave}
               >
-                {s.label}
+                {navLabel(s)}
               </a>
             );
           })}
@@ -322,6 +345,17 @@ export const LandingNav: React.FC = () => {
 
         {/* Right cluster — Profile dropdown if logged-in, else login/get started */}
         <div className="flex items-center gap-1.5">
+          {/* Language switcher — shows the language you'd switch TO */}
+          <button
+            type="button"
+            onClick={() => setLanguage(otherLang.code)}
+            aria-label={`Switch language to ${otherLang.label}`}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] font-medium rounded-full"
+            style={{ color: 'rgba(255,255,255,0.85)', background: 'rgba(255,255,255,0.08)' }}
+          >
+            <Globe size={12} />
+            {otherLang.short}
+          </button>
           {token ? (
             <ProfileDropdown />
           ) : (
@@ -332,12 +366,12 @@ export const LandingNav: React.FC = () => {
                   className="px-3 py-1.5 text-[13px] font-normal rounded-full"
                   style={{ color: 'rgba(255,255,255,0.85)' }}
                 >
-                  Login
+                  {t('nav.signIn')}
                 </button>
               </Link>
               <Link to="/register">
                 <Button variant="primary" size="sm" className="!rounded-full">
-                  Get started
+                  {t('nav.getStarted')}
                 </Button>
               </Link>
             </>
@@ -373,7 +407,7 @@ export const LandingNav: React.FC = () => {
                       className={cls}
                       style={style}
                     >
-                      {s.label}
+                      {navLabel(s)}
                     </Link>
                   </li>
                 );
@@ -386,7 +420,7 @@ export const LandingNav: React.FC = () => {
                     className={cls}
                     style={style}
                   >
-                    {s.label}
+                    {navLabel(s)}
                   </a>
                 </li>
               );
@@ -425,7 +459,7 @@ export const LandingNav: React.FC = () => {
                   </Link>
                   <Link to="/register" className="flex-1">
                     <Button variant="primary" fullWidth>
-                      Get started
+                      {t('nav.getStarted')}
                     </Button>
                   </Link>
                 </div>

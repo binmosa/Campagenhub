@@ -1,5 +1,7 @@
 import React from 'react';
 import { useLandingData } from './useLandingData';
+import { useMarket } from '../markets/MarketContext';
+import MarketCreatorsStrip from '../markets/MarketCreatorsStrip';
 
 import LandingNav from './sections/LandingNav';
 import Hero from './sections/Hero';
@@ -33,6 +35,7 @@ import Footer from './sections/Footer';
  */
 const LandingPage: React.FC = () => {
   const { settings, reviews, activeCampaigns, campaignsLoading, refetchReviews } = useLandingData();
+  const market = useMarket();
 
   return (
     <div className="landing-visitors min-h-screen flex flex-col">
@@ -41,6 +44,7 @@ const LandingPage: React.FC = () => {
       <main className="flex-1">
         <Hero settings={settings} />
         <PayoutTicker settings={settings} />
+        {market && <MarketCreatorsStrip market={market} />}
         <section id="campaigns">
           <ActiveCampaigns
             settings={settings}

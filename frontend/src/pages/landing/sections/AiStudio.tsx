@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, Brain, LineChart, Sparkles, Wand2 } from 'lucide-react';
 import { Button, Chip } from '@heroui/react';
 import { AnimatePresence, motion } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 import type { LandingSettings } from '../useLandingData';
 
 /**
@@ -187,6 +188,7 @@ const JOBS: Job[] = [
 export const AiStudio: React.FC<AiStudioProps> = ({ settings }) => {
   const [active, setActive] = useState<JobKey>('briefs');
   const prevIndexRef = useRef(0);
+  const { t } = useTranslation();
   const activeIndex = JOBS.findIndex((j) => j.key === active);
   const direction = activeIndex >= prevIndexRef.current ? 1 : -1;
   prevIndexRef.current = activeIndex;
@@ -201,21 +203,20 @@ export const AiStudio: React.FC<AiStudioProps> = ({ settings }) => {
         <div className="text-center max-w-[640px] mx-auto mb-14">
           <span className="v-pill-quiet">
             <Sparkles size={11} style={{ color: BRAND.purple }} />
-            {settings.ai_studio_title || 'AI Studio'}
+            {settings.ai_studio_title || t('ai.pill')}
           </span>
           <h2 className="mt-5 v-heading-xl">
-            {settings.ai_studio_main_title || 'Your always-on creative partner.'}
+            {settings.ai_studio_main_title || t('ai.title')}
           </h2>
           <p className="mt-4 v-body-lg v-muted">
-            {settings.ai_studio_desc ||
-              'AI Studio drafts copy, forecasts reach, and surfaces best-fit creators — built into every campaign you launch.'}
+            {settings.ai_studio_desc || t('ai.desc')}
           </p>
         </div>
 
         <div className="grid lg:grid-cols-[0.92fr_1.18fr] gap-6 lg:gap-8 items-start">
           {/* ─── Left: tab cards ──────────────────────────────────── */}
           <div className="flex flex-col gap-3">
-            {JOBS.map((j) => {
+            {JOBS.map((j, ji) => {
               const Icon = j.icon;
               const isActive = j.key === active;
               return (
@@ -298,10 +299,10 @@ export const AiStudio: React.FC<AiStudioProps> = ({ settings }) => {
                           className="v-body font-medium v-ink"
                           style={{ fontSize: 15 }}
                         >
-                          {j.title}
+                          {t(`ai.job${ji + 1}t`)}
                         </span>
                       </div>
-                      <p className="mt-1 v-body v-muted">{j.desc}</p>
+                      <p className="mt-1 v-body v-muted">{t(`ai.job${ji + 1}d`)}</p>
                     </div>
                   </div>
                 </motion.div>
@@ -310,7 +311,7 @@ export const AiStudio: React.FC<AiStudioProps> = ({ settings }) => {
 
             <Link to="/register" className="mt-2">
               <Button variant="primary" size="md" className="!rounded-xl">
-                {settings.ai_studio_btn || 'Try AI Studio'} <ArrowRight size={14} />
+                {settings.ai_studio_btn || t('ai.btn')} <ArrowRight size={14} />
               </Button>
             </Link>
           </div>
@@ -358,7 +359,7 @@ export const AiStudio: React.FC<AiStudioProps> = ({ settings }) => {
                   <Sparkles size={14} />
                 </span>
                 <span className="v-body font-medium v-ink" style={{ fontSize: 14 }}>
-                  {current.title}
+                  {t(`ai.job${activeIndex + 1}t`)}
                 </span>
               </div>
               <Chip color="success" variant="soft" size="sm">

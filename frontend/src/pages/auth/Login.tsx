@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, Lock, Mail, ShieldCheck, Sparkles, Zap } from 'lucide-react';
 import { Button } from '@heroui/react';
 import { motion } from 'motion/react';
+import { useTranslation } from 'react-i18next';
+import { useNoIndex } from '../../lib/seo';
 import api from '../../lib/api';
 
 /**
@@ -17,6 +19,8 @@ import api from '../../lib/api';
  * brand palette + the scoped HeroUI accent override.
  */
 const Login: React.FC = () => {
+  const { t } = useTranslation();
+  useNoIndex();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -46,10 +50,10 @@ const Login: React.FC = () => {
           throw new Error('No token received');
         }
       } else {
-        throw new Error('Please fill in all fields');
+        throw new Error(t('auth.fillAll'));
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Login failed');
+      setError(err.response?.data?.message || err.message || t('auth.loginFailed'));
       setIsLoading(false);
     }
   };
@@ -117,7 +121,7 @@ const Login: React.FC = () => {
             }}
           >
             <Sparkles size={11} />
-            Welcome back
+            {t('auth.welcomeBadge')}
           </span>
           <h1
             className="mt-6 font-medium"
@@ -128,7 +132,7 @@ const Login: React.FC = () => {
               letterSpacing: '-0.025em',
             }}
           >
-            The platform brands{' '}
+            {t('auth.loginH1a')}{' '}
             <span
               style={{
                 backgroundImage:
@@ -138,7 +142,7 @@ const Login: React.FC = () => {
                 color: 'transparent',
               }}
             >
-              run on.
+              {t('auth.loginH1b')}
             </span>
           </h1>
           <p
@@ -150,16 +154,15 @@ const Login: React.FC = () => {
               letterSpacing: '-0.012em',
             }}
           >
-            Sign in to manage your campaigns, review applications, track
-            payouts — all in the same console that shipped your last brief.
+            {t('auth.loginSub')}
           </p>
         </motion.div>
 
         {/* Proof rows */}
         <div className="relative z-10 grid grid-cols-1 gap-3">
           {[
-            { icon: ShieldCheck, label: 'SOC-2 compliant', meta: 'Enterprise-grade KYC' },
-            { icon: Zap, label: 'Launch in 60 seconds', meta: 'Free forever to start' },
+            { icon: ShieldCheck, label: t('auth.proofSoc'), meta: t('auth.proofSocMeta') },
+            { icon: Zap, label: t('auth.proofLaunch'), meta: t('auth.proofLaunchMeta') },
           ].map((p, i) => {
             const Icon = p.icon;
             return (
@@ -225,9 +228,9 @@ const Login: React.FC = () => {
           className="w-full max-w-md my-auto"
         >
           <div className="mb-8">
-            <h2 className="v-heading-xl">Welcome back.</h2>
+            <h2 className="v-heading-xl">{t('auth.welcomeTitle')}</h2>
             <p className="mt-3 v-body-lg v-muted">
-              Enter your details to sign in.
+              {t('auth.welcomeSub')}
             </p>
           </div>
 
@@ -257,7 +260,7 @@ const Login: React.FC = () => {
                 className="block v-caption v-muted font-medium mb-2"
                 style={{ letterSpacing: '-0.012em' }}
               >
-                Email address
+                {t('auth.emailLabel')}
               </label>
               <div className="relative">
                 <span
@@ -284,14 +287,14 @@ const Login: React.FC = () => {
                   className="v-caption v-muted font-medium"
                   style={{ letterSpacing: '-0.012em' }}
                 >
-                  Password
+                  {t('auth.passwordLabel')}
                 </label>
                 <a
                   href="#"
                   className="v-caption font-medium"
                   style={{ color: 'var(--color-campaign-purple)' }}
                 >
-                  Forgot password?
+                  {t('auth.forgot')}
                 </a>
               </div>
               <div className="relative">
@@ -321,7 +324,7 @@ const Login: React.FC = () => {
               isPending={isLoading}
               className="!rounded-xl !mt-2"
             >
-              Sign in <ArrowRight size={16} />
+              {t('auth.signIn')} <ArrowRight size={16} />
             </Button>
           </form>
 
@@ -337,7 +340,7 @@ const Login: React.FC = () => {
                   textAlign: 'center',
                 }}
               >
-                Trusted by teams shipping culture
+                {t('auth.trustedBy')}
               </p>
               <div className="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5">
                 {settings.ticker_text
@@ -362,13 +365,13 @@ const Login: React.FC = () => {
             className="mt-8 text-center v-body v-muted"
             style={{ borderTop: '1px solid var(--color-cool-gray)', paddingTop: 24 }}
           >
-            Don't have an account?{' '}
+            {t('auth.noAccount')}{' '}
             <Link
               to="/register"
               className="font-medium"
               style={{ color: 'var(--color-campaign-purple)' }}
             >
-              Sign up
+              {t('auth.signUp')}
             </Link>
           </div>
         </motion.div>

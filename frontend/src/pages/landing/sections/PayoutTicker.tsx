@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { BadgeCheck } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import PlatformIcon, { type PlatformKey } from '../mocks/PlatformIcon';
 import type { LandingSettings } from '../useLandingData';
 
@@ -55,6 +56,7 @@ const Row: React.FC<{ ariaHidden?: boolean }> = ({ ariaHidden }) => (
 );
 
 export const PayoutTicker: React.FC<Props> = ({ settings }) => {
+  const { t } = useTranslation();
   const trackRef = useRef<HTMLDivElement>(null);
   if (settings.ticker_enabled === 'false') return null;
 
@@ -72,7 +74,7 @@ export const PayoutTicker: React.FC<Props> = ({ settings }) => {
     >
       <div className="max-w-[1100px] mx-auto px-6 lg:px-10 mb-3">
         <span className="v-caption v-quiet" style={{ letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-          What getting paid here looks like
+          {t('ticker.caption')}
         </span>
       </div>
 

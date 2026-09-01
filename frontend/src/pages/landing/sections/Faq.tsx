@@ -1,8 +1,8 @@
 import React from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Disclosure, DisclosureGroup } from '@heroui/react';
+import { useTranslation } from 'react-i18next';
 import type { LandingSettings } from '../useLandingData';
-import { MOCK_FAQS } from '../copy';
 
 /**
  * Faq — HeroUI DisclosureGroup with smooth expand/collapse.
@@ -14,7 +14,10 @@ interface FaqProps {
 }
 
 export const Faq: React.FC<FaqProps> = ({ settings }) => {
+  const { t } = useTranslation();
   if (settings.faq_enabled === 'false') return null;
+
+  const items = t('faq.items', { returnObjects: true }) as { q: string; a: string }[];
 
   return (
     <section
@@ -24,16 +27,16 @@ export const Faq: React.FC<FaqProps> = ({ settings }) => {
     >
       <div className="max-w-[760px] mx-auto">
         <div className="text-center mb-12">
-          <span className="v-pill-quiet">FAQs</span>
-          <h2 className="mt-5 v-heading-xl">Questions, answered.</h2>
+          <span className="v-pill-quiet">{t('faq.pill')}</span>
+          <h2 className="mt-5 v-heading-xl">{t('faq.title')}</h2>
           <p className="mt-4 v-body-lg v-muted">
-            Quick answers to what we hear most often.
+            {t('faq.desc')}
           </p>
         </div>
 
         <DisclosureGroup>
           <div className="flex flex-col">
-            {MOCK_FAQS.map((faq, i) => (
+            {items.map((faq, i) => (
               <Disclosure key={i}>
                 <div
                   style={{
@@ -50,7 +53,7 @@ export const Faq: React.FC<FaqProps> = ({ settings }) => {
                         className="v-ink font-medium pr-4"
                         style={{ fontSize: 17, letterSpacing: '-0.016em' }}
                       >
-                        {faq.question}
+                        {faq.q}
                       </span>
                       <Disclosure.Indicator>
                         <span
@@ -69,7 +72,7 @@ export const Faq: React.FC<FaqProps> = ({ settings }) => {
                   </Disclosure.Heading>
                   <Disclosure.Content>
                     <Disclosure.Body className="pb-5 pr-12 v-body-lg v-muted">
-                      {faq.answer}
+                      {faq.a}
                     </Disclosure.Body>
                   </Disclosure.Content>
                 </div>

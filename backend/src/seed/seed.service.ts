@@ -7,6 +7,17 @@ import { CreatorProfile } from '../creators/creator-profile.entity';
 import { BrandProfile } from '../brands/brand-profile.entity';
 import { ManagerProfile } from '../managers/manager-profile.entity';
 import * as bcrypt from 'bcrypt';
+import { State } from 'country-state-city';
+
+/** Resolve ISO-3166-2 state codes from the dataset so seed rows carry
+ *  the same stable join keys real registrations do. */
+const withGeoCodes = (data: Record<string, any>) => {
+  if (data.country_code && data.state && !data.state_code) {
+    const s = State.getStatesOfCountry(data.country_code).find((x) => x.name === data.state);
+    if (s) data.state_code = s.isoCode;
+  }
+  return data;
+};
 
 const SUPER_ADMIN_PERMISSIONS: Record<string, boolean> = {
   view_users: true,
@@ -44,8 +55,8 @@ const SEED_ACCOUNTS: SeedAccount[] = [
   {
     email: 'creator@test.com', role: UserRole.CREATOR, profile: 'creator',
     profileData: {
-      full_name: 'Lina Benali', username: 'linaeats', category: 'Food',
-      location: 'Casablanca, MA', follower_range: '100K-500K',
+      first_name: 'Lina', last_name: 'Benali', full_name: 'Lina Benali', username: 'linaeats', category: 'Food',
+      location: 'Casablanca, Morocco', country: 'Morocco', country_code: 'MA', state: 'Casablanca-Settat', city: 'Casablanca', follower_range: '100K-500K',
       bio: 'Street food and slow recipes for people who cook on a Tuesday. I turn brand products into dishes my audience actually makes.',
       avatar_url: 'https://i.pravatar.cc/150?img=47',
       social_links: JSON.stringify({
@@ -58,8 +69,8 @@ const SEED_ACCOUNTS: SeedAccount[] = [
   {
     email: 'creator2@test.com', role: UserRole.CREATOR, profile: 'creator',
     profileData: {
-      full_name: 'Omar Diallo', username: 'omarjourneys', category: 'Travel',
-      location: 'Dakar, SN', follower_range: '500K+',
+      first_name: 'Omar', last_name: 'Diallo', full_name: 'Omar Diallo', username: 'omarjourneys', category: 'Travel',
+      location: 'Dakar, Senegal', country: 'Senegal', country_code: 'SN', state: 'Dakar', city: 'Dakar', follower_range: '500K+',
       bio: 'Long-form travel films across West Africa. Gear reviews, hidden stays, and honest cost breakdowns.',
       avatar_url: 'https://i.pravatar.cc/150?img=12',
       social_links: JSON.stringify({
@@ -72,8 +83,8 @@ const SEED_ACCOUNTS: SeedAccount[] = [
   {
     email: 'creator3@test.com', role: UserRole.CREATOR, profile: 'creator',
     profileData: {
-      full_name: 'Ada Okafor', username: 'code.with.ada', category: 'Tech',
-      location: 'Lagos, NG', follower_range: '100K-500K',
+      first_name: 'Ada', last_name: 'Okafor', full_name: 'Ada Okafor', username: 'code.with.ada', category: 'Tech',
+      location: 'Lagos, Nigeria', country: 'Nigeria', country_code: 'NG', state: 'Lagos', city: 'Lagos', follower_range: '100K-500K',
       bio: 'Software career content and dev-tool deep dives. My audience buys what I can defend in a code review.',
       avatar_url: 'https://i.pravatar.cc/150?img=32',
       social_links: JSON.stringify({
@@ -86,8 +97,8 @@ const SEED_ACCOUNTS: SeedAccount[] = [
   {
     email: 'creator4@test.com', role: UserRole.CREATOR, profile: 'creator',
     profileData: {
-      full_name: 'Maya Haddad', username: 'studioveda', category: 'Beauty',
-      location: 'Dubai, AE', follower_range: '500K+',
+      first_name: 'Maya', last_name: 'Haddad', full_name: 'Maya Haddad', username: 'studioveda', category: 'Beauty',
+      location: 'Dubai, United Arab Emirates', country: 'United Arab Emirates', country_code: 'AE', state: 'Dubai', city: 'Dubai', follower_range: '500K+',
       bio: 'No-filter skincare testing, four-week verdicts. If it stays in my routine, it earns the review.',
       social_links: JSON.stringify({
         instagram: { url: 'https://instagram.com/studioveda', followers: 830000 },
@@ -99,8 +110,8 @@ const SEED_ACCOUNTS: SeedAccount[] = [
   {
     email: 'creator5@test.com', role: UserRole.CREATOR, profile: 'creator',
     profileData: {
-      full_name: 'Jonas Weber', username: 'jonaslifts', category: 'Fitness',
-      location: 'Berlin, DE', follower_range: '10K-50K',
+      first_name: 'Jonas', last_name: 'Weber', full_name: 'Jonas Weber', username: 'jonaslifts', category: 'Fitness',
+      location: 'Berlin, Germany', country: 'Germany', country_code: 'DE', state: 'Berlin', city: 'Berlin', follower_range: '10K-50K',
       bio: 'Strength training for desk workers. Small audience, absurd engagement — my comment section does my selling.',
       avatar_url: 'https://i.pravatar.cc/150?img=59',
       social_links: JSON.stringify({
@@ -112,8 +123,8 @@ const SEED_ACCOUNTS: SeedAccount[] = [
   {
     email: 'creator6@test.com', role: UserRole.CREATOR, profile: 'creator',
     profileData: {
-      full_name: 'Sofia Reyes', username: 'sofiaplays', category: 'Gaming',
-      location: 'Mexico City, MX', follower_range: '50K-100K',
+      first_name: 'Sofia', last_name: 'Reyes', full_name: 'Sofia Reyes', username: 'sofiaplays', category: 'Gaming',
+      location: 'Mexico City, Mexico', country: 'Mexico', country_code: 'MX', state: 'Ciudad de Mexico', city: 'Mexico City', follower_range: '50K-100K',
       bio: 'Cozy games, chaotic streams. Bilingual community across six platforms with a Discord that never sleeps.',
       avatar_url: 'https://i.pravatar.cc/150?img=44',
       social_links: JSON.stringify({
@@ -126,7 +137,43 @@ const SEED_ACCOUNTS: SeedAccount[] = [
       }),
     },
   },
-  { email: 'brand@test.com', role: UserRole.BRAND, profile: 'brand' },
+  {
+    email: 'creator7@test.com', role: UserRole.CREATOR, profile: 'creator',
+    profileData: {
+      first_name: 'Hanna', last_name: 'Tesfaye', full_name: 'Hanna Tesfaye',
+      username: 'hanna.addis', category: 'Beauty',
+      location: 'Addis Ababa, Ethiopia', country: 'Ethiopia', country_code: 'ET', state: 'Addis Ababa', city: 'Addis Ababa', follower_range: '100K-500K',
+      bio: 'Habesha beauty and skincare in Amharic and English. My audience trusts what I put on my own skin first.',
+      avatar_url: 'https://i.pravatar.cc/150?img=25',
+      social_links: JSON.stringify({
+        tiktok: { url: 'https://tiktok.com/@hanna.addis', followers: 320000 },
+        instagram: { url: 'https://instagram.com/hanna.addis', followers: 110000 },
+        youtube: { url: 'https://youtube.com/@hannaaddis', followers: 40000 },
+      }),
+    },
+  },
+  {
+    email: 'creator8@test.com', role: UserRole.CREATOR, profile: 'creator',
+    profileData: {
+      first_name: 'Dawit', last_name: 'Bekele', full_name: 'Dawit Bekele',
+      username: 'dawit.films', category: 'Comedy',
+      location: 'Addis Ababa, Ethiopia', country: 'Ethiopia', country_code: 'ET', state: 'Addis Ababa', city: 'Addis Ababa', follower_range: '50K-100K',
+      bio: 'Sketch comedy about Addis life. Telegram community of 60K that shares everything I post.',
+      avatar_url: 'https://i.pravatar.cc/150?img=68',
+      social_links: JSON.stringify({
+        youtube: { url: 'https://youtube.com/@dawitfilms', followers: 85000 },
+        tiktok: { url: 'https://tiktok.com/@dawit.films', followers: 54000 },
+        facebook: { url: 'https://facebook.com/dawitfilms', followers: 30000 },
+      }),
+    },
+  },
+  {
+    email: 'brand@test.com', role: UserRole.BRAND, profile: 'brand',
+    profileData: {
+      company_name: 'Northwind Labs', industry: 'Consumer Tech',
+      description: 'Demo brand running creator campaigns across platforms.',
+    },
+  },
   { email: 'manager@test.com', role: UserRole.MANAGER, profile: 'manager' },
   { email: 'superadmin@test.com', role: UserRole.ADMIN, permissions: SUPER_ADMIN_PERMISSIONS },
 ];
@@ -183,22 +230,27 @@ export class SeedService implements OnModuleInit {
         const exists = await this.creatorProfiles.findOne({ where: { user: { id: user.id } }, relations: ['user'] });
         if (!exists) {
           await this.creatorProfiles.save(
-            this.creatorProfiles.create({ user: { id: user.id }, ...(account.profileData || {}) } as any),
+            this.creatorProfiles.create({ user: { id: user.id }, ...withGeoCodes({ ...(account.profileData || {}) }) } as any),
           );
         } else if (
           account.profileData &&
-          (!exists.full_name || !(exists.social_links || '').includes('"url"'))
+          (!exists.full_name || !(exists.social_links || '').includes('"url"') || !exists.country || !exists.country_code || !exists.first_name)
         ) {
           // Fill demo data on empty profiles, and upgrade seed profiles still
           // carrying the old link format. Real (non-empty, upgraded) profiles
           // are never stomped.
-          Object.assign(exists, account.profileData);
+          Object.assign(exists, withGeoCodes({ ...account.profileData }));
           await this.creatorProfiles.save(exists);
         }
       } else if (account.profile === 'brand') {
         const exists = await this.brandProfiles.findOne({ where: { user: { id: user.id } }, relations: ['user'] });
         if (!exists) {
-          await this.brandProfiles.save(this.brandProfiles.create({ user: { id: user.id } as any }));
+          await this.brandProfiles.save(
+            this.brandProfiles.create({ user: { id: user.id }, ...(account.profileData || {}) } as any),
+          );
+        } else if (account.profileData && !exists.industry) {
+          Object.assign(exists, account.profileData);
+          await this.brandProfiles.save(exists);
         }
       } else if (account.profile === 'manager') {
         const exists = await this.managerProfiles.findOne({ where: { user: { id: user.id } }, relations: ['user'] });
@@ -223,8 +275,11 @@ export class SeedService implements OnModuleInit {
       {
         title: 'Summer Fitness Challenge',
         description: 'Looking for energetic fitness creators to showcase our new summer line. Must involve outdoor workout routines.',
-        budget: 5000,
-        platform: 'TikTok',
+        budget: 250000,
+        currency: 'ETB',
+        platform: 'TikTok, Instagram',
+        content_type: 'Video',
+        objective: 'Awareness',
         target_audience: 'Fitness enthusiasts, 18-35',
         status: 'active',
         brand,
@@ -233,7 +288,9 @@ export class SeedService implements OnModuleInit {
         title: 'Tech Unboxing Series',
         description: 'Tech reviewers needed for unboxing our latest smart home devices. Authentic opinions valued.',
         budget: 3500,
-        platform: 'YouTube',
+        platform: 'YouTube, Instagram',
+        content_type: 'Video',
+        objective: 'Conversions',
         target_audience: 'Tech savvy, homeowners',
         status: 'active',
         brand,

@@ -24,6 +24,7 @@ import {
 } from '@heroui/react';
 import { Input } from 'react-aria-components';
 import api from '../../lib/api';
+import LocationCascade from '../../components/common/LocationCascade';
 import AccountSettings from '../../components/AccountSettings';
 import TeamManager from '../../components/TeamManager';
 import { KycCard } from '../../components/common/KycCard';
@@ -40,6 +41,12 @@ const BrandProfile: React.FC = () => {
     contact_email: '',
     description: '',
     logo_url: '',
+    location: '',
+    country: '',
+    country_code: '',
+    state: '',
+    state_code: '',
+    city: '',
   });
 
   const [status, setStatus] = useState<
@@ -78,6 +85,12 @@ const BrandProfile: React.FC = () => {
             contact_email: res.data.contact_email || '',
             description: res.data.description || '',
             logo_url: res.data.logo_url || '',
+            location: res.data.location || '',
+            country: res.data.country || '',
+            country_code: res.data.country_code || '',
+            state: res.data.state || '',
+            state_code: res.data.state_code || '',
+            city: res.data.city || '',
           });
         setStatus('idle');
       })
@@ -88,7 +101,12 @@ const BrandProfile: React.FC = () => {
     e.preventDefault();
     setStatus('loading');
     try {
-      await api.post('/brands/profile', profile);
+      const location =
+        profile.city && profile.country
+          ? `${profile.city}, ${profile.country}`
+          : profile.location;
+      await api.post('/brands/profile', { ...profile, location });
+      setProfile((p) => ({ ...p, location }));
       setStatus('success');
       window.dispatchEvent(new Event('profileUpdated'));
       setTimeout(() => {
@@ -279,6 +297,33 @@ const BrandProfile: React.FC = () => {
                   </Label>
                   <Input className={fieldClass} placeholder="hello@brand.com" />
                 </TextField>
+              </div>
+
+              <div>
+                <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5 inline-flex items-center gap-1.5">
+                  <Globe size={11} /> Headquarters
+                </Label>
+                {/* Dropdown-only (ISO dataset) — stores names + ISO codes */}
+                <LocationCascade
+                  layout="row"
+                  value={{
+                    country: profile.country,
+                    countryCode: profile.country_code,
+                    state: profile.state,
+                    stateCode: profile.state_code,
+                    city: profile.city,
+                  }}
+                  onChange={(v) =>
+                    setProfile({
+                      ...profile,
+                      country: v.country,
+                      country_code: v.countryCode,
+                      state: v.state,
+                      state_code: v.stateCode,
+                      city: v.city,
+                    })
+                  }
+                />
               </div>
 
               <div>

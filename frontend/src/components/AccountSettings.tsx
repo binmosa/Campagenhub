@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { buildTelegramLink, getTelegramBotUsername } from '../lib/telegram';
 import { Lock, Mail, Check, AlertCircle, Shield, MessageCircle, Copy, Link as LinkIcon, Loader2 } from 'lucide-react';
 import api from '../lib/api';
 
@@ -21,6 +22,12 @@ const AccountSettings: React.FC = () => {
   const [telegramToken, setTelegramToken] = useState('');
   const [telegramBotLink, setTelegramBotLink] = useState('');
   const [generatingTbLink, setGeneratingTbLink] = useState(false);
+
+  /* Bot identity comes from the backend env — never hardcoded */
+  const [botUsername, setBotUsername] = useState('');
+  useEffect(() => {
+    getTelegramBotUsername().then(setBotUsername);
+  }, []);
   
   // Gamification Status
   const [points, setPoints] = useState(0);
@@ -218,9 +225,10 @@ const AccountSettings: React.FC = () => {
                 </div>
               </div>
               <div className="flex gap-2">
-                <button 
-                  onClick={() => window.open('https://t.me/official_CampaignHub_bot', '_blank')} 
-                  className="text-xs font-bold text-[#0088cc] hover:text-[#0077b5] bg-blue-50 px-4 py-2 rounded-lg transition-colors border border-blue-100">
+                <button
+                  onClick={() => botUsername && window.open(buildTelegramLink(botUsername), '_blank')}
+                  disabled={!botUsername}
+                  className="text-xs font-bold text-[#0088cc] hover:text-[#0077b5] bg-blue-50 px-4 py-2 rounded-lg transition-colors border border-blue-100 disabled:opacity-50">
                   Open Bot
                 </button>
                 <button onClick={disconnectTelegram} className="text-xs font-bold text-red-600 hover:text-red-700 bg-red-50 px-4 py-2 rounded-lg transition-colors border border-red-100">
@@ -288,14 +296,16 @@ const AccountSettings: React.FC = () => {
                <div className="text-xs text-surface-600 mb-4">Invite users to the platform through your referral link. You earn 250 points for every new user!</div>
                {referralCode ? (
                  <div className="flex items-center gap-2 bg-surface dark:bg-surface-800 border border-surface-200 rounded-lg p-2">
-                    <input 
-                      readOnly 
-                      value={`https://t.me/official_CampaignHub_bot?start=REF_${referralCode}`}
+                    <input
+                      readOnly
+                      value={buildTelegramLink(botUsername, `REF_${referralCode}`) || 'Referral link unavailable'}
                       className="bg-transparent text-xs text-surface-600 w-full outline-none px-2"
                     />
-                    <button 
+                    <button
                       onClick={() => {
-                         navigator.clipboard.writeText(`https://t.me/official_CampaignHub_bot?start=REF_${referralCode}`);
+                         const link = buildTelegramLink(botUsername, `REF_${referralCode}`);
+                         if (!link) return;
+                         navigator.clipboard.writeText(link);
                          alert('Link Copied!');
                       }}
                       className="p-1.5 bg-surface-100 hover:bg-surface-200 rounded text-surface-600 transition-colors"

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 
 /**
@@ -131,6 +132,7 @@ export function useLandingData(): LandingData {
     contact_enabled: 'true',
   });
   const [reviews, setReviews] = useState<Review[]>([]);
+  const { i18n } = useTranslation();
   const [activeCampaigns, setActiveCampaigns] = useState<ActiveCampaign[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(true);
 
@@ -144,10 +146,12 @@ export function useLandingData(): LandingData {
 
     fetchReviews();
 
-    api.get('/campaigns/active').then((res) => {
-      setActiveCampaigns(res.data || []);
+    // Paginated endpoint: same payload shape as the /campaigns board,
+    // including per-campaign applicant counts for the shared card.
+    api.get('/campaigns/public-list', { params: { limit: '6', lang: i18n.language } }).then((res) => {
+      setActiveCampaigns(res.data?.items || []);
     }).catch(() => {}).finally(() => setCampaignsLoading(false));
-  }, []);
+  }, [i18n.language]);
 
   return {
     settings,

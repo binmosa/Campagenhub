@@ -11,6 +11,13 @@ export class ManagerProfile {
   user: User;
 
   @Column({ nullable: true })
+  first_name: string;
+
+  @Column({ nullable: true })
+  last_name: string;
+
+  /** Derived display name (first + last) — kept in sync on write. */
+  @Column({ nullable: true })
   full_name: string;
 
   @Column({ type: 'text', nullable: true })

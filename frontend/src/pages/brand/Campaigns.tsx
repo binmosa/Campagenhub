@@ -41,6 +41,7 @@ import api, { serverOrigin } from '../../lib/api';
 import { PageShell } from '../../components/ui';
 
 const PLATFORMS = ['Instagram', 'TikTok', 'YouTube', 'Twitter', 'Twitch'];
+const CAMPAIGN_CURRENCIES = ['USD', 'ETB', 'NGN', 'KES', 'GHS', 'EUR', 'GBP'];
 const CONTENT_TYPES = ['Photo', 'Video', 'Story', 'Reel', 'Blog', 'Live'];
 const OBJECTIVES = ['Awareness', 'Engagement', 'Conversions', 'Content'];
 
@@ -51,6 +52,7 @@ const EMPTY_CAMPAIGN = {
   title: '',
   description: '',
   budget: '',
+  currency: 'USD',
   platform: 'Instagram',
   target_audience: '',
   deadline: '',
@@ -110,6 +112,7 @@ const CampaignFormModal: React.FC<{
           title: editing.title || '',
           description: editing.description || '',
           budget: editing.budget?.toString() || '',
+          currency: (editing as any).currency || 'USD',
           platform: editing.platform || 'Instagram',
           target_audience: editing.target_audience || '',
           deadline: editing.deadline
@@ -181,21 +184,43 @@ const CampaignFormModal: React.FC<{
                   </TextField>
                   <div>
                     <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                      Platform
+                      Platforms
                     </Label>
-                    <select
-                      value={form.platform}
-                      onChange={(e) =>
-                        setForm({ ...form, platform: e.target.value })
-                      }
-                      className={fieldClass}
-                    >
-                      {PLATFORMS.map((p) => (
-                        <option key={p} value={p}>
-                          {p}
-                        </option>
-                      ))}
-                    </select>
+                    {/* Multi-target: stored comma-joined in the `platform`
+                        field ("TikTok, Instagram") — the backend and the
+                        public platform filter both understand this shape. */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {PLATFORMS.map((p) => {
+                        const selected = form.platform
+                          .split(',')
+                          .map((s) => s.trim())
+                          .filter(Boolean);
+                        const active = selected.includes(p);
+                        return (
+                          <button
+                            key={p}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() => {
+                              const next = active
+                                ? selected.filter((s) => s !== p)
+                                : [...selected, p];
+                              setForm({ ...form, platform: next.join(', ') });
+                            }}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                              active
+                                ? 'bg-accent border-accent text-accent-foreground'
+                                : 'bg-surface border-border text-foreground hover:border-accent/40'
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-muted text-[11px] mt-1.5">
+                      Pick every platform this campaign targets.
+                    </p>
                   </div>
                 </div>
 
@@ -207,14 +232,28 @@ const CampaignFormModal: React.FC<{
                     aria-label="Budget"
                   >
                     <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                      Budget ($) *
+                      Budget *
                     </Label>
-                    <Input
-                      className={fieldClass}
-                      type="number"
-                      min="0"
-                      placeholder="5000"
-                    />
+                    <div className="flex gap-2">
+                      <select
+                        value={form.currency}
+                        onChange={(e) => setForm({ ...form, currency: e.target.value })}
+                        className={`${fieldClass} !w-24 shrink-0`}
+                        aria-label="Currency"
+                      >
+                        {CAMPAIGN_CURRENCIES.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        className={fieldClass}
+                        type="number"
+                        min="0"
+                        placeholder="5000"
+                      />
+                    </div>
                   </TextField>
                   <TextField
                     value={form.target_audience}

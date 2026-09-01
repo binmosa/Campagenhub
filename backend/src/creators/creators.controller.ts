@@ -29,6 +29,9 @@ export class CreatorsController {
     @Query('search') search?: string,
     @Query('category') category?: string,
     @Query('location') location?: string,
+    @Query('country') country?: string,
+    @Query('countryCode') countryCode?: string,
+    @Query('city') city?: string,
     @Query('minFollowers') minFollowers?: string,
     @Query('maxFollowers') maxFollowers?: string,
     @Query('platforms') platforms?: string,
@@ -37,8 +40,14 @@ export class CreatorsController {
     @Query('offset') offset?: string,
   ) {
     return this.creatorsService.getAllPublicCreators({
-      search, category, location, minFollowers, maxFollowers, platforms, sort, limit, offset,
+      search, category, location, country, countryCode, city, minFollowers, maxFollowers, platforms, sort, limit, offset,
     });
+  }
+
+  // Location facets for filter dropdowns — only places active creators are.
+  @Get('locations')
+  async getLocations() {
+    return this.creatorsService.getCreatorLocations();
   }
 
   // Public read-only profile card - accessible by any authenticated user

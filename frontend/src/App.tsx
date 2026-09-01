@@ -4,6 +4,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import Layout from './components/layout/Layout';
 import AuthGuard from './guards/AuthGuard';
 import Landing from './pages/landing';
+import GeoGate from './components/common/GeoGate';
 import Maintenance from './pages/Maintenance';
 import Login from './pages/auth/Login';
 import Register from './pages/auth/Register';
@@ -33,6 +34,9 @@ import BrandCampaigns from './pages/brand/Campaigns';
 import BrandApplications from './pages/brand/Applications';
 import CreatorApplications from './pages/creator/Applications';
 import PublicCampaigns from './pages/PublicCampaigns';
+import Terms from './pages/legal/Terms';
+import Privacy from './pages/legal/Privacy';
+import MarketPage from './pages/markets/MarketPage';
 import PublicManagers from './pages/PublicManagers';
 
 import TalentNetwork from './pages/TalentNetwork';
@@ -97,10 +101,12 @@ function App() {
         </Routes>
       ) : (
         <Routes>
-        <Route path="/" element={<GuestGuard><Landing /></GuestGuard>} />
+        <Route path="/" element={<GuestGuard><GeoGate><Landing /></GeoGate></GuestGuard>} />
         <Route path="/campaigns" element={<PublicCampaigns />} />
         <Route path="/managers" element={<PublicManagers />} />
         <Route path="/creators" element={<Navigate to="/talent" replace />} />
+        <Route path="/legal/terms" element={<Terms />} />
+        <Route path="/legal/privacy" element={<Privacy />} />
         <Route path="/talent" element={<TalentNetwork />} />
         <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
         <Route path="/register" element={<GuestGuard><Register /></GuestGuard>} />
@@ -128,6 +134,8 @@ function App() {
           <Route path="talent" element={<DashboardTalent />} />
           <Route path="payments" element={<Payments />} />
         </Route>
+        {/* Market landing pages — /et, /ng, … (validated against /api/markets) */}
+        <Route path="/:marketCode" element={<MarketPage />} />
         </Routes>
       )}
     </BrowserRouter>

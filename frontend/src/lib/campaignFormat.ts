@@ -1,13 +1,31 @@
+import i18n from '../i18n';
+
 /**
  * campaignFormat — shared display helpers for campaign cards
  * (public /campaigns board + landing ActiveCampaigns).
  */
 
-export const formatBudget = (raw?: number | string | null): string => {
+/** ISO-4217 → display symbol for the markets CampaignHub operates in. */
+export const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: '$',
+  ETB: 'Br ',
+  NGN: '₦',
+  KES: 'KSh ',
+  GHS: '₵',
+  XOF: 'CFA ',
+  EUR: '€',
+  GBP: '£',
+};
+
+export const formatBudget = (
+  raw?: number | string | null,
+  currency: string = 'USD',
+): string => {
   const n = typeof raw === 'string' ? parseFloat(raw) : raw;
   if (typeof n !== 'number' || Number.isNaN(n)) return '—';
-  if (n >= 1000) return `$${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`;
-  return `$${n}`;
+  const sym = CURRENCY_SYMBOLS[currency] ?? `${currency} `;
+  if (n >= 1000) return `${sym}${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`;
+  return `${sym}${n}`;
 };
 
 export const brandName = (camp: any): string =>
@@ -29,9 +47,9 @@ export const deadlineLabel = (deadline?: string | null): string | null => {
   if (Number.isNaN(d.getTime())) return null;
   const days = Math.ceil((d.getTime() - Date.now()) / 86_400_000);
   if (days < 0) return null;
-  if (days === 0) return 'Due today';
-  if (days === 1) return '1 day left';
-  if (days <= 60) return `${days} days left`;
+  if (days === 0) return i18n.t('time.dueToday');
+  if (days === 1) return i18n.t('time.oneDayLeft');
+  if (days <= 60) return i18n.t('time.daysLeft', { n: days });
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
@@ -41,8 +59,8 @@ export const postedLabel = (createdAt?: string | null): string | null => {
   const t = new Date(createdAt).getTime();
   if (Number.isNaN(t)) return null;
   const days = Math.floor((Date.now() - t) / 86_400_000);
-  if (days <= 0) return 'today';
-  if (days < 7) return `${days}d ago`;
-  if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  return `${Math.floor(days / 30)}mo ago`;
+  if (days <= 0) return i18n.t('time.today');
+  if (days < 7) return i18n.t('time.dAgo', { n: days });
+  if (days < 30) return i18n.t('time.wAgo', { n: Math.floor(days / 7) });
+  return i18n.t('time.moAgo', { n: Math.floor(days / 30) });
 };

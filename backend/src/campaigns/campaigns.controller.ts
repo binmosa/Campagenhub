@@ -10,8 +10,8 @@ export class CampaignsController {
   constructor(private readonly campaignsService: CampaignsService) {}
 
   @Get('active')
-  async getActive() {
-    return this.campaignsService.getActiveCampaigns();
+  async getActive(@Query('lang') lang?: string) {
+    return this.campaignsService.getActiveCampaigns(lang);
   }
 
   // Public directory - no auth required. Paginated: returns { items, total, hasMore }.
@@ -19,11 +19,24 @@ export class CampaignsController {
   async getPublicList(
     @Query('search') search?: string,
     @Query('platform') platform?: string,
+    @Query('minBudget') minBudget?: string,
+    @Query('maxBudget') maxBudget?: string,
+    @Query('industry') industry?: string,
+    @Query('objective') objective?: string,
     @Query('sort') sort?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('lang') lang?: string,
   ) {
-    return this.campaignsService.getPublicCampaigns({ search, platform, sort, limit, offset });
+    return this.campaignsService.getPublicCampaigns({
+      search, platform, minBudget, maxBudget, industry, objective, sort, limit, offset, lang,
+    });
+  }
+
+  // Filter facets (brand sectors + campaign orientations that exist).
+  @Get('facets')
+  async getFacets() {
+    return this.campaignsService.getCampaignFacets();
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

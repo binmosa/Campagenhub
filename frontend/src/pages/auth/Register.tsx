@@ -1,15 +1,46 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
   Briefcase,
   Camera,
+  ChevronDown,
   Sparkles,
   Users,
 } from 'lucide-react';
 import { Button } from '@heroui/react';
 import { AnimatePresence, motion } from 'motion/react';
+import { useTranslation } from 'react-i18next';
+import i18n from '../../i18n';
+import { useNoIndex } from '../../lib/seo';
 import api from '../../lib/api';
+import { buildTelegramLink, getTelegramBotUsername } from '../../lib/telegram';
+import LocationCascade, { EMPTY_LOCATION, type LocationValue } from '../../components/common/LocationCascade';
+import SearchSelect from '../../components/common/SearchSelect';
+import PlatformIcon from '../landing/mocks/PlatformIcon';
+import { NICHES, PLATFORM_ICON_KEY } from '../talent/shared';
+import {
+  SOCIAL_PLATFORMS,
+  normalizeUrl,
+  serializeSocialLinks,
+  type SocialMap,
+} from '../../lib/socialLinks';
+
+/** Ad goals a brand can register interest in (mirrors campaign objectives). */
+const AD_GOALS = ['Awareness', 'Engagement', 'Conversions', 'Content'];
+
+/** The 4 primary handle fields shown at signup (full grid lives in the profile). */
+const SIGNUP_SOCIALS = SOCIAL_PLATFORMS.filter((p) =>
+  ['instagram', 'tiktok', 'youtube', 'twitter'].includes(p.id),
+);
+
+const EXPERIENCE_OPTIONS = [
+  { value: '1', tKey: 'auth.exp1' },
+  { value: '2', tKey: 'auth.exp2' },
+  { value: '3', tKey: 'auth.exp3' },
+  { value: '5', tKey: 'auth.exp5' },
+  { value: '10', tKey: 'auth.exp10' },
+];
 
 /**
  * Register — Campgains Hub simplified onboarding.
@@ -24,6 +55,8 @@ import api from '../../lib/api';
  * in their profile prompting them to submit ID + verification video.
  */
 const Register: React.FC = () => {
+  const { t } = useTranslation();
+  useNoIndex();
   const [step, setStep] = useState<1 | 2>(1);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -37,26 +70,71 @@ const Register: React.FC = () => {
   const [error, setError] = useState('');
 
   /* Role-specific essentials */
-  const [fullName, setFullName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [contactPerson, setContactPerson] = useState('');
   const [tinNumber, setTinNumber] = useState('');
 
-  /* After-register telegram connect token */
+  /* Creator location — dropdown-only (ISO dataset via /api/geo) */
+  const [loc, setLoc] = useState<LocationValue>(EMPTY_LOCATION);
+
+  /* Brand essentials — sector powers campaign filtering + matching */
+  const [brandSector, setBrandSector] = useState('');
+  const [brandExtrasOpen, setBrandExtrasOpen] = useState(false);
+  const [brandWebsite, setBrandWebsite] = useState('');
+  const [brandGoals, setBrandGoals] = useState<Set<string>>(new Set());
+  const [brandSocials, setBrandSocials] = useState<SocialMap>({});
+
+  /* Manager essentials — sectors they want to manage */
+  const [mgrSectors, setMgrSectors] = useState<Set<string>>(new Set());
+  const [mgrExperience, setMgrExperience] = useState('');
+
+  /* After-register telegram connect token + bot identity (from backend env) */
   const [telegramToken, setTelegramToken] = useState('');
+  const [botUsername, setBotUsername] = useState('');
+  useEffect(() => {
+    getTelegramBotUsername().then(setBotUsername);
+  }, []);
+
+  /* Market-aware prefill: a geo-routed visitor (market_home = 'et', …) gets
+     their country pre-selected in the location cascade — editable, never
+     locked (VPNs, travelers, diaspora). */
+  useEffect(() => {
+    let home: string | null = null;
+    try { home = localStorage.getItem('market_home'); } catch { /* private mode */ }
+    if (!home || home === 'root') return;
+    const iso = home.toUpperCase();
+    api.get('/geo/countries').then((res) => {
+      const c = (Array.isArray(res.data) ? res.data : []).find((x: any) => x.iso2 === iso);
+      if (c) setLoc((prev) => (prev.country ? prev : { ...EMPTY_LOCATION, country: c.name, countryCode: c.iso2 }));
+    }).catch(() => {});
+  }, []);
   const navigate = useNavigate();
 
   const handleRegisterSubmit = async () => {
     if (!email || !password || password !== confirmPassword || password.length < 8) {
-      setError('Please fill all account details correctly. Passwords must match and be at least 8 characters.');
+      setError(t('auth.errAccount'));
       return;
     }
-    if ((role === 'creator' || role === 'manager') && !fullName.trim()) {
-      setError('Please enter your full name.');
+    if ((role === 'creator' || role === 'manager') && !firstName.trim()) {
+      setError(t('auth.errFirstName'));
       return;
     }
     if (role === 'brand' && !companyName.trim()) {
-      setError('Please enter your company name.');
+      setError(t('auth.errCompany'));
+      return;
+    }
+    if (role === 'brand' && !brandSector) {
+      setError(t('auth.errSector'));
+      return;
+    }
+    if (role === 'creator' && (!loc.country || !loc.city)) {
+      setError(t('auth.errLocation'));
+      return;
+    }
+    if (role === 'manager' && mgrSectors.size === 0) {
+      setError(t('auth.errMgrSectors'));
       return;
     }
 
@@ -66,21 +144,44 @@ const Register: React.FC = () => {
     try {
       const profile =
         role === 'creator'
-          ? { full_name: fullName }
+          ? {
+              first_name: firstName,
+              last_name: lastName,
+              country: loc.country,
+              country_code: loc.countryCode,
+              state: loc.state,
+              state_code: loc.stateCode,
+              city: loc.city,
+              location: `${loc.city}, ${loc.country}`,
+            }
           : role === 'brand'
           ? {
               company_name: companyName,
               contact_person: contactPerson,
               contact_email: email,
               tin_number: tinNumber,
+              industry: brandSector,
+              website: brandWebsite.trim() ? normalizeUrl(brandWebsite) : '',
+              objectives: [...brandGoals].join(', '),
+              social_links: serializeSocialLinks(brandSocials),
             }
-          : { full_name: fullName };
+          : {
+              first_name: firstName,
+              last_name: lastName,
+              specialty: [...mgrSectors].join(', '),
+              ...(mgrExperience ? { experience_years: Number(mgrExperience) } : {}),
+            };
+
+      let signupMarket: string | null = null;
+      try { signupMarket = localStorage.getItem('market_home'); } catch { /* private mode */ }
 
       const response = await api.post('/auth/register', {
         email,
         password,
         role,
         profile,
+        language: i18n.language,
+        ...(signupMarket ? { signup_market: signupMarket } : {}),
       });
       if (response.data.error) throw new Error(response.data.error);
 
@@ -95,7 +196,7 @@ const Register: React.FC = () => {
       setTelegramToken(response.data?.user?.telegram_connect_token || '');
       setStep(2);
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Registration failed.');
+      setError(err.response?.data?.message || err.message || t('auth.regFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -161,7 +262,7 @@ const Register: React.FC = () => {
             }}
           >
             <Sparkles size={11} />
-            Get started in seconds
+            {t('auth.getStartedBadge')}
           </span>
           <h1
             className="mt-6 font-medium"
@@ -172,7 +273,7 @@ const Register: React.FC = () => {
               letterSpacing: '-0.025em',
             }}
           >
-            Join the network.{' '}
+            {t('auth.regH1a')}{' '}
             <span
               style={{
                 backgroundImage:
@@ -182,7 +283,7 @@ const Register: React.FC = () => {
                 color: 'transparent',
               }}
             >
-              Start instantly.
+              {t('auth.regH1b')}
             </span>
           </h1>
           <p
@@ -194,8 +295,7 @@ const Register: React.FC = () => {
               letterSpacing: '-0.012em',
             }}
           >
-            Create your account in a few seconds and start using Campgains Hub.
-            We'll ask you to verify your identity later — only if it's needed.
+            {t('auth.regSub')}
           </p>
         </motion.div>
 
@@ -209,12 +309,12 @@ const Register: React.FC = () => {
               textTransform: 'uppercase',
             }}
           >
-            Onboarding progress
+            {t('auth.onboardingProgress')}
           </p>
           <div className="space-y-2">
             {[
-              { n: 1, label: 'Account & profile' },
-              { n: 2, label: 'Connect Telegram (optional)' },
+              { n: 1, label: t('auth.step1') },
+              { n: 2, label: t('auth.step2') },
             ].map((s) => {
               const active = step === s.n;
               const done = step > s.n;
@@ -270,7 +370,7 @@ const Register: React.FC = () => {
             className="v-caption v-quiet font-medium"
             style={{ letterSpacing: '0.04em', textTransform: 'uppercase' }}
           >
-            Step {step} / 2
+            {t('auth.stepOf', { n: step })}
           </span>
         </div>
 
@@ -305,12 +405,10 @@ const Register: React.FC = () => {
 
           <div className="mb-6">
             <h2 className="v-heading-xl">
-              {step === 1 ? 'Create your account.' : "You're all set."}
+              {step === 1 ? t('auth.createTitle') : t('auth.doneTitle')}
             </h2>
             <p className="mt-3 v-body-lg v-muted">
-              {step === 1
-                ? 'A few essentials and you can start using the platform.'
-                : 'Optionally connect Telegram so we can notify you about new opportunities.'}
+              {step === 1 ? t('auth.createSub') : t('auth.doneSub')}
             </p>
           </div>
 
@@ -349,7 +447,7 @@ const Register: React.FC = () => {
                   className="v-caption v-muted font-medium mb-2 block"
                   style={{ letterSpacing: '-0.012em' }}
                 >
-                  I'm joining as a…
+                  {t('auth.joiningAs')}
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {(['creator', 'brand', 'manager'] as const).map((r) => {
@@ -372,10 +470,10 @@ const Register: React.FC = () => {
                       >
                         <Icon size={18} strokeWidth={1.75} />
                         <span
-                          className="font-medium capitalize"
+                          className="font-medium"
                           style={{ fontSize: 12, letterSpacing: '-0.012em' }}
                         >
-                          {r}
+                          {t(r === 'brand' ? 'auth.roleBrand' : r === 'manager' ? 'auth.roleManager' : 'auth.roleCreator')}
                         </span>
                       </button>
                     );
@@ -390,62 +488,298 @@ const Register: React.FC = () => {
                   onChange={(e) => setEmail(e.target.value)}
                   className={fieldClass}
                   style={fieldStyle}
-                  placeholder="Email address"
+                  placeholder={t('auth.emailPh')}
                 />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={fieldClass}
-                  style={fieldStyle}
-                  placeholder="Password (min 8 chars)"
-                />
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className={fieldClass}
-                  style={fieldStyle}
-                  placeholder="Confirm password"
-                />
+                <div>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className={fieldClass}
+                    style={{
+                      ...fieldStyle,
+                      ...(password && password.length < 8
+                        ? { borderColor: 'rgba(255, 90, 95, 0.55)' }
+                        : {}),
+                    }}
+                    placeholder={t('auth.passwordPh')}
+                    aria-describedby="password-hint"
+                  />
+                  {password && password.length < 8 && (
+                    <p
+                      id="password-hint"
+                      className="mt-1.5 v-caption"
+                      style={{ color: '#e5484d' }}
+                      aria-live="polite"
+                    >
+                      {t('auth.moreChars', { n: 8 - password.length })}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className={fieldClass}
+                    style={{
+                      ...fieldStyle,
+                      ...(confirmPassword && confirmPassword !== password
+                        ? { borderColor: 'rgba(255, 90, 95, 0.55)' }
+                        : confirmPassword && confirmPassword === password
+                        ? { borderColor: 'rgba(22, 199, 132, 0.55)' }
+                        : {}),
+                    }}
+                    placeholder={t('auth.confirmPh')}
+                    aria-describedby="confirm-hint"
+                    aria-invalid={!!confirmPassword && confirmPassword !== password}
+                  />
+                  {confirmPassword && confirmPassword !== password && (
+                    <p
+                      id="confirm-hint"
+                      className="mt-1.5 v-caption"
+                      style={{ color: '#e5484d' }}
+                      aria-live="polite"
+                    >
+                      {t('auth.noMatch')}
+                    </p>
+                  )}
+                  {confirmPassword && password.length >= 8 && confirmPassword === password && (
+                    <p
+                      id="confirm-hint"
+                      className="mt-1.5 v-caption"
+                      style={{ color: '#0e9f6a' }}
+                      aria-live="polite"
+                    >
+                      {t('auth.match')}
+                    </p>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-3">
                 {role === 'creator' || role === 'manager' ? (
-                  <input
-                    type="text"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    className={fieldClass}
-                    style={fieldStyle}
-                    placeholder="Full name"
-                  />
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <input
+                        type="text"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        className={fieldClass}
+                        style={fieldStyle}
+                        placeholder={t('auth.firstNamePh')}
+                        autoComplete="given-name"
+                      />
+                      <input
+                        type="text"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        className={fieldClass}
+                        style={fieldStyle}
+                        placeholder={t('auth.lastNamePh')}
+                        autoComplete="family-name"
+                      />
+                    </div>
+                    {role === 'creator' && (
+                      <div>
+                        <p className="v-caption v-quiet mb-2">
+                          {t('auth.whereBased')}
+                        </p>
+                        <LocationCascade value={loc} onChange={setLoc} layout="stack" />
+                      </div>
+                    )}
+
+                    {role === 'manager' && (
+                      <>
+                        {/* Sectors they want to manage */}
+                        <div>
+                          <p className="v-caption v-quiet mb-1.5">
+                            {t('auth.mgrSectorsQ')}
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {NICHES.map((n) => {
+                              const active = mgrSectors.has(n);
+                              return (
+                                <button
+                                  key={n}
+                                  type="button"
+                                  aria-pressed={active}
+                                  onClick={() =>
+                                    setMgrSectors((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(n)) next.delete(n);
+                                      else next.add(n);
+                                      return next;
+                                    })
+                                  }
+                                  className="v-niche-chip"
+                                  data-active={active || undefined}
+                                >
+                                  {t(`cats.${n}`, { defaultValue: n })}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="v-caption v-quiet mb-1.5">
+                            {t('auth.mgrYearsQ')}
+                          </p>
+                          <select
+                            value={mgrExperience}
+                            onChange={(e) => setMgrExperience(e.target.value)}
+                            className={fieldClass}
+                            style={fieldStyle}
+                            aria-label="Years of experience"
+                          >
+                            <option value="">{t('auth.select')}</option>
+                            {EXPERIENCE_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {t(o.tKey)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <p className="v-caption v-quiet">
+                          {t('auth.mgrInviteNote')}
+                        </p>
+                      </>
+                    )}
+                  </>
                 ) : (
                   <>
-                    <input
-                      type="text"
-                      value={companyName}
-                      onChange={(e) => setCompanyName(e.target.value)}
-                      className={fieldClass}
-                      style={fieldStyle}
-                      placeholder="Company name"
-                    />
-                    <input
-                      type="text"
-                      value={contactPerson}
-                      onChange={(e) => setContactPerson(e.target.value)}
-                      className={fieldClass}
-                      style={fieldStyle}
-                      placeholder="Contact person (optional)"
-                    />
-                    <input
-                      type="text"
-                      value={tinNumber}
-                      onChange={(e) => setTinNumber(e.target.value)}
-                      className={fieldClass}
-                      style={fieldStyle}
-                      placeholder="Tax ID / TIN (optional)"
-                    />
+                    {/* Essentials — kept above the fold */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <input
+                        type="text"
+                        value={companyName}
+                        onChange={(e) => setCompanyName(e.target.value)}
+                        className={fieldClass}
+                        style={fieldStyle}
+                        placeholder={t('auth.companyPh')}
+                      />
+                      <SearchSelect
+                        aria-label="Brand sector"
+                        placeholder={t('auth.sectorPh')}
+                        options={NICHES.map((n) => ({ value: n, label: t(`cats.${n}`, { defaultValue: n }) }))}
+                        value={brandSector}
+                        onChange={setBrandSector}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <input
+                        type="text"
+                        value={brandWebsite}
+                        onChange={(e) => setBrandWebsite(e.target.value)}
+                        className={fieldClass}
+                        style={fieldStyle}
+                        placeholder={t('auth.websitePh')}
+                      />
+                      <input
+                        type="text"
+                        value={contactPerson}
+                        onChange={(e) => setContactPerson(e.target.value)}
+                        className={fieldClass}
+                        style={fieldStyle}
+                        placeholder={t('auth.contactPh')}
+                      />
+                    </div>
+
+                    {/* Ad goals — what they want campaigns to achieve */}
+                    <div>
+                      <p className="v-caption v-quiet mb-1.5">
+                        {t('auth.goalsQ')}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {AD_GOALS.map((g) => {
+                          const active = brandGoals.has(g);
+                          return (
+                            <button
+                              key={g}
+                              type="button"
+                              aria-pressed={active}
+                              onClick={() =>
+                                setBrandGoals((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(g)) next.delete(g);
+                                  else next.add(g);
+                                  return next;
+                                })
+                              }
+                              className="v-niche-chip"
+                              data-active={active || undefined}
+                            >
+                              {t(`objectives.${g}`, { defaultValue: g })}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Optional extras stay collapsed so the CTA stays visible */}
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setBrandExtrasOpen((o) => !o)}
+                        aria-expanded={brandExtrasOpen}
+                        className="inline-flex items-center gap-1.5 v-caption font-medium"
+                        style={{ color: 'var(--color-campaign-purple)' }}
+                      >
+                        <ChevronDown
+                          size={13}
+                          style={{
+                            transform: brandExtrasOpen ? 'rotate(180deg)' : 'none',
+                            transition: 'transform 160ms',
+                          }}
+                        />
+                        {t('auth.extrasToggle')}
+                      </button>
+
+                      {brandExtrasOpen && (
+                        <div className="mt-3 space-y-3">
+                          <input
+                            type="text"
+                            value={tinNumber}
+                            onChange={(e) => setTinNumber(e.target.value)}
+                            className={fieldClass}
+                            style={fieldStyle}
+                            placeholder={t('auth.tinPh')}
+                          />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {SIGNUP_SOCIALS.map((p) => (
+                              <div key={p.id} className="relative">
+                                <span
+                                  className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none inline-flex"
+                                  style={{ color: p.color }}
+                                >
+                                  <PlatformIcon platform={PLATFORM_ICON_KEY[p.id]} size={14} />
+                                </span>
+                                <input
+                                  type="text"
+                                  value={brandSocials[p.id]?.url || ''}
+                                  onChange={(e) =>
+                                    setBrandSocials((prev) => ({
+                                      ...prev,
+                                      [p.id]: { url: e.target.value },
+                                    }))
+                                  }
+                                  placeholder={p.placeholder}
+                                  aria-label={`${p.label} profile URL`}
+                                  className={`${fieldClass} pl-9`}
+                                  style={fieldStyle}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          <p className="v-caption v-quiet">
+                            {t('auth.addMoreLater')}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
@@ -458,20 +792,20 @@ const Register: React.FC = () => {
                 onPress={handleRegisterSubmit}
                 className="!rounded-xl"
               >
-                Create account <ArrowRight size={16} />
+                {t('auth.createBtn')} <ArrowRight size={16} />
               </Button>
 
               <div
                 className="mt-3 pt-5 text-center v-body v-muted"
                 style={{ borderTop: '1px solid var(--color-cool-gray)' }}
               >
-                Already have an account?{' '}
+                {t('auth.haveAccount')}{' '}
                 <Link
                   to="/login"
                   className="font-medium"
                   style={{ color: 'var(--color-campaign-purple)' }}
                 >
-                  Sign in
+                  {t('auth.signInLink')}
                 </Link>
               </div>
             </motion.div>
@@ -501,14 +835,12 @@ const Register: React.FC = () => {
                   <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z" />
                 </svg>
               </div>
-              <h2 className="v-heading-lg">Your account is active.</h2>
+              <h2 className="v-heading-lg">{t('auth.activeTitle')}</h2>
               <p className="mt-3 v-body-lg v-muted">
-                Optionally connect our Telegram bot so we can ping you about
-                new campaign matches and updates. You can skip this and do it
-                later from your profile.
+                {t('auth.activeSub')}
               </p>
 
-              {telegramToken && (
+              {telegramToken && botUsername && (
                 <div
                   className="my-7 p-5 rounded-2xl"
                   style={{
@@ -520,10 +852,10 @@ const Register: React.FC = () => {
                     className="v-caption v-quiet font-medium mb-3"
                     style={{ letterSpacing: '0.06em', textTransform: 'uppercase' }}
                   >
-                    Your secure link
+                    {t('auth.secureLink')}
                   </p>
                   <a
-                    href={`https://t.me/official_CampaignHub_bot?start=${telegramToken}`}
+                    href={buildTelegramLink(botUsername, telegramToken)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium"
@@ -535,7 +867,7 @@ const Register: React.FC = () => {
                       boxShadow: 'rgba(0,136,204,0.30) 0px 6px 16px -4px',
                     }}
                   >
-                    Open Telegram & connect <ArrowRight size={14} />
+                    {t('auth.openTelegram')} <ArrowRight size={14} />
                   </a>
                 </div>
               )}
@@ -547,7 +879,7 @@ const Register: React.FC = () => {
                 onPress={() => navigate('/dashboard')}
                 className="!rounded-xl"
               >
-                Go to dashboard <ArrowRight size={14} />
+                {t('auth.goDashboard')} <ArrowRight size={14} />
               </Button>
             </motion.div>
           )}

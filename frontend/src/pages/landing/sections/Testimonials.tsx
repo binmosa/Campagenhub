@@ -4,6 +4,7 @@ import type { EmblaCarouselType } from 'embla-carousel';
 import { Avatar, Button, Chip, Modal } from '@heroui/react';
 import { Carousel } from '@heroui-pro/react';
 import { motion } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 import api from '../../../lib/api';
 import type { LandingSettings, Review } from '../useLandingData';
 import { MOCK_TESTIMONIALS } from '../copy';
@@ -214,6 +215,7 @@ export const Testimonials: React.FC<TestimonialsProps> = ({
   reviews,
   onReviewSubmitted,
 }) => {
+  const { t } = useTranslation();
   if (settings.testimonials_enabled === 'false') return null;
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -287,17 +289,17 @@ export const Testimonials: React.FC<TestimonialsProps> = ({
     >
       <div className="max-w-[1100px] mx-auto">
         <div className="text-center max-w-[640px] mx-auto mb-12">
-          <span className="v-pill-quiet">Loved by brands & creators</span>
+          <span className="v-pill-quiet">{t('testi.pill')}</span>
           <h2 className="mt-5 v-heading-xl">
-            Honest words from real users.
+            {t('testi.title')}
           </h2>
           <p className="mt-4 v-body-lg v-muted">
-            What teams say after running their first campaign through Campgains Hub.
+            {t('testi.desc')}
           </p>
           {token && (
             <div className="mt-6">
               <Button variant="outline" size="sm" className="!rounded-xl" onPress={() => setOpen(true)}>
-                <Star size={14} /> Leave a review
+                <Star size={14} /> {t('testi.leaveReview')}
               </Button>
             </div>
           )}
@@ -338,20 +340,20 @@ export const Testimonials: React.FC<TestimonialsProps> = ({
         <Modal.Container>
           <Modal.Dialog>
             <Modal.Header>
-              <Modal.Heading>Leave a review</Modal.Heading>
+              <Modal.Heading>{t('testi.leaveReview')}</Modal.Heading>
             </Modal.Header>
             <Modal.Body>
               <form id="hero-review-form" onSubmit={submit} className="space-y-4">
                 <input
                   className="w-full px-3.5 py-2.5 rounded-lg v-body v-ink"
                   style={{ background: '#fff', border: '1px solid var(--color-cool-gray)', outline: 'none' }}
-                  placeholder="Your name"
+                  placeholder={t('contact.namePh')}
                   value={form.user_name}
                   onChange={(e) => setForm({ ...form, user_name: e.target.value })}
                 />
                 <div>
                   <label className="v-caption v-quiet font-medium uppercase tracking-wider">
-                    Rating
+                    {t('testi.rating')}
                   </label>
                   <div className="mt-2 flex gap-1">
                     {[1, 2, 3, 4, 5].map((s) => (
@@ -375,7 +377,7 @@ export const Testimonials: React.FC<TestimonialsProps> = ({
                 </div>
                 <textarea
                   required
-                  placeholder="Share your experience…"
+                  placeholder={t('testi.sharePh')}
                   value={form.comment}
                   onChange={(e) => setForm({ ...form, comment: e.target.value })}
                   className="w-full px-3.5 py-2.5 rounded-lg v-body v-ink h-24 resize-none"
@@ -384,14 +386,14 @@ export const Testimonials: React.FC<TestimonialsProps> = ({
               </form>
             </Modal.Body>
             <Modal.Footer>
-              <Button variant="ghost" onPress={() => setOpen(false)}>Cancel</Button>
+              <Button variant="ghost" onPress={() => setOpen(false)}>{t('testi.cancel')}</Button>
               <Button
                 variant="primary"
                 type="submit"
                 form="hero-review-form"
                 isPending={submitting}
               >
-                Submit review
+                {t('testi.submit')}
               </Button>
             </Modal.Footer>
           </Modal.Dialog>

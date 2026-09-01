@@ -19,15 +19,17 @@ import {
   Chip,
   Label,
   SearchField,
-  Separator,
 } from '@heroui/react';
 import { EmptyState, Segment, Sheet } from '@heroui-pro/react';
+import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { formatCompact, socialEntries } from '../lib/socialLinks';
 import LandingNav from './landing/sections/LandingNav';
 import Footer from './landing/sections/Footer';
 import PlatformIcon from './landing/mocks/PlatformIcon';
 import InvitationModal from './talent/InvitationModal';
+import SearchSelect from '../components/common/SearchSelect';
+import FacetPopover from '../components/common/FacetPopover';
 import {
   FOLLOWER_RANGES,
   NICHES,
@@ -55,7 +57,8 @@ type SortKey = 'top' | 'name';
 
 type FilterState = {
   search: string;
-  location: string;
+  country: string;
+  city: string;
   niche: string;
   followerRangeId: string;
   platforms: Set<string>;
@@ -63,11 +66,16 @@ type FilterState = {
 
 const INITIAL_FILTERS: FilterState = {
   search: '',
-  location: '',
+  country: '',
+  city: '',
   niche: '',
   followerRangeId: 'any',
   platforms: new Set<string>(),
 };
+
+/** One row of the location facets: a (country, city) pair that actually
+ *  exists among active creators, with its creator count. */
+type LocationRow = { country: string; city: string | null; count: number };
 
 /* ── Filter section wrapper ──────────────────────────────────────── */
 const FilterSection: React.FC<{
@@ -84,13 +92,64 @@ const FilterSection: React.FC<{
   </div>
 );
 
-/* ── Filter panel (desktop sidebar + mobile sheet) ───────────────── */
-const FilterPanel: React.FC<{
-  tab: Tab;
+/* ── Shared filter fields (used by facet popovers + the mobile sheet) ── */
+type FieldProps = {
   filters: FilterState;
   setFilters: React.Dispatch<React.SetStateAction<FilterState>>;
-  onReset: () => void;
-}> = ({ tab, filters, setFilters, onReset }) => {
+};
+
+/**
+ * Location filter — dropdowns fed by `/creators/locations`, so the lists
+ * only offer countries and cities where creators actually are (with
+ * counts). No free text: an empty platform in Ethiopia can never be
+ * "filtered" to Iceland by a typo.
+ */
+const LocationFields: React.FC<FieldProps & { locations: LocationRow[] }> = ({
+  filters,
+  setFilters,
+  locations,
+}) => {
+  const { t } = useTranslation();
+  const countryOptions = useMemo(() => {
+    const byCountry = new Map<string, number>();
+    for (const l of locations) byCountry.set(l.country, (byCountry.get(l.country) || 0) + l.count);
+    return [...byCountry.entries()].map(([name, count]) => ({
+      value: name,
+      label: name,
+      hint: String(count),
+    }));
+  }, [locations]);
+
+  const cityOptions = useMemo(() => {
+    if (!filters.country) return [];
+    return locations
+      .filter((l) => l.country === filters.country && l.city)
+      .map((l) => ({ value: l.city!, label: l.city!, hint: String(l.count) }));
+  }, [locations, filters.country]);
+
+  return (
+    <div className="space-y-2.5">
+      <SearchSelect
+        aria-label="Country"
+        placeholder={countryOptions.length ? t('talent.countryPh') : t('talent.noLocations')}
+        disabled={countryOptions.length === 0}
+        options={countryOptions}
+        value={filters.country}
+        onChange={(country) => setFilters((f) => ({ ...f, country, city: '' }))}
+      />
+      <SearchSelect
+        aria-label="City"
+        placeholder={filters.country ? t('talent.cityPh') : t('talent.pickCountry')}
+        disabled={!filters.country || cityOptions.length === 0}
+        options={cityOptions}
+        value={filters.city}
+        onChange={(city) => setFilters((f) => ({ ...f, city }))}
+      />
+    </div>
+  );
+};
+
+const PlatformRows: React.FC<FieldProps> = ({ filters, setFilters }) => {
   const togglePlatform = (id: string) => {
     setFilters((prev) => {
       const next = new Set(prev.platforms);
@@ -99,10 +158,123 @@ const FilterPanel: React.FC<{
       return { ...prev, platforms: next };
     });
   };
+  return (
+    <div className="space-y-1">
+      {PLATFORMS.map((p) => {
+        const active = filters.platforms.has(p.id);
+        return (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => togglePlatform(p.id)}
+            className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+              active
+                ? 'bg-accent-soft border-accent/40 text-foreground'
+                : 'bg-surface border-border text-foreground hover:border-accent/40'
+            }`}
+          >
+            <span className="inline-flex items-center gap-2.5">
+              <span
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md"
+                style={{
+                  background: active ? `${p.color}18` : 'transparent',
+                  color: p.color,
+                }}
+              >
+                <PlatformIcon platform={p.iconKey} size={13} />
+              </span>
+              {p.label}
+            </span>
+            <span
+              className={`size-4 rounded-full border-2 transition-colors ${
+                active ? 'border-accent bg-accent' : 'border-border bg-transparent'
+              }`}
+            />
+          </button>
+        );
+      })}
+    </div>
+  );
+};
 
+const CategoryChips: React.FC<FieldProps> = ({ filters, setFilters }) => {
+  const { t } = useTranslation();
+  return (
+  <div className="flex flex-wrap gap-1.5">
+    <button
+      type="button"
+      onClick={() => setFilters((f) => ({ ...f, niche: '' }))}
+      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+        filters.niche === ''
+          ? 'bg-accent border-accent text-accent-foreground'
+          : 'bg-surface border-border text-foreground hover:border-accent/40'
+      }`}
+    >
+      {t('common.any')}
+    </button>
+    {NICHES.map((n) => {
+      const active = filters.niche === n;
+      return (
+        <button
+          key={n}
+          type="button"
+          onClick={() => setFilters((f) => ({ ...f, niche: active ? '' : n }))}
+          className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+            active
+              ? 'bg-accent border-accent text-accent-foreground'
+              : 'bg-surface border-border text-foreground hover:border-accent/40'
+          }`}
+        >
+          {t(`cats.${n}`, { defaultValue: n })}
+        </button>
+      );
+    })}
+  </div>
+  );
+};
+
+const FollowerRows: React.FC<FieldProps> = ({ filters, setFilters }) => {
+  const { t } = useTranslation();
+  return (
+  <div className="space-y-1">
+    {FOLLOWER_RANGES.map((r) => {
+      const active = filters.followerRangeId === r.id;
+      return (
+        <button
+          key={r.id}
+          type="button"
+          onClick={() => setFilters((f) => ({ ...f, followerRangeId: r.id }))}
+          className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+            active
+              ? 'bg-accent-soft border-accent/40 text-foreground'
+              : 'bg-surface border-border text-foreground hover:border-accent/40'
+          }`}
+        >
+          {t(`talent.fr.${r.id}`, { defaultValue: r.label })}
+          <span
+            className={`size-4 rounded-full border-2 transition-colors ${
+              active ? 'border-accent bg-accent' : 'border-border bg-transparent'
+            }`}
+          />
+        </button>
+      );
+    })}
+  </div>
+  );
+};
+
+/* ── Filter panel (mobile sheet) ─────────────────────────────────── */
+const FilterPanel: React.FC<{
+  tab: Tab;
+  filters: FilterState;
+  setFilters: React.Dispatch<React.SetStateAction<FilterState>>;
+  onReset: () => void;
+  locations: LocationRow[];
+}> = ({ tab, filters, setFilters, onReset, locations }) => {
+  const { t } = useTranslation();
   return (
     <div>
-      <FilterSection title="Search">
+      <FilterSection title={t('talent.fSearch')}>
         <SearchField
           aria-label="Search talent"
           value={filters.search}
@@ -110,7 +282,7 @@ const FilterPanel: React.FC<{
         >
           <SearchField.Group>
             <SearchField.SearchIcon />
-            <SearchField.Input placeholder="Name, @handle, keyword…" />
+            <SearchField.Input placeholder={t('talent.searchPh')} />
             <SearchField.ClearButton />
           </SearchField.Group>
         </SearchField>
@@ -118,131 +290,33 @@ const FilterPanel: React.FC<{
 
       {tab === 'creator' ? (
         <>
-          <FilterSection title="Location">
-            <div className="relative">
-              <MapPin
-                size={13}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none"
-              />
-              <input
-                type="text"
-                value={filters.location}
-                onChange={(e) => setFilters((f) => ({ ...f, location: e.target.value }))}
-                placeholder="City or country"
-                className={`${fieldClass} pl-9`}
-              />
-            </div>
+          <FilterSection title={t('talent.fLocation')}>
+            <LocationFields filters={filters} setFilters={setFilters} locations={locations} />
           </FilterSection>
 
           <FilterSection
-            title="Platforms"
-            hint={filters.platforms.size > 0 ? `${filters.platforms.size} selected` : null}
+            title={t('talent.fPlatforms')}
+            hint={filters.platforms.size > 0 ? t('common.selectedN', { n: filters.platforms.size }) : null}
           >
-            <div className="space-y-1">
-              {PLATFORMS.map((p) => {
-                const active = filters.platforms.has(p.id);
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => togglePlatform(p.id)}
-                    className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                      active
-                        ? 'bg-accent-soft border-accent/40 text-foreground'
-                        : 'bg-surface border-border text-foreground hover:border-accent/40'
-                    }`}
-                  >
-                    <span className="inline-flex items-center gap-2.5">
-                      <span
-                        className="inline-flex h-6 w-6 items-center justify-center rounded-md"
-                        style={{
-                          background: active ? `${p.color}18` : 'transparent',
-                          color: p.color,
-                        }}
-                      >
-                        <PlatformIcon platform={p.iconKey} size={13} />
-                      </span>
-                      {p.label}
-                    </span>
-                    <span
-                      className={`size-4 rounded-full border-2 transition-colors ${
-                        active ? 'border-accent bg-accent' : 'border-border bg-transparent'
-                      }`}
-                    />
-                  </button>
-                );
-              })}
-            </div>
+            <PlatformRows filters={filters} setFilters={setFilters} />
           </FilterSection>
 
-          <FilterSection title="Category" hint={filters.niche || null}>
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() => setFilters((f) => ({ ...f, niche: '' }))}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                  filters.niche === ''
-                    ? 'bg-accent border-accent text-accent-foreground'
-                    : 'bg-surface border-border text-foreground hover:border-accent/40'
-                }`}
-              >
-                Any
-              </button>
-              {NICHES.map((n) => {
-                const active = filters.niche === n;
-                return (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setFilters((f) => ({ ...f, niche: active ? '' : n }))}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                      active
-                        ? 'bg-accent border-accent text-accent-foreground'
-                        : 'bg-surface border-border text-foreground hover:border-accent/40'
-                    }`}
-                  >
-                    {n}
-                  </button>
-                );
-              })}
-            </div>
+          <FilterSection title={t('talent.fCategory')} hint={filters.niche ? t(`cats.${filters.niche}`, { defaultValue: filters.niche }) : null}>
+            <CategoryChips filters={filters} setFilters={setFilters} />
           </FilterSection>
 
-          <FilterSection title="Followers">
-            <div className="space-y-1">
-              {FOLLOWER_RANGES.map((r) => {
-                const active = filters.followerRangeId === r.id;
-                return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setFilters((f) => ({ ...f, followerRangeId: r.id }))}
-                    className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                      active
-                        ? 'bg-accent-soft border-accent/40 text-foreground'
-                        : 'bg-surface border-border text-foreground hover:border-accent/40'
-                    }`}
-                  >
-                    {r.label}
-                    <span
-                      className={`size-4 rounded-full border-2 transition-colors ${
-                        active ? 'border-accent bg-accent' : 'border-border bg-transparent'
-                      }`}
-                    />
-                  </button>
-                );
-              })}
-            </div>
+          <FilterSection title={t('talent.fFollowers')}>
+            <FollowerRows filters={filters} setFilters={setFilters} />
           </FilterSection>
         </>
       ) : (
         <p className="text-muted text-xs leading-relaxed mb-4">
-          Managers are searchable by name and bio, ranked by their brand rating.
+          {t('talent.managersHint')}
         </p>
       )}
 
       <Button variant="ghost" size="sm" fullWidth onPress={onReset}>
-        Reset all filters
+        {t('talent.resetAll')}
       </Button>
     </div>
   );
@@ -257,8 +331,9 @@ const TalentCard = React.memo<{
   viewerIsCreator: boolean;
   onInvite: (t: Talent) => void;
 }>(({ talent, index, canInvite, loggedIn, viewerIsCreator, onInvite }) => {
+  const { t } = useTranslation();
   const isCreator = talent._type === 'creator';
-  const name = talent.full_name || talent.username || (isCreator ? 'Creator' : 'Manager');
+  const name = talent.full_name || talent.username || t(isCreator ? 'talent.creatorFallback' : 'talent.managerFallback');
   const initial = name[0]?.toUpperCase() || 'T';
   const accent = accentFor(String(talent.id || name));
   const links = socialEntries(talent.social_links);
@@ -270,27 +345,28 @@ const TalentCard = React.memo<{
 
   return (
     <article
-      className="v-talent-card v-card-in p-4"
+      className="v-talent-card v-card-in p-4 flex flex-col"
       style={{ animationDelay: `${(index % PAGE_SIZE) * 28}ms` }}
     >
-      {/* identity row */}
+      {/* identity row — the story ring is the card's signature */}
       <div className="flex items-start gap-3">
-        {talent.avatar_url ? (
-          <img
-            src={talent.avatar_url}
-            alt=""
-            loading="lazy"
-            className="h-12 w-12 rounded-full object-cover shrink-0"
-            style={{ boxShadow: 'inset 0 0 0 1px rgba(11,23,54,0.08)' }}
-          />
-        ) : (
-          <span
-            className="inline-flex h-12 w-12 items-center justify-center rounded-full text-base font-medium text-white shrink-0"
-            style={{ background: `linear-gradient(135deg, ${accent.from}, ${accent.to})` }}
-          >
-            {initial}
-          </span>
-        )}
+        <span className="v-story-ring">
+          {talent.avatar_url ? (
+            <img
+              src={talent.avatar_url}
+              alt=""
+              loading="lazy"
+              className="h-11 w-11 object-cover"
+            />
+          ) : (
+            <span
+              className="inline-flex h-11 w-11 items-center justify-center text-base font-medium text-white"
+              style={{ background: accent.from }}
+            >
+              {initial}
+            </span>
+          )}
+        </span>
 
         <div className="min-w-0 flex-1">
           <h3 className="v-ink font-medium truncate" style={{ fontSize: 15, letterSpacing: '-0.015em' }}>
@@ -311,7 +387,7 @@ const TalentCard = React.memo<{
         {isCreator ? (
           focus && (
             <Chip color="accent" variant="soft" size="sm" className="shrink-0 max-w-[110px]">
-              <Chip.Label className="truncate">{focus}</Chip.Label>
+              <Chip.Label className="truncate">{t(`cats.${focus}`, { defaultValue: focus })}</Chip.Label>
             </Chip>
           )
         ) : (
@@ -327,9 +403,12 @@ const TalentCard = React.memo<{
 
       {/* bio — fixed 2-line slot so rows stay level */}
       <p className="mt-3 v-body v-muted line-clamp-2" style={{ fontSize: 12.5, minHeight: 38 }}>
-        {talent.bio || (isCreator
-          ? `${focus || 'Content'} creator open to brand collaborations.`
-          : `${focus || 'Campaign'} manager representing a roster of creators.`)}
+        {talent.bio ||
+          t(isCreator ? 'talent.bioCreator' : 'talent.bioManager', {
+            focus: focus
+              ? t(`cats.${focus}`, { defaultValue: focus })
+              : t(isCreator ? 'talent.focusContent' : 'talent.focusCampaign'),
+          })}
       </p>
 
       {/* platform rail — where they publish, and how big they are there */}
@@ -373,13 +452,15 @@ const TalentCard = React.memo<{
           </>
         ) : (
           <span className="v-social-empty">
-            <Link2 size={11} /> Socials not linked yet
+            <Link2 size={11} /> {t('talent.socialsNotLinked')}
           </span>
         )}
       </div>
 
-      {/* footer: the decision number + a compact CTA */}
-      <div className="mt-3 pt-3 border-t border-border flex items-center justify-between gap-2">
+      {/* footer: the decision number + a compact CTA — pinned to the card
+          bottom so every stat line sits on the same baseline across a row */}
+      <div className="flex-1" style={{ minHeight: 12 }} aria-hidden />
+      <div className="pt-3 border-t border-border flex items-center justify-between gap-2">
         <div className="inline-flex items-baseline gap-1.5 min-w-0">
           {isCreator ? (
             platformTotal > 0 ? (
@@ -388,7 +469,7 @@ const TalentCard = React.memo<{
                   {formatCompact(platformTotal)}
                 </span>
                 <span className="v-caption v-quiet" style={{ fontSize: 11 }}>
-                  total followers
+                  {t('talent.totalFollowers')}
                 </span>
               </>
             ) : (
@@ -397,16 +478,16 @@ const TalentCard = React.memo<{
                 <span className="v-ink font-medium tabular-nums truncate" style={{ fontSize: 13 }}>
                   {talent.follower_range || formatFollowers(talent.follower_count || 0)}
                 </span>
-                <span className="v-caption v-quiet" style={{ fontSize: 11 }}>followers</span>
+                <span className="v-caption v-quiet" style={{ fontSize: 11 }}>{t('talent.followersLbl')}</span>
               </>
             )
           ) : (
             <>
               <Award size={12} className="self-center" style={{ color: 'var(--color-campaign-purple)' }} />
               <span className="v-ink font-medium" style={{ fontSize: 13 }}>
-                {talent.experience_years ? `${talent.experience_years}yr` : '5yr+'}
+                {talent.experience_years ? t('talent.years', { n: talent.experience_years }) : t('talent.yearsDefault')}
               </span>
-              <span className="v-caption v-quiet" style={{ fontSize: 11 }}>experience</span>
+              <span className="v-caption v-quiet" style={{ fontSize: 11 }}>{t('talent.experience')}</span>
             </>
           )}
         </div>
@@ -414,16 +495,16 @@ const TalentCard = React.memo<{
         {!loggedIn ? (
           <Link to="/login" title={`Sign in to ${isCreator ? 'collaborate' : 'hire'}`}>
             <Button variant="ghost" size="sm" className="!px-2.5">
-              <Lock size={11} /> Sign in
+              <Lock size={11} /> {t('card.signIn')}
             </Button>
           </Link>
         ) : canInvite ? (
           <Button variant="primary" size="sm" onPress={() => onInvite(talent)}>
-            <Send size={11} /> Invite
+            <Send size={11} /> {t('talent.invite')}
           </Button>
         ) : viewerIsCreator ? (
           <span className="v-caption v-quiet" style={{ fontSize: 11 }}>
-            Creator view
+            {t('talent.creatorView')}
           </span>
         ) : null}
       </div>
@@ -458,12 +539,17 @@ const SkeletonCard: React.FC = () => (
 
 /* ── Main page ───────────────────────────────────────────────────── */
 const TalentNetwork: React.FC = () => {
+  const { t } = useTranslation();
   const loggedIn = !!localStorage.getItem('token');
   const userRole = localStorage.getItem('role') || '';
   const canInvite = loggedIn && (userRole === 'brand' || userRole === 'manager');
 
   const [tab, setTab] = useState<Tab>('creator');
-  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
+  const [filters, setFilters] = useState<FilterState>(() => ({
+    ...INITIAL_FILTERS,
+    // Market pages deep-link the directory: /talent?country=Ethiopia
+    country: new URLSearchParams(window.location.search).get('country') || '',
+  }));
   const [sort, setSort] = useState<SortKey>('top');
 
   const [items, setItems] = useState<Talent[]>([]);
@@ -481,6 +567,15 @@ const TalentNetwork: React.FC = () => {
 
   const abortRef = useRef<AbortController | null>(null);
   const offsetRef = useRef(0);
+
+  /* Location facets — only places active creators actually are */
+  const [locations, setLocations] = useState<LocationRow[]>([]);
+  useEffect(() => {
+    api
+      .get('/creators/locations')
+      .then((res) => setLocations(Array.isArray(res.data) ? res.data : []))
+      .catch(() => {});
+  }, []);
 
   const resetAll = () => setFilters(INITIAL_FILTERS);
 
@@ -510,7 +605,8 @@ const TalentNetwork: React.FC = () => {
           params.sort = sort === 'name' ? 'name' : 'followers_desc';
           if (filters.search) params.search = filters.search;
           if (filters.niche) params.category = filters.niche;
-          if (filters.location.trim()) params.location = filters.location.trim();
+          if (filters.country) params.country = filters.country;
+          if (filters.city) params.city = filters.city;
           const range = FOLLOWER_RANGES.find((r) => r.id === filters.followerRangeId);
           if (range?.min) params.minFollowers = String(range.min);
           if (range?.max) params.maxFollowers = String(range.max);
@@ -582,16 +678,22 @@ const TalentNetwork: React.FC = () => {
   const activeChips = useMemo(() => {
     const chips: { key: string; label: string; onClear: () => void }[] = [];
     if (filters.search)
-      chips.push({ key: 'search', label: `Search: ${filters.search}`, onClear: () => setFilters((f) => ({ ...f, search: '' })) });
+      chips.push({ key: 'search', label: t('talent.searchChip', { q: filters.search }), onClear: () => setFilters((f) => ({ ...f, search: '' })) });
     if (tab === 'creator') {
-      if (filters.location)
-        chips.push({ key: 'location', label: filters.location, onClear: () => setFilters((f) => ({ ...f, location: '' })) });
+      if (filters.country)
+        chips.push({
+          key: 'country',
+          label: filters.country,
+          onClear: () => setFilters((f) => ({ ...f, country: '', city: '' })),
+        });
+      if (filters.city)
+        chips.push({ key: 'city', label: filters.city, onClear: () => setFilters((f) => ({ ...f, city: '' })) });
       if (filters.niche)
-        chips.push({ key: 'niche', label: filters.niche, onClear: () => setFilters((f) => ({ ...f, niche: '' })) });
+        chips.push({ key: 'niche', label: t(`cats.${filters.niche}`, { defaultValue: filters.niche }), onClear: () => setFilters((f) => ({ ...f, niche: '' })) });
       if (filters.followerRangeId !== 'any')
         chips.push({
           key: 'followers',
-          label: FOLLOWER_RANGES.find((r) => r.id === filters.followerRangeId)?.label || 'Followers',
+          label: t(`talent.fr.${filters.followerRangeId}`, { defaultValue: t('talent.fFollowers') }),
           onClear: () => setFilters((f) => ({ ...f, followerRangeId: 'any' })),
         });
       filters.platforms.forEach((id) => {
@@ -610,7 +712,7 @@ const TalentNetwork: React.FC = () => {
       });
     }
     return chips;
-  }, [filters, tab]);
+  }, [filters, tab, t]);
 
   return (
     <div className="landing-visitors min-h-screen flex flex-col">
@@ -622,44 +724,21 @@ const TalentNetwork: React.FC = () => {
           <div className="max-w-[1100px] mx-auto text-center">
             <Chip color="accent" variant="soft" size="md" className="!mb-4">
               <Zap size={12} />
-              <Chip.Label>The talent network</Chip.Label>
+              <Chip.Label>{t('talent.pill')}</Chip.Label>
             </Chip>
             <h1 className="v-heading-xl mb-2">
-              Find the right creator for your{' '}
-              <span className="v-text-signature">next drop.</span>
+              {t('talent.titleA')}{' '}
+              <span className="v-text-signature">{t('talent.titleB')}</span>
             </h1>
             <p className="v-body-lg v-muted max-w-2xl mx-auto">
-              Browse creators and managers by platform, niche, audience size, and
-              location — then invite them with a contract in one flow.
+              {t('talent.desc')}
             </p>
           </div>
         </section>
 
         {/* Body: sidebar + results */}
         <section className="px-6 lg:px-10 pb-16">
-          <div className="max-w-[1100px] mx-auto grid grid-cols-1 lg:grid-cols-[290px_1fr] gap-6">
-            {/* Sidebar (desktop) */}
-            <aside className="hidden lg:block">
-              <div className="sticky top-24">
-                <Card>
-                  <Card.Header className="flex-row items-center justify-between !py-3">
-                    <Card.Title className="inline-flex items-center gap-2 text-sm">
-                      <Filter size={14} className="text-accent" /> Filters
-                    </Card.Title>
-                    {activeChips.length > 0 && (
-                      <Chip color="accent" variant="soft" size="sm">
-                        <Chip.Label>{activeChips.length}</Chip.Label>
-                      </Chip>
-                    )}
-                  </Card.Header>
-                  <Separator />
-                  <Card.Content className="p-4 max-h-[calc(100vh-140px)] overflow-y-auto">
-                    <FilterPanel tab={tab} filters={filters} setFilters={setFilters} onReset={resetAll} />
-                  </Card.Content>
-                </Card>
-              </div>
-            </aside>
-
+          <div className="max-w-[1100px] mx-auto">
             {/* Results */}
             <div>
               {/* Toolbar */}
@@ -670,21 +749,17 @@ const TalentNetwork: React.FC = () => {
                   onSelectionChange={(k) => setTab(k as Tab)}
                   aria-label="Talent type"
                 >
-                  <Segment.Item id="creator">Creators</Segment.Item>
-                  <Segment.Item id="manager">Managers</Segment.Item>
+                  <Segment.Item id="creator">{t('talent.tabCreators')}</Segment.Item>
+                  <Segment.Item id="manager">{t('talent.tabManagers')}</Segment.Item>
                 </Segment>
 
                 <p className="hidden lg:block text-muted text-xs whitespace-nowrap" aria-live="polite">
-                  {loading ? (
-                    'Searching…'
-                  ) : (
-                    <>
-                      <span className="text-foreground font-semibold tabular-nums">{items.length}</span>
-                      {' of '}
-                      <span className="tabular-nums">{total}</span>
-                      {tab === 'creator' ? ' creators' : ' managers'}
-                    </>
-                  )}
+                  {loading
+                    ? t('common.searching')
+                    : t(tab === 'creator' ? 'talent.countCreators' : 'talent.countManagers', {
+                        shown: items.length,
+                        total,
+                      })}
                 </p>
 
                 <div className="ml-auto flex items-center gap-2">
@@ -694,7 +769,7 @@ const TalentNetwork: React.FC = () => {
                     className="lg:!hidden"
                     onPress={() => setSheetOpen(true)}
                   >
-                    <Filter size={13} /> Filters
+                    <Filter size={13} /> {t('common.filters')}
                     {activeChips.length > 0 && (
                       <Chip color="accent" variant="soft" size="sm">
                         <Chip.Label>{activeChips.length}</Chip.Label>
@@ -708,10 +783,60 @@ const TalentNetwork: React.FC = () => {
                     onSelectionChange={(k) => setSort(k as SortKey)}
                     aria-label="Sort results"
                   >
-                    <Segment.Item id="top">Top</Segment.Item>
-                    <Segment.Item id="name">A–Z</Segment.Item>
+                    <Segment.Item id="top">{t('talent.sortTop')}</Segment.Item>
+                    <Segment.Item id="name">{t('talent.sortAZ')}</Segment.Item>
                   </Segment>
                 </div>
+              </div>
+
+              {/* Desktop facet toolbar — filters live above the results,
+                  as compact popover buttons with selection badges */}
+              <div className="hidden lg:flex items-center gap-2 mb-3 flex-wrap">
+                <div className="w-[240px]">
+                  <SearchField
+                    aria-label="Search talent"
+                    value={filters.search}
+                    onChange={(v) => setFilters((f) => ({ ...f, search: v }))}
+                  >
+                    <SearchField.Group>
+                      <SearchField.SearchIcon />
+                      <SearchField.Input placeholder={t('talent.searchPh')} />
+                      <SearchField.ClearButton />
+                    </SearchField.Group>
+                  </SearchField>
+                </div>
+                {tab === 'creator' && (
+                  <>
+                    <FacetPopover
+                      label={t('talent.fPlatform')}
+                      width={240}
+                      badge={filters.platforms.size > 0 ? String(filters.platforms.size) : undefined}
+                    >
+                      <PlatformRows filters={filters} setFilters={setFilters} />
+                    </FacetPopover>
+                    <FacetPopover label={t('talent.fCategory')} width={320} badge={filters.niche ? t(`cats.${filters.niche}`, { defaultValue: filters.niche }) : undefined}>
+                      <CategoryChips filters={filters} setFilters={setFilters} />
+                    </FacetPopover>
+                    <FacetPopover
+                      label={t('talent.fFollowers')}
+                      width={240}
+                      badge={
+                        filters.followerRangeId !== 'any'
+                          ? t(`talent.fr.${filters.followerRangeId}`).split('·').pop()?.trim()
+                          : undefined
+                      }
+                    >
+                      <FollowerRows filters={filters} setFilters={setFilters} />
+                    </FacetPopover>
+                    <FacetPopover
+                      label={t('talent.fLocation')}
+                      width={280}
+                      badge={filters.city || filters.country || undefined}
+                    >
+                      <LocationFields filters={filters} setFilters={setFilters} locations={locations} />
+                    </FacetPopover>
+                  </>
+                )}
               </div>
 
               {/* Active filter chips */}
@@ -733,14 +858,14 @@ const TalentNetwork: React.FC = () => {
                     onClick={resetAll}
                     className="text-muted text-xs font-medium hover:text-foreground underline"
                   >
-                    Clear all
+                    {t('common.clearAll')}
                   </button>
                 </div>
               )}
 
               {/* Results grid */}
               {loading ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4" aria-label="Loading talent">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Loading talent">
                   {Array.from({ length: 9 }).map((_, i) => (
                     <SkeletonCard key={i} />
                   ))}
@@ -752,13 +877,13 @@ const TalentNetwork: React.FC = () => {
                       <EmptyState.Media>
                         <AlertCircle className="size-7" />
                       </EmptyState.Media>
-                      <EmptyState.Title>Couldn&apos;t load talent</EmptyState.Title>
+                      <EmptyState.Title>{t('talent.errTitle')}</EmptyState.Title>
                       <EmptyState.Description>
-                        Something went wrong while fetching profiles. Check your connection and try again.
+                        {t('talent.errDesc')}
                       </EmptyState.Description>
                       <EmptyState.Content>
                         <Button variant="primary" size="md" onPress={() => fetchPage(true)}>
-                          Try again
+                          {t('common.tryAgain')}
                         </Button>
                       </EmptyState.Content>
                     </EmptyState>
@@ -771,13 +896,13 @@ const TalentNetwork: React.FC = () => {
                       <EmptyState.Media>
                         <SearchIcon className="size-7" />
                       </EmptyState.Media>
-                      <EmptyState.Title>No talent found</EmptyState.Title>
+                      <EmptyState.Title>{t('talent.emptyTitle')}</EmptyState.Title>
                       <EmptyState.Description>
-                        Try broadening your search or removing some filters.
+                        {t('talent.emptyDesc')}
                       </EmptyState.Description>
                       <EmptyState.Content>
                         <Button variant="primary" size="md" onPress={resetAll}>
-                          Reset all filters
+                          {t('talent.resetAll')}
                         </Button>
                       </EmptyState.Content>
                     </EmptyState>
@@ -785,7 +910,7 @@ const TalentNetwork: React.FC = () => {
                 </Card>
               ) : (
                 <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {items.map((t, i) => (
                       <TalentCard
                         key={`${t._type}-${t.id}`}
@@ -802,7 +927,7 @@ const TalentNetwork: React.FC = () => {
                   {/* Infinite-scroll sentinel + fallback button */}
                   <div ref={sentinelRef} aria-hidden className="h-px" />
                   {loadingMore && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mt-4" aria-label="Loading more">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4" aria-label="Loading more">
                       {Array.from({ length: 3 }).map((_, i) => (
                         <SkeletonCard key={i} />
                       ))}
@@ -811,13 +936,13 @@ const TalentNetwork: React.FC = () => {
                   {hasMore && !loadingMore && (
                     <div className="flex justify-center mt-6">
                       <Button variant="outline" size="md" onPress={() => fetchPage(false)}>
-                        Load more ({total - items.length} remaining)
+                        {t('common.loadMore', { n: total - items.length })}
                       </Button>
                     </div>
                   )}
                   {!hasMore && items.length > PAGE_SIZE && (
                     <p className="text-center text-muted text-xs mt-6">
-                      You&apos;ve seen all {total} {tab === 'creator' ? 'creators' : 'managers'}.
+                      {t(tab === 'creator' ? 'talent.seenAllCreators' : 'talent.seenAllManagers', { total })}
                     </p>
                   )}
                 </>
@@ -840,24 +965,30 @@ const TalentNetwork: React.FC = () => {
             <Sheet.Dialog>
               <Sheet.Header>
                 <Sheet.Heading className="inline-flex items-center gap-2">
-                  <Filter size={15} className="text-accent" /> Filters
+                  <Filter size={15} className="text-accent" /> {t('common.filters')}
                 </Sheet.Heading>
               </Sheet.Header>
               <Sheet.Body className="!p-4">
                 <div className="pb-4 mb-4 border-b border-border">
                   <Label className="text-foreground text-xs font-semibold block mb-2.5">
-                    Sort by
+                    {t('common.sortBy')}
                   </Label>
                   <Segment selectedKey={sort} onSelectionChange={(k) => setSort(k as SortKey)}>
-                    <Segment.Item id="top">Top</Segment.Item>
-                    <Segment.Item id="name">A–Z</Segment.Item>
+                    <Segment.Item id="top">{t('talent.sortTop')}</Segment.Item>
+                    <Segment.Item id="name">{t('talent.sortAZ')}</Segment.Item>
                   </Segment>
                 </div>
-                <FilterPanel tab={tab} filters={filters} setFilters={setFilters} onReset={resetAll} />
+                <FilterPanel
+                  tab={tab}
+                  filters={filters}
+                  setFilters={setFilters}
+                  onReset={resetAll}
+                  locations={locations}
+                />
               </Sheet.Body>
               <Sheet.Footer>
                 <Button variant="primary" fullWidth onPress={() => setSheetOpen(false)}>
-                  Show {total} results
+                  {t('talent.showResults', { total })}
                 </Button>
               </Sheet.Footer>
             </Sheet.Dialog>

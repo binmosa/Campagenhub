@@ -19,6 +19,8 @@ import { MessagesModule } from './messages/messages.module';
 import { ContractsModule } from './contracts/contracts.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AiModule } from './ai/ai.module';
+import { FxModule } from './fx/fx.module';
+import { TranslationsModule } from './translations/translations.module';
 import { SupportModule } from './support/support.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { TelegramModule } from './telegram/telegram.module';
@@ -30,6 +32,8 @@ import { TasksModule } from './tasks/tasks.module';
 import { OffersModule } from './offers/offers.module';
 import { PitchModule } from './pitch/pitch.module';
 import { EmailModule } from './email/email.module';
+import { GeoModule } from './geo/geo.module';
+import { MarketsModule } from './markets/markets.module';
 
 @Module({
   imports: [
@@ -63,6 +67,8 @@ import { EmailModule } from './email/email.module';
     ContractsModule,
     NotificationsModule,
     AiModule,
+    FxModule,
+    TranslationsModule,
     SupportModule,
     UploadsModule,
     TelegramModule,
@@ -74,6 +80,8 @@ import { EmailModule } from './email/email.module';
     OffersModule,
     PitchModule,
     EmailModule,
+    GeoModule,
+    MarketsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

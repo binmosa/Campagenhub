@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ArrowRight, CheckCircle2, Mail, MapPin, Phone, Send } from 'lucide-react';
 import { Button } from '@heroui/react';
 import { AnimatePresence, motion } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 import api from '../../../lib/api';
 import type { LandingSettings } from '../useLandingData';
 
@@ -20,6 +21,7 @@ const fieldStyle: React.CSSProperties = {
 };
 
 export const Contact: React.FC<ContactProps> = ({ settings }) => {
+  const { t } = useTranslation();
   if (settings.contact_enabled === 'false') return null;
 
   const [form, setForm] = useState({ name: '', email: '', message: '' });
@@ -62,11 +64,10 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
     >
       <div className="max-w-[1100px] mx-auto grid lg:grid-cols-[1.1fr_1fr] gap-12 lg:gap-16">
         <div>
-          <span className="v-pill-quiet">{settings.contact_badge || "Let's talk"}</span>
-          <h2 className="mt-5 v-heading-xl">{settings.contact_title || 'Get in touch.'}</h2>
+          <span className="v-pill-quiet">{settings.contact_badge || t('contact.badge')}</span>
+          <h2 className="mt-5 v-heading-xl">{settings.contact_title || t('contact.title')}</h2>
           <p className="mt-4 v-body-lg v-muted">
-            {settings.contact_desc ||
-              'Got a question, feedback, or partnership idea? Drop us a line — we read every message.'}
+            {settings.contact_desc || t('contact.desc')}
           </p>
 
           <form onSubmit={submit} className="mt-8 space-y-3">
@@ -74,7 +75,7 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
               <input
                 type="text"
                 required
-                placeholder="Your name"
+                placeholder={t('contact.namePh')}
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className={fieldClass}
@@ -83,7 +84,7 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
               <input
                 type="email"
                 required
-                placeholder="Your email"
+                placeholder={t('contact.emailPh')}
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 className={fieldClass}
@@ -92,7 +93,7 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
             </div>
             <textarea
               required
-              placeholder="Your message…"
+              placeholder={t('contact.messagePh')}
               rows={4}
               value={form.message}
               onChange={(e) => setForm({ ...form, message: e.target.value })}
@@ -109,12 +110,12 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
                   className="flex items-center gap-2 px-4 py-2.5 rounded-lg v-body font-medium"
                   style={{ background: 'var(--color-mint-whisper)', color: '#0b6e3e' }}
                 >
-                  <CheckCircle2 size={15} /> Message sent. We'll get back to you soon.
+                  <CheckCircle2 size={15} /> {t('contact.sent')}
                 </motion.div>
               )}
             </AnimatePresence>
             <Button variant="primary" type="submit" isPending={submitting}>
-              Send message <Send size={14} />
+              {t('contact.send')} <Send size={14} />
             </Button>
           </form>
 
@@ -161,7 +162,7 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
               fontWeight: 400,
             }}
           >
-            {settings.newsletter_badge || 'Stay in the loop'}
+            {settings.newsletter_badge || t('contact.nlBadge')}
           </span>
           <h3
             className="mt-5"
@@ -173,7 +174,7 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
               fontWeight: 500,
             }}
           >
-            {settings.newsletter_title || 'Never miss an update.'}
+            {settings.newsletter_title || t('contact.nlTitle')}
           </h3>
           <p
             className="mt-3"
@@ -184,15 +185,14 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
               letterSpacing: '-0.012em',
             }}
           >
-            {settings.newsletter_desc ||
-              'Platform updates, creator insights, and campaign tips. One email per week.'}
+            {settings.newsletter_desc || t('contact.nlDesc')}
           </p>
 
           <form onSubmit={submitNewsletter} className="mt-6 flex flex-col sm:flex-row gap-3">
             <input
               type="email"
               required
-              placeholder="you@company.com"
+              placeholder={t('contact.nlEmailPh')}
               value={newsletterEmail}
               onChange={(e) => setNewsletterEmail(e.target.value)}
               className="flex-1 px-3.5 py-2.5 rounded-lg"
@@ -205,7 +205,7 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
               }}
             />
             <Button variant="primary" type="submit">
-              {settings.newsletter_btn || 'Subscribe'} <ArrowRight size={14} />
+              {settings.newsletter_btn || t('contact.nlBtn')} <ArrowRight size={14} />
             </Button>
           </form>
 
@@ -219,13 +219,13 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
                 className="mt-3 flex items-center gap-2 px-4 py-2.5 rounded-lg"
                 style={{ background: 'rgba(22,199,132,0.14)', color: '#16c784', fontSize: 13, fontWeight: 500 }}
               >
-                <CheckCircle2 size={14} /> Subscribed. Welcome aboard.
+                <CheckCircle2 size={14} /> {t('contact.nlSubscribed')}
               </motion.div>
             )}
           </AnimatePresence>
 
           <p className="mt-4" style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
-            Unsubscribe anytime. We respect your privacy.
+            {t('contact.nlPrivacy')}
           </p>
 
           <div
@@ -233,9 +233,9 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
             style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}
           >
             {[
-              { val: settings.newsletter_stats_1 || '5K+', lbl: settings.newsletter_lbl_1 || 'Subscribers' },
-              { val: settings.newsletter_stats_2 || 'Weekly', lbl: settings.newsletter_lbl_2 || 'Delivery' },
-              { val: settings.newsletter_stats_3 || 'Free', lbl: settings.newsletter_lbl_3 || 'Forever' },
+              { val: settings.newsletter_stats_1 || '5K+', lbl: settings.newsletter_lbl_1 || t('contact.nlLbl1') },
+              { val: settings.newsletter_stats_2 || t('contact.nlWeekly'), lbl: settings.newsletter_lbl_2 || t('contact.nlLbl2') },
+              { val: settings.newsletter_stats_3 || t('contact.nlFree'), lbl: settings.newsletter_lbl_3 || t('contact.nlLbl3') },
             ].map((s) => (
               <div key={s.lbl} className="text-center">
                 <div

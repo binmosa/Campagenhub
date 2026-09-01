@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, ShieldCheck, Star, Zap } from 'lucide-react';
 import { Button } from '@heroui/react';
 import { motion } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 import type { LandingSettings } from '../useLandingData';
 
 /**
@@ -19,6 +20,7 @@ const PROOF = [
 ];
 
 export const FinalCta: React.FC<FinalCtaProps> = ({ settings }) => {
+  const { t } = useTranslation();
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
   return (
@@ -60,7 +62,7 @@ export const FinalCta: React.FC<FinalCtaProps> = ({ settings }) => {
                 letterSpacing: '-0.012em',
               }}
             >
-              Free to join · pay only when work ships
+              {t('cta.badge')}
             </span>
 
             <h2
@@ -78,7 +80,7 @@ export const FinalCta: React.FC<FinalCtaProps> = ({ settings }) => {
                 settings.cta_title
               ) : (
                 <>
-                  Your next great campaign starts{' '}
+                  {t('cta.titleA')}{' '}
                   <span
                     style={{
                       backgroundImage:
@@ -88,7 +90,7 @@ export const FinalCta: React.FC<FinalCtaProps> = ({ settings }) => {
                       color: 'transparent',
                     }}
                   >
-                    today.
+                    {t('cta.titleB')}
                   </span>
                 </>
               )}
@@ -104,22 +106,21 @@ export const FinalCta: React.FC<FinalCtaProps> = ({ settings }) => {
                 maxWidth: 560,
               }}
             >
-              {settings.cta_desc ||
-                'Join 12,847 creators and 520 brands building the next wave of culture. Launch in minutes — no contracts, no retainers, no surprises.'}
+              {settings.cta_desc || t('cta.desc')}
             </p>
 
             <div className="mt-9 flex items-center justify-center gap-2 flex-wrap">
               {token ? (
                 <Link to="/dashboard">
                   <Button variant="primary" size="lg" className="!rounded-xl">
-                    Open dashboard <ArrowRight size={16} />
+                    {t('nav.openDashboard')} <ArrowRight size={16} />
                   </Button>
                 </Link>
               ) : (
                 <>
                   <Link to="/register?role=creator">
                     <Button variant="primary" size="lg" className="!rounded-xl">
-                      Join as a creator
+                      {t('cta.join')}
                     </Button>
                   </Link>
                   <Link to="/register?role=brand">
@@ -133,7 +134,7 @@ export const FinalCta: React.FC<FinalCtaProps> = ({ settings }) => {
                         border: '1px solid rgba(255,255,255,0.22)',
                       }}
                     >
-                      Launch a campaign
+                      {t('cta.launch')}
                     </Button>
                   </Link>
                 </>
@@ -142,7 +143,7 @@ export const FinalCta: React.FC<FinalCtaProps> = ({ settings }) => {
             {!token && (
               <div className="mt-4" style={{ fontSize: 12.5 }}>
                 <Link to="/login" className="v-link" style={{ color: 'rgba(255,255,255,0.55)' }}>
-                  Already have an account? Sign in
+                  {t('cta.haveAccount')}
                 </Link>
               </div>
             )}
@@ -178,13 +179,13 @@ export const FinalCta: React.FC<FinalCtaProps> = ({ settings }) => {
                         className="font-medium truncate"
                         style={{ color: '#fff', fontSize: 13, letterSpacing: '-0.012em' }}
                       >
-                        {p.label}
+                        {t(`cta.proof${i + 1}l`)}
                       </div>
                       <div
                         className="truncate"
                         style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11.5 }}
                       >
-                        {p.meta}
+                        {t(`cta.proof${i + 1}m`)}
                       </div>
                     </div>
                   </motion.div>

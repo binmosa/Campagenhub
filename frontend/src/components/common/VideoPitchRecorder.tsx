@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, StopCircle, RefreshCw, Play, Trash2, CheckCircle, Video } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface VideoPitchRecorderProps {
   onRecordingComplete: (base64: string | null) => void;
@@ -10,6 +11,7 @@ export const VideoPitchRecorder: React.FC<VideoPitchRecorderProps> = ({
   onRecordingComplete, 
   maxDuration = 60 
 }) => {
+  const { t } = useTranslation();
   const [isRecording, setIsRecording] = useState(false);
   const [isPermissionGranted, setIsPermissionGranted] = useState<boolean | null>(null);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
@@ -107,10 +109,10 @@ export const VideoPitchRecorder: React.FC<VideoPitchRecorderProps> = ({
     return (
       <div className="p-8 text-center bg-red-50 rounded-2xl border border-red-100">
         <Video size={48} className="mx-auto text-red-400 mb-4" />
-        <h3 className="text-lg font-bold text-red-900 mb-2">Camera Access Denied</h3>
-        <p className="text-sm text-red-600">Please enable camera and microphone permissions in your browser to record a video pitch.</p>
+        <h3 className="text-lg font-bold text-red-900 mb-2">{t('vpr.deniedTitle')}</h3>
+        <p className="text-sm text-red-600">{t('vpr.deniedDesc')}</p>
         <button type="button" onClick={startCamera} className="mt-4 px-6 py-2 bg-red-600 text-white rounded-xl font-bold text-sm">
-          Try Again
+          {t('vpr.tryAgain')}
         </button>
       </div>
     );
@@ -131,20 +133,20 @@ export const VideoPitchRecorder: React.FC<VideoPitchRecorderProps> = ({
             {isRecording && (
               <div className="absolute top-4 left-4 flex items-center gap-2 bg-red-600 text-white px-3 py-1.5 rounded-full text-xs font-bold animate-pulse">
                 <div className="w-2 h-2 bg-white rounded-full" />
-                REC • {timeLeft}s
+                {t('vpr.rec', { s: timeLeft })}
               </div>
             )}
             {!isPermissionGranted && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-900/40 backdrop-blur-md text-white p-6 text-center">
                 <Camera size={48} className="mb-4 opacity-50" />
-                <h3 className="text-xl font-extrabold mb-2">Video Pitch Recording</h3>
-                <p className="text-sm text-white/80 max-w-xs mb-6">Record a personal 1-minute intro to stand out to the brand!</p>
+                <h3 className="text-xl font-extrabold mb-2">{t('vpr.title')}</h3>
+                <p className="text-sm text-white/80 max-w-xs mb-6">{t('vpr.sub')}</p>
                 <button 
                   type="button"
                   onClick={startCamera}
                   className="px-8 py-3 bg-brand-500 hover:bg-brand-400 text-white rounded-2xl font-extrabold shadow-xl transition-all"
                 >
-                  Enable Camera
+                  {t('vpr.enable')}
                 </button>
               </div>
             )}
@@ -179,12 +181,12 @@ export const VideoPitchRecorder: React.FC<VideoPitchRecorderProps> = ({
                 type="button"
                 onClick={resetRecording}
                 className="p-3 bg-white text-surface-900 rounded-2xl shadow-xl hover:bg-red-50 hover:text-red-600 transition-all"
-                title="Delete and Retake"
+                title={t('vpr.retake')}
               >
                 <Trash2 size={20} />
               </button>
               <div className="p-3 bg-green-500 text-white rounded-2xl shadow-xl flex items-center gap-2 font-bold text-sm">
-                <CheckCircle size={20} /> Recorded
+                <CheckCircle size={20} /> {t('vpr.recorded')}
               </div>
             </div>
           </div>
@@ -195,7 +197,7 @@ export const VideoPitchRecorder: React.FC<VideoPitchRecorderProps> = ({
         <div className="p-4 bg-brand-50 border border-brand-100 rounded-2xl flex items-center gap-3">
           <RefreshCw size={20} className="text-brand-500 shrink-0" />
           <p className="text-xs text-brand-700 font-medium leading-relaxed">
-            Quick Tip: Introduce yourself, mention your niche, and explain why you're a great fit for this campaign!
+            {t('vpr.tip')}
           </p>
         </div>
       )}

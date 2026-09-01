@@ -16,6 +16,7 @@ import {
 import { Button, Chip } from '@heroui/react';
 import { RadarChart, Segment } from '@heroui-pro/react';
 import { AnimatePresence, motion } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * ConsoleShowcase — the interactive product console, now its own section.
@@ -594,6 +595,7 @@ const TAB_BODIES: Record<TabKey, React.FC> = {
 
 /* ── Section ────────────────────────────────────────────────────── */
 export const ConsoleShowcase: React.FC = () => {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<TabKey>('overview');
   const ActiveBody = TAB_BODIES[tab];
 
@@ -601,23 +603,22 @@ export const ConsoleShowcase: React.FC = () => {
     <section id="console" className="relative">
       {/* Header */}
       <div className="px-6 lg:px-10 pt-20 sm:pt-24 pb-10 text-center">
-        <div className="v-badge-new">For brands + managers</div>
+        <div className="v-badge-new">{t('console.pill')}</div>
         <h2 className="mt-5 v-heading-xl mx-auto" style={{ maxWidth: 640 }}>
-          One console runs the whole collab
+          {t('console.title')}
         </h2>
         <p className="mt-4 v-body-lg v-muted mx-auto" style={{ maxWidth: 560 }}>
-          Post the brief, match the creators, watch the numbers, settle the payouts.
-          Click around — this preview is live.
+          {t('console.desc')}
         </p>
         <div className="mt-7 flex items-center justify-center gap-2 flex-wrap">
           <Link to="/register?role=brand">
             <Button variant="primary" size="lg" className="!rounded-xl">
-              Launch a campaign
+              {t('console.launch')}
             </Button>
           </Link>
           <Link to="/talent">
             <Button variant="ghost" size="lg" className="!rounded-xl">
-              Browse creator talent <ArrowRight size={14} />
+              {t('console.browseTalent')} <ArrowRight size={14} />
             </Button>
           </Link>
         </div>

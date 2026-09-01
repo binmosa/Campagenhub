@@ -9,6 +9,7 @@ import {
   Widget,
 } from '@heroui-pro/react';
 import { motion } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * RealResults — "Real campaigns. Real results."
@@ -51,7 +52,9 @@ const COMPASS_DATA = [
 const formatK = (v: number) =>
   v >= 1000 ? `${(v / 1000).toFixed(0)}k` : `${v}`;
 
-export const RealResults: React.FC = () => (
+export const RealResults: React.FC = () => {
+  const { t } = useTranslation();
+  return (
   <section
     id="real-results"
     className="px-6 lg:px-10 py-24 sm:py-28 v-bg-dawn-subtle"
@@ -60,15 +63,13 @@ export const RealResults: React.FC = () => (
       <div className="text-center max-w-[680px] mx-auto mb-14">
         <span className="v-pill-quiet">
           <Sparkles size={11} style={{ color: 'var(--color-campaign-purple)' }} />
-          Real campaigns · Real results
+          {t('results.pill')}
         </span>
         <h2 className="mt-5 v-heading-xl">
-          The data brands measure us by.
+          {t('results.title')}
         </h2>
         <p className="mt-4 v-body-lg v-muted">
-          Two charts that move every week — not vanity metrics, not lifetime
-          totals. The live shape of what creators are driving for the brands
-          on Campgains Hub right now.
+          {t('results.desc')}
         </p>
       </div>
 
@@ -237,12 +238,13 @@ export const RealResults: React.FC = () => (
       <div className="mt-12 flex justify-center">
         <Link to="/register">
           <Button variant="primary" size="lg" className="!rounded-xl">
-            Run your campaign on this stack <ArrowRight size={16} />
+            {t('results.cta')} <ArrowRight size={16} />
           </Button>
         </Link>
       </div>
     </div>
   </section>
-);
+  );
+};
 
 export default RealResults;

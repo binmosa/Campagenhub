@@ -16,6 +16,12 @@ export class TelegramController {
     private telegramService: TelegramService,
   ) {}
 
+  // Public: which bot this deployment uses (frontend builds t.me links from it).
+  @Get('bot-info')
+  getBotInfo() {
+    return { username: process.env.TELEGRAM_BOT_USERNAME || '' };
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @Get('admin/stats')

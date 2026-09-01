@@ -4,7 +4,14 @@ import { ArrowRight } from 'lucide-react';
 import { Button } from '@heroui/react';
 import { Segment } from '@heroui-pro/react';
 import { AnimatePresence, motion } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 import { AUDIENCES, type AudienceKey } from '../copy';
+
+const TAB_KEY: Record<AudienceKey, string> = {
+  creator: 'audiences.tabCreator',
+  brand: 'audiences.tabBrand',
+  manager: 'audiences.tabManager',
+};
 
 /**
  * Audiences — HeroUI Pro Segment + animated 3-col feature grid.
@@ -13,6 +20,7 @@ import { AUDIENCES, type AudienceKey } from '../copy';
  * AnimatePresence handles the persona narrative + benefit-grid swap.
  */
 export const Audiences: React.FC = () => {
+  const { t } = useTranslation();
   const [selected, setSelected] = useState<AudienceKey>('creator');
   const current = AUDIENCES.find((a) => a.key === selected) ?? AUDIENCES[0];
 
@@ -20,13 +28,13 @@ export const Audiences: React.FC = () => {
     <section id="audiences" className="px-6 lg:px-10 py-24 sm:py-28">
       <div className="max-w-[1100px] mx-auto">
         <div className="text-center max-w-[680px] mx-auto mb-12">
-          <span className="v-pill-quiet">Built for every side of the marketplace</span>
+          <span className="v-pill-quiet">{t('audiences.pill')}</span>
           <h2 className="mt-5 v-heading-xl">
-            One platform.{' '}
-            <span className="v-text-signature">Every role.</span>
+            {t('audiences.titleA')}{' '}
+            <span className="v-text-signature">{t('audiences.titleB')}</span>
           </h2>
           <p className="mt-4 v-body-lg v-muted">
-            Whether you create, run a brand, or manage talent — Campgains Hub ships a workflow that fits.
+            {t('audiences.desc')}
           </p>
         </div>
 
@@ -40,7 +48,7 @@ export const Audiences: React.FC = () => {
             {AUDIENCES.map((a, i) => (
               <React.Fragment key={a.key}>
                 {i > 0 && <Segment.Separator />}
-                <Segment.Item id={a.key}>For {a.label}s</Segment.Item>
+                <Segment.Item id={a.key}>{t(TAB_KEY[a.key])}</Segment.Item>
               </React.Fragment>
             ))}
           </Segment>
@@ -55,9 +63,9 @@ export const Audiences: React.FC = () => {
             transition={{ duration: 0.36, ease: [0.16, 1, 0.3, 1] }}
           >
             <div className="text-center max-w-[760px] mx-auto mb-14">
-              <div className="v-badge-new">{current.eyebrow}</div>
-              <h3 className="mt-5 v-heading-lg">{current.headline}</h3>
-              <p className="mt-4 v-body-lg v-muted">{current.description}</p>
+              <div className="v-badge-new">{t(`audiences.${current.key}.eyebrow`)}</div>
+              <h3 className="mt-5 v-heading-lg">{t(`audiences.${current.key}.headline`)}</h3>
+              <p className="mt-4 v-body-lg v-muted">{t(`audiences.${current.key}.desc`)}</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-10 sm:gap-14">
@@ -85,9 +93,9 @@ export const Audiences: React.FC = () => {
                       className="mt-5 v-ink font-medium"
                       style={{ fontSize: 20, letterSpacing: '-0.02em' }}
                     >
-                      {b.title}
+                      {t(`audiences.${current.key}.b${i + 1}t`)}
                     </h4>
-                    <p className="mt-2 v-body-lg v-muted">{b.description}</p>
+                    <p className="mt-2 v-body-lg v-muted">{t(`audiences.${current.key}.b${i + 1}d`)}</p>
                   </motion.div>
                 );
               })}
@@ -96,7 +104,7 @@ export const Audiences: React.FC = () => {
             <div className="mt-14 flex justify-center">
               <Link to={current.ctaHref}>
                 <Button variant="primary" size="lg" className="!rounded-xl">
-                  {current.ctaLabel} <ArrowRight size={16} />
+                  {t(`audiences.${current.key}.cta`)} <ArrowRight size={16} />
                 </Button>
               </Link>
             </div>

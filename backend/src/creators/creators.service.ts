@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreatorProfile } from './creator-profile.entity';
 import { User } from '../users/user.entity';
+import { withDerivedFullName } from '../core/name.util';
 
 @Injectable()
 export class CreatorsService {
@@ -27,10 +28,43 @@ export class CreatorsService {
    *
    * Returns { items, total, limit, offset, hasMore }.
    */
+  /**
+   * Location facets — the distinct (country, city) pairs of ACTIVE creators
+   * with counts, so filter dropdowns only offer places creators actually are.
+   */
+  async getCreatorLocations(): Promise<{ country: string; city: string | null; count: number }[]> {
+    const rows = await this.profileRepository
+      .createQueryBuilder('p')
+      .innerJoin('p.user', 'u')
+      .where('u.account_status = :status', { status: 'active' })
+      .andWhere('u.role = :role', { role: 'creator' })
+      .andWhere("COALESCE(p.country, '') != ''")
+      .select('p.country', 'country')
+      .addSelect('p.country_code', 'country_code')
+      .addSelect('p.city', 'city')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('p.country')
+      .addGroupBy('p.country_code')
+      .addGroupBy('p.city')
+      .orderBy('p.country', 'ASC')
+      .addOrderBy('p.city', 'ASC')
+      .getRawMany();
+
+    return rows.map((r) => ({
+      country: r.country,
+      country_code: r.country_code || null,
+      city: r.city || null,
+      count: Number(r.count) || 0,
+    }));
+  }
+
   async getAllPublicCreators(filters: {
     search?: string;
     category?: string;
     location?: string;
+    country?: string;
+    countryCode?: string;
+    city?: string;
     minFollowers?: string;
     maxFollowers?: string;
     platforms?: string;
@@ -57,8 +91,9 @@ export class CreatorsService {
       .where('u.account_status = :status', { status: 'active' })
       .andWhere('u.role = :role', { role: 'creator' })
       .select([
-        'p.id', 'p.full_name', 'p.username', 'p.bio', 'p.category',
-        'p.location', 'p.follower_range', 'p.avatar_url', 'p.social_links',
+        'p.id', 'p.first_name', 'p.last_name', 'p.full_name', 'p.username', 'p.bio', 'p.category',
+        'p.location', 'p.country', 'p.country_code', 'p.state', 'p.state_code', 'p.city',
+        'p.follower_range', 'p.avatar_url', 'p.social_links',
         'u.id',
       ]);
 
@@ -73,6 +108,15 @@ export class CreatorsService {
     }
     if (filters.location) {
       qb.andWhere('p.location ILIKE :loc', { loc: `%${filters.location}%` });
+    }
+    if (filters.country) {
+      qb.andWhere('LOWER(p.country) = LOWER(:country)', { country: filters.country });
+    }
+    if (filters.countryCode) {
+      qb.andWhere('LOWER(p.country_code) = LOWER(:cc)', { cc: filters.countryCode });
+    }
+    if (filters.city) {
+      qb.andWhere('LOWER(p.city) = LOWER(:city)', { city: filters.city });
     }
     if (filters.minFollowers) {
       qb.andWhere(`${FOLLOWERS_SQL} >= :minF`, { minF: parseInt(filters.minFollowers) || 0 });
@@ -117,11 +161,18 @@ export class CreatorsService {
 
     const items = rows.map((c) => ({
       id: c.user?.id || c.id,
+      first_name: c.first_name,
+      last_name: c.last_name,
       full_name: c.full_name,
       username: c.username,
       bio: c.bio,
       category: c.category,
       location: c.location,
+      country: c.country,
+      country_code: c.country_code,
+      state: c.state,
+      state_code: c.state_code,
+      city: c.city,
       follower_range: c.follower_range,
       follower_count: parseFollowers(c.follower_range),
       avatar_url: c.avatar_url,
@@ -131,6 +182,7 @@ export class CreatorsService {
     return { items, total, limit, offset, hasMore: offset + items.length < total };
   }
   async updateProfile(userId: string, data: Partial<CreatorProfile>): Promise<CreatorProfile> {
+    data = withDerivedFullName(data);
     let profile = await this.getProfile(userId);
     
     if (!profile) {

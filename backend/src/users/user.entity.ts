@@ -24,6 +24,15 @@ export class User {
   @Column()
   password_hash: string;
 
+  /** Acquisition market at signup ('et', 'root' for the global site, null
+   *  for pre-tracking accounts) — cohort/attribution analytics per market. */
+  @Column({ length: 8, nullable: true })
+  signup_market: string;
+
+  /** Preferred UI/communication language (BCP-47, e.g. 'en', 'am'). */
+  @Column({ default: 'en', length: 8 })
+  language: string;
+
   @Column({
     type: 'varchar',
     default: 'creator',

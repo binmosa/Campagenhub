@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { CreatorProfile } from '../creators/creator-profile.entity';
 import { BrandProfile } from '../brands/brand-profile.entity';
 import { ManagerProfile } from '../managers/manager-profile.entity';
+import { withDerivedFullName } from '../core/name.util';
 
 @Injectable()
 export class AuthService {
@@ -75,6 +76,8 @@ export class AuthService {
     pass: string,
     role: string,
     profile?: any,
+    language?: string,
+    signupMarket?: string,
   ) {
     const existingUser = await this.usersService.findByEmail(email);
     if (existingUser) {
@@ -97,6 +100,11 @@ export class AuthService {
       telegram_connect_token,
       account_status: 'active',
       kyc_required: false,
+      language: typeof language === 'string' && language.trim() ? language.trim().slice(0, 8) : 'en',
+      signup_market:
+        typeof signupMarket === 'string' && /^([a-z]{2}|root)$/.test(signupMarket.trim())
+          ? signupMarket.trim()
+          : null,
     });
 
     try {
@@ -104,7 +112,7 @@ export class AuthService {
       if (normalizedRole === 'creator') {
         const rawUsername = typeof profile?.username === 'string' ? profile.username.trim() : '';
         const creatorPayload = {
-          ...(profile || {}),
+          ...withDerivedFullName({ ...(profile || {}) }),
           username: rawUsername || null,
         };
         await this.creatorProfiles.save(this.creatorProfiles.create({ user: { id: user.id } as any, ...creatorPayload }));
@@ -113,7 +121,7 @@ export class AuthService {
         await this.brandProfiles.save(this.brandProfiles.create({ user: { id: user.id } as any, ...(profile || {}) }));
       }
       if (normalizedRole === 'manager') {
-        await this.managerProfiles.save(this.managerProfiles.create({ user: { id: user.id } as any, ...(profile || {}) }));
+        await this.managerProfiles.save(this.managerProfiles.create({ user: { id: user.id } as any, ...withDerivedFullName({ ...(profile || {}) }) }));
       }
     } catch (error: any) {
       // Avoid half-created users when profile insert fails (e.g., unique constraints)

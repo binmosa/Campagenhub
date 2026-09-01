@@ -20,6 +20,8 @@ import { Segment } from '@heroui-pro/react';
 import { AnimatePresence, animate, motion, useMotionValue, useSpring } from 'motion/react';
 import type { LucideIcon } from 'lucide-react';
 import PlatformIcon, { type PlatformKey } from '../mocks/PlatformIcon';
+import { useTranslation } from 'react-i18next';
+import { useMarket } from '../../markets/MarketContext';
 import type { LandingSettings } from '../useLandingData';
 
 /**
@@ -240,6 +242,7 @@ const CreatorPhone: React.FC<{
   band: (typeof BANDS)[number];
   seq: number;
 }> = ({ niche, band, seq }) => {
+  const { t } = useTranslation();
   const lo = roundTo10(niche.range[0] * band.multiplier);
   const hi = roundTo10(niche.range[1] * band.multiplier);
 
@@ -264,8 +267,8 @@ const CreatorPhone: React.FC<{
                   <BadgeCheck size={14} />
                 </span>
               }
-              title={`Payout sent · ${fmtMoney(roundTo10((lo + hi) / 2))}`}
-              sub="escrow released → @you"
+              title={`${t('hero.payoutSent')} · ${fmtMoney(roundTo10((lo + hi) / 2))}`}
+              sub={t('hero.escrowReleased')}
             />
           </AnimatePresence>
         </div>
@@ -273,17 +276,17 @@ const CreatorPhone: React.FC<{
         <div className="px-5 pt-2 flex items-end justify-between gap-2">
           <div>
             <div className="v-caption v-quiet" style={{ fontSize: 10.5, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-              Briefs for you
+              {t('hero.briefsForYou')}
             </div>
             <div className="v-ink font-medium" style={{ fontSize: 17, letterSpacing: '-0.02em' }}>
-              {niche.label} · {band.label}
+              {t(`niches.${niche.key}`)} · {band.label}
             </div>
           </div>
           <div
             className="rounded-full px-2.5 py-1 v-caption font-medium tabular-nums shrink-0"
             style={{ background: 'rgba(22,199,132,0.12)', color: '#0e9f6a', fontSize: 11 }}
           >
-            <CountUp value={lo} />–<CountUp value={hi} /> / brief
+            <CountUp value={lo} />–<CountUp value={hi} /> {t('hero.perBrief')}
           </div>
         </div>
 
@@ -323,7 +326,7 @@ const CreatorPhone: React.FC<{
                   <div className="v-caption font-medium tabular-nums" style={{ color: BRAND.purple, fontSize: 11.5 }}>
                     {b.payout}
                   </div>
-                  <div className="v-caption v-quiet" style={{ fontSize: 10 }}>escrowed</div>
+                  <div className="v-caption v-quiet" style={{ fontSize: 10 }}>{t('hero.escrowed')}</div>
                 </div>
               </motion.div>
             ))}
@@ -336,7 +339,7 @@ const CreatorPhone: React.FC<{
               className="flex items-center justify-center gap-1.5 rounded-full py-2.5 font-medium"
               style={{ background: 'var(--gradient-signature)', color: '#fff', fontSize: 13 }}
             >
-              Apply in one tap <ArrowRight size={13} />
+              {t('hero.applyOneTap')} <ArrowRight size={13} />
             </span>
           </Link>
         </div>
@@ -351,6 +354,7 @@ const BrandPhone: React.FC<{
   budget: (typeof BUDGETS)[number];
   seq: number;
 }> = ({ niche, budget, seq }) => {
+  const { t } = useTranslation();
   const aLo = Math.round(niche.applicants[0] * budget.multiplier);
   const aHi = Math.round(niche.applicants[1] * budget.multiplier);
 
@@ -375,8 +379,8 @@ const BrandPhone: React.FC<{
                   <Lock size={13} />
                 </span>
               }
-              title={`Escrow funded · ${budget.escrow}`}
-              sub="protected until content ships"
+              title={`${t('hero.escrowFunded')} · ${budget.escrow}`}
+              sub={t('hero.escrowProtected')}
             />
           </AnimatePresence>
         </div>
@@ -384,17 +388,17 @@ const BrandPhone: React.FC<{
         <div className="px-5 pt-2 flex items-end justify-between gap-2">
           <div>
             <div className="v-caption v-quiet" style={{ fontSize: 10.5, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-              Ranked applicants
+              {t('hero.rankedApplicants')}
             </div>
             <div className="v-ink font-medium" style={{ fontSize: 17, letterSpacing: '-0.02em' }}>
-              {niche.label} · {budget.label}
+              {t(`niches.${niche.key}`)} · {budget.label}
             </div>
           </div>
           <div
             className="rounded-full px-2.5 py-1 v-caption font-medium tabular-nums shrink-0"
             style={{ background: 'rgba(108,99,255,0.10)', color: BRAND.purple, fontSize: 11 }}
           >
-            <CountUp value={aLo} format={fmtCount} />–<CountUp value={aHi} format={fmtCount} /> matched
+            <CountUp value={aLo} format={fmtCount} />–<CountUp value={aHi} format={fmtCount} /> {t('hero.matched')}
           </div>
         </div>
 
@@ -429,7 +433,7 @@ const BrandPhone: React.FC<{
                     <CheckCircle2 size={11} style={{ color: BRAND.purple }} />
                   </div>
                   <div className="mt-0.5 v-caption v-quiet" style={{ fontSize: 10.5 }}>
-                    {niche.label} · {a.followers} · {a.er} ER
+                    {t(`niches.${niche.key}`)} · {a.followers} · {a.er} ER
                   </div>
                 </div>
                 <div className="text-right shrink-0" style={{ width: 62 }}>
@@ -457,7 +461,7 @@ const BrandPhone: React.FC<{
               className="flex items-center justify-center gap-1.5 rounded-full py-2.5 font-medium"
               style={{ background: 'var(--gradient-signature)', color: '#fff', fontSize: 13 }}
             >
-              Review ranked applicants <ArrowRight size={13} />
+              {t('hero.reviewApplicants')} <ArrowRight size={13} />
             </span>
           </Link>
         </div>
@@ -468,6 +472,8 @@ const BrandPhone: React.FC<{
 
 /* ── Hero ───────────────────────────────────────────────────────── */
 export const Hero: React.FC<HeroProps> = ({ settings }) => {
+  const { t } = useTranslation();
+  const market = useMarket();
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
   const [mode, setMode] = useState<Mode>('creator');
   const [nicheKey, setNicheKey] = useState<NicheKey>('fitness');
@@ -543,9 +549,9 @@ export const Hero: React.FC<HeroProps> = ({ settings }) => {
             size="md"
             aria-label="I am a…"
           >
-            <Segment.Item id="creator">I&apos;m a creator</Segment.Item>
+            <Segment.Item id="creator">{t('hero.imCreator')}</Segment.Item>
             <Segment.Separator />
-            <Segment.Item id="brand">I&apos;m a brand</Segment.Item>
+            <Segment.Item id="brand">{t('hero.imBrand')}</Segment.Item>
           </Segment>
         </motion.div>
 
@@ -559,9 +565,19 @@ export const Hero: React.FC<HeroProps> = ({ settings }) => {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
             >
-              <div className="v-badge-new">
-                <Sparkles size={11} />
-                {isCreator ? 'For creators · free forever' : 'For brands + agencies · pay on delivery'}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="v-badge-new">
+                  <Sparkles size={11} />
+                  {isCreator ? t('hero.badgeCreator') : t('hero.badgeBrand')}
+                </div>
+                {market && (
+                  <span className="v-pill-quiet">
+                    {market.flag}{' '}
+                    {market.status === 'live'
+                      ? t('market.liveIn', { country: market.name })
+                      : t('market.comingSoon')}
+                  </span>
+                )}
               </div>
 
               <h1 className="mt-6 v-display">
@@ -570,31 +586,30 @@ export const Hero: React.FC<HeroProps> = ({ settings }) => {
                     settings.hero_title
                   ) : (
                     <>
-                      Make content.
+                      {t('hero.creatorH1a')}
                       <br />
-                      Get paid. <span className="v-text-signature">Repeat.</span>
+                      {t('hero.creatorH1b')} <span className="v-text-signature">{t('hero.creatorH1c')}</span>
                     </>
                   )
                 ) : (
                   <>
-                    Launch creator campaigns.
+                    {t('hero.brandH1a')}
                     <br />
-                    Pay on <span className="v-text-signature">delivery.</span>
+                    {t('hero.brandH1b')} <span className="v-text-signature">{t('hero.brandH1c')}</span>
                   </>
                 )}
               </h1>
 
               <p className="mt-6 v-body-lg v-muted" style={{ maxWidth: 480 }}>
                 {isCreator
-                  ? settings.hero_subtitle ||
-                    'Real briefs from real brands on the platforms you already post on. Pick your niche, apply in a tap — the payout is escrowed before you hit record.'
-                  : 'Post a brief and get matched with vetted creators on TikTok, Instagram, and YouTube. Your budget sits in escrow until content ships — with reach and engagement tracked live.'}
+                  ? settings.hero_subtitle || t('hero.subCreator')
+                  : t('hero.subBrand')}
               </p>
 
               {/* picker */}
               <div className="mt-8">
                 <div className="v-caption v-quiet mb-2.5" style={{ letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-                  {isCreator ? 'What do you post?' : "What's your campaign about?"}
+                  {isCreator ? t('hero.whatDoYouPost') : t('hero.whatsCampaignAbout')}
                 </div>
                 <div className="flex flex-wrap gap-2" role="group" aria-label={isCreator ? 'Pick your niche' : 'Pick your campaign niche'}>
                   {NICHES.map((n) => {
@@ -610,7 +625,7 @@ export const Hero: React.FC<HeroProps> = ({ settings }) => {
                         aria-pressed={active}
                       >
                         <Icon size={13} />
-                        {n.label}
+                        {t(`niches.${n.key}`)}
                       </button>
                     );
                   })}
@@ -632,7 +647,7 @@ export const Hero: React.FC<HeroProps> = ({ settings }) => {
                           </React.Fragment>
                         ))}
                       </Segment>
-                      <span className="v-caption v-quiet">followers</span>
+                      <span className="v-caption v-quiet">{t('hero.followers')}</span>
                     </>
                   ) : (
                     <>
@@ -649,7 +664,7 @@ export const Hero: React.FC<HeroProps> = ({ settings }) => {
                           </React.Fragment>
                         ))}
                       </Segment>
-                      <span className="v-caption v-quiet">budget</span>
+                      <span className="v-caption v-quiet">{t('hero.budget')}</span>
                     </>
                   )}
                 </div>
@@ -657,23 +672,23 @@ export const Hero: React.FC<HeroProps> = ({ settings }) => {
                 <div className="mt-4 v-body v-muted" aria-live="polite">
                   {isCreator ? (
                     <>
-                      Typical {niche.label.toLowerCase()} brief at your size:{' '}
+                      {t('hero.estCreatorLead', { niche: t(`niches.${niche.key}`).toLowerCase() })}{' '}
                       <span className="font-medium" style={{ color: 'var(--color-campaign-purple)' }}>
                         <CountUp value={estA.lo} />
                         {'–'}
                         <CountUp value={estA.hi} />
                       </span>{' '}
-                      <span className="v-quiet">· estimate from live briefs</span>
+                      <span className="v-quiet">{t('hero.estCreatorTail')}</span>
                     </>
                   ) : (
                     <>
-                      Typical {niche.label.toLowerCase()} brief at this budget:{' '}
+                      {t('hero.estBrandLead', { niche: t(`niches.${niche.key}`).toLowerCase() })}{' '}
                       <span className="font-medium" style={{ color: 'var(--color-campaign-purple)' }}>
                         <CountUp value={estA.lo} format={fmtCount} />
                         {'–'}
-                        <CountUp value={estA.hi} format={fmtCount} /> applicants
+                        <CountUp value={estA.hi} format={fmtCount} /> {t('hero.estApplicants')}
                       </span>{' '}
-                      · est. reach{' '}
+                      {t('hero.estReach')}{' '}
                       <span className="font-medium" style={{ color: 'var(--color-campaign-purple)' }}>
                         <CountUp value={reach.lo} format={fmtReach} />
                         {'–'}
@@ -689,19 +704,19 @@ export const Hero: React.FC<HeroProps> = ({ settings }) => {
                 {token ? (
                   <Link to="/dashboard">
                     <Button variant="primary" size="lg" className="!rounded-xl">
-                      Open dashboard <ArrowRight size={16} />
+                      {t('nav.openDashboard')} <ArrowRight size={16} />
                     </Button>
                   </Link>
                 ) : isCreator ? (
                   <>
                     <Link to="/register?role=creator">
                       <Button variant="primary" size="lg" className="!rounded-xl">
-                        Start earning — free
+                        {t('hero.startEarning')}
                       </Button>
                     </Link>
                     <a href="/#campaigns">
                       <Button variant="ghost" size="lg" className="!rounded-xl">
-                        Browse open briefs <ArrowRight size={14} />
+                        {t('hero.browseBriefs')} <ArrowRight size={14} />
                       </Button>
                     </a>
                   </>
@@ -709,12 +724,12 @@ export const Hero: React.FC<HeroProps> = ({ settings }) => {
                   <>
                     <Link to="/register?role=brand">
                       <Button variant="primary" size="lg" className="!rounded-xl">
-                        Launch a campaign
+                        {t('hero.launchCampaign')}
                       </Button>
                     </Link>
                     <a href="/#console">
                       <Button variant="ghost" size="lg" className="!rounded-xl">
-                        See the console <ArrowRight size={14} />
+                        {t('hero.seeConsole')} <ArrowRight size={14} />
                       </Button>
                     </a>
                   </>
@@ -724,19 +739,19 @@ export const Hero: React.FC<HeroProps> = ({ settings }) => {
               <div className="mt-5 flex items-center gap-4 text-[12px] v-quiet flex-wrap">
                 {isCreator ? (
                   <>
-                    <span>Free for creators</span>
+                    <span>{t('hero.trustCreator1')}</span>
                     <span aria-hidden>·</span>
-                    <span>Payouts escrowed up front</span>
+                    <span>{t('hero.trustCreator2')}</span>
                     <span aria-hidden>·</span>
-                    <span>No card required</span>
+                    <span>{t('hero.trustCreator3')}</span>
                   </>
                 ) : (
                   <>
-                    <span>AI-ranked applicants</span>
+                    <span>{t('hero.trustBrand1')}</span>
                     <span aria-hidden>·</span>
-                    <span>Budget escrowed until delivery</span>
+                    <span>{t('hero.trustBrand2')}</span>
                     <span aria-hidden>·</span>
-                    <span>Live performance tracking</span>
+                    <span>{t('hero.trustBrand3')}</span>
                   </>
                 )}
               </div>

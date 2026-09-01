@@ -35,6 +35,7 @@ import {
 } from '../../lib/socialLinks';
 import PlatformIcon from '../landing/mocks/PlatformIcon';
 import { PLATFORM_ICON_KEY } from '../talent/shared';
+import LocationCascade from '../../components/common/LocationCascade';
 import AccountSettings from '../../components/AccountSettings';
 import PayoutSettings from '../../components/PayoutSettings';
 import { KycCard } from '../../components/common/KycCard';
@@ -52,10 +53,17 @@ import { PageShell } from '../../components/ui';
  */
 
 type ProfileShape = {
+  first_name: string;
+  last_name: string;
   full_name: string;
   username: string;
   category: string;
   location: string;
+  country: string;
+  country_code: string;
+  state: string;
+  state_code: string;
+  city: string;
   follower_range: string;
   social_links: string;
   bio: string;
@@ -63,10 +71,17 @@ type ProfileShape = {
 };
 
 const EMPTY_PROFILE: ProfileShape = {
+  first_name: '',
+  last_name: '',
   full_name: '',
   username: '',
   category: '',
   location: '',
+  country: '',
+  country_code: '',
+  state: '',
+  state_code: '',
+  city: '',
   follower_range: '',
   social_links: '',
   bio: '',
@@ -110,10 +125,17 @@ const CreatorProfilePage: React.FC = () => {
       .then((res) => {
         if (res.data) {
           setProfile({
+            first_name: res.data.first_name || '',
+            last_name: res.data.last_name || '',
             full_name: res.data.full_name || '',
             username: res.data.username || '',
             category: res.data.category || '',
             location: res.data.location || '',
+            country: res.data.country || '',
+            country_code: res.data.country_code || '',
+            state: res.data.state || '',
+            state_code: res.data.state_code || '',
+            city: res.data.city || '',
             follower_range: res.data.follower_range || '',
             social_links: res.data.social_links || '',
             bio: res.data.bio || '',
@@ -145,8 +167,14 @@ const CreatorProfilePage: React.FC = () => {
     setStatus('loading');
     try {
       const social_links = serializeSocialLinks(links);
-      await api.post('/creators/profile', { ...profile, social_links });
-      setProfile((p) => ({ ...p, social_links }));
+      const full_name =
+        `${profile.first_name} ${profile.last_name}`.trim() || profile.full_name;
+      const location =
+        profile.city && profile.country
+          ? `${profile.city}, ${profile.country}`
+          : profile.location;
+      await api.post('/creators/profile', { ...profile, full_name, location, social_links });
+      setProfile((p) => ({ ...p, full_name, location, social_links }));
       setStatus('success');
       window.dispatchEvent(new Event('profileUpdated'));
       setTimeout(() => {
@@ -163,7 +191,7 @@ const CreatorProfilePage: React.FC = () => {
   const completion = useMemo(() => {
     const fields: Array<keyof ProfileShape> = [
       'avatar_url',
-      'full_name',
+      'first_name',
       'username',
       'category',
       'location',
@@ -469,18 +497,32 @@ const CreatorProfilePage: React.FC = () => {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                        Full name
+                        Name
                       </label>
-                      <input
-                        type="text"
-                        value={profile.full_name}
-                        onChange={(e) =>
-                          setProfile({ ...profile, full_name: e.target.value })
-                        }
-                        placeholder="Your full name"
-                        className={fieldClass}
-                        style={fieldStyle}
-                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          value={profile.first_name}
+                          onChange={(e) =>
+                            setProfile({ ...profile, first_name: e.target.value })
+                          }
+                          placeholder="First"
+                          autoComplete="given-name"
+                          className={fieldClass}
+                          style={fieldStyle}
+                        />
+                        <input
+                          type="text"
+                          value={profile.last_name}
+                          onChange={(e) =>
+                            setProfile({ ...profile, last_name: e.target.value })
+                          }
+                          placeholder="Last"
+                          autoComplete="family-name"
+                          className={fieldClass}
+                          style={fieldStyle}
+                        />
+                      </div>
                     </div>
                     <div>
                       <label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
@@ -520,15 +562,26 @@ const CreatorProfilePage: React.FC = () => {
                       <label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
                         Location
                       </label>
-                      <input
-                        type="text"
-                        value={profile.location}
-                        onChange={(e) =>
-                          setProfile({ ...profile, location: e.target.value })
+                      {/* Dropdown-only (ISO dataset) — keeps locations filterable */}
+                      <LocationCascade
+                        layout="stack"
+                        value={{
+                          country: profile.country,
+                          countryCode: profile.country_code,
+                          state: profile.state,
+                          stateCode: profile.state_code,
+                          city: profile.city,
+                        }}
+                        onChange={(v) =>
+                          setProfile({
+                            ...profile,
+                            country: v.country,
+                            country_code: v.countryCode,
+                            state: v.state,
+                            state_code: v.stateCode,
+                            city: v.city,
+                          })
                         }
-                        placeholder="New York, USA"
-                        className={fieldClass}
-                        style={fieldStyle}
                       />
                     </div>
                   </div>

@@ -16,7 +16,7 @@ export class AuthController {
     // Simple-signup flow: no KYC required at registration. Account starts
     // as `active`. Admin can later flip `kyc_required=true` and the user
     // then submits ID + video via POST /auth/kyc from their profile.
-    return this.authService.register(email, password, role, profile);
+    return this.authService.register(email, password, role, profile, body.language, body.signup_market);
   }
 
   @Post('login')
