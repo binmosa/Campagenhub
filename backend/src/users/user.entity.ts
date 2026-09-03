@@ -26,8 +26,8 @@ export class User {
 
   /** Acquisition market at signup ('et', 'root' for the global site, null
    *  for pre-tracking accounts) — cohort/attribution analytics per market. */
-  @Column({ length: 8, nullable: true })
-  signup_market: string;
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  signup_market: string | null;
 
   /** Preferred UI/communication language (BCP-47, e.g. 'en', 'am'). */
   @Column({ default: 'en', length: 8 })

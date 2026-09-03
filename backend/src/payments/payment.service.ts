@@ -14,6 +14,20 @@ import { EmailService } from '../email/email.service';
 import axios from 'axios';
 import * as https from 'https';
 import * as crypto from 'crypto';
+import { toPublicUser } from '../users/public-user';
+
+/** Transactions leave the API with public user shapes and slim relations —
+ *  never password hashes / KYC blobs, never full campaign rows. */
+const sanitizeTransaction = (tx: any): any =>
+  tx
+    ? {
+        ...tx,
+        payer: toPublicUser(tx.payer),
+        payee: toPublicUser(tx.payee),
+        campaign: tx.campaign ? { id: tx.campaign.id, title: tx.campaign.title, currency: tx.campaign.currency } : tx.campaign,
+        application: tx.application ? { id: tx.application.id, status: tx.application.status } : tx.application,
+      }
+    : tx;
 
 @Injectable()
 export class PaymentService {
@@ -667,8 +681,10 @@ export class PaymentService {
 
   async getTransactionsForUser(userId: string, role: string) {
     const normalized = (role || '').toLowerCase().trim();
-    if (['admin', 'finance'].includes(normalized)) return this.getAllTransactions();
-    return this.getUserTransactions(userId);
+    const rows = ['admin', 'finance'].includes(normalized)
+      ? await this.getAllTransactions()
+      : await this.getUserTransactions(userId);
+    return rows.map(sanitizeTransaction);
   }
 
   async getTransactionByRef(txRef: string, userId?: string, role?: string) {
@@ -678,9 +694,9 @@ export class PaymentService {
     });
     if (!tx) throw new BadRequestException('Transaction not found');
     const normalized = (role || '').toLowerCase().trim();
-    if (['admin', 'finance'].includes(normalized)) return tx;
+    if (['admin', 'finance'].includes(normalized)) return sanitizeTransaction(tx);
     if (tx.payer?.id !== userId && tx.payee?.id !== userId) throw new BadRequestException('Unauthorized');
-    return tx;
+    return sanitizeTransaction(tx);
   }
 
   async getAllTransactions() {

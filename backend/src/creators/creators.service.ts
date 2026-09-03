@@ -1,7 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreatorProfile } from './creator-profile.entity';
+import { NotificationsService } from '../notifications/notifications.service';
+import { FollowerVerificationService } from './follower-verification.service';
+import { decideClaim, parseSocialLinks, publicSocialLinks, reconcileSocialLinks } from './social-links';
 import { User } from '../users/user.entity';
 import { withDerivedFullName } from '../core/name.util';
 
@@ -12,6 +15,8 @@ export class CreatorsService {
     private profileRepository: Repository<CreatorProfile>,
     @InjectRepository(User)
     private usersRepository: Repository<User>,
+      private readonly notificationsService: NotificationsService,
+    private readonly followerVerification: FollowerVerificationService,
   ) {}
 
   async getProfile(userId: string): Promise<CreatorProfile | null> {
@@ -176,7 +181,7 @@ export class CreatorsService {
       follower_range: c.follower_range,
       follower_count: parseFollowers(c.follower_range),
       avatar_url: c.avatar_url,
-      social_links: c.social_links,
+      social_links: publicSocialLinks(c.social_links),
     }));
 
     return { items, total, limit, offset, hasMore: offset + items.length < total };
@@ -184,7 +189,13 @@ export class CreatorsService {
   async updateProfile(userId: string, data: Partial<CreatorProfile>): Promise<CreatorProfile> {
     data = withDerivedFullName(data);
     let profile = await this.getProfile(userId);
-    
+
+    // Follower counts are claims: the server decides their verification
+    // state from what changed — clients can't mark themselves verified.
+    if (data.social_links !== undefined) {
+      data.social_links = reconcileSocialLinks(profile?.social_links, data.social_links);
+    }
+
     if (!profile) {
       // Create new profile mapped to user
       const user = await this.usersRepository.findOne({ where: { id: userId } });
@@ -195,7 +206,72 @@ export class CreatorsService {
       this.profileRepository.merge(profile, data);
     }
     
-    return this.profileRepository.save(profile);
+    const saved = await this.profileRepository.save(profile);
+    this.followerVerification.autoVerify(userId);
+    return saved;
+  }
+
+  /* ── Follower claims (admin) ─────────────────────────────────────── */
+
+  /** Every platform entry currently awaiting review, newest claim first. */
+  async listFollowerClaims(status: 'pending' | 'rejected' | 'verified' = 'pending'): Promise<any[]> {
+    const rows = await this.profileRepository
+      .createQueryBuilder('p')
+      .innerJoin('p.user', 'u')
+      .where('p.social_links ILIKE :s', { s: `%"status":"${status}"%` })
+      .select(['p.id', 'p.full_name', 'p.username', 'p.avatar_url', 'p.category', 'p.location', 'p.social_links', 'u.id', 'u.email'])
+      .getMany();
+    const claims: any[] = [];
+    for (const p of rows) {
+      const map = parseSocialLinks(p.social_links);
+      for (const [platform, e] of Object.entries(map)) {
+        if (e.status !== status) continue;
+        claims.push({
+          user_id: p.user?.id,
+          email: p.user?.email,
+          full_name: p.full_name,
+          username: p.username,
+          avatar_url: p.avatar_url,
+          category: p.category,
+          location: p.location,
+          platform,
+          url: e.url,
+          followers: e.followers,
+          verified_followers: e.verified_followers,
+          claimed_at: e.claimed_at,
+          verified_at: e.verified_at,
+          evidence_url: e.evidence_url,
+          note: e.note,
+          status: e.status,
+        });
+      }
+    }
+    return claims.sort((a, b) => new Date(b.claimed_at || 0).getTime() - new Date(a.claimed_at || 0).getTime());
+  }
+
+  async decideFollowerClaim(
+    userId: string,
+    platform: string,
+    decision: { action: 'verify' | 'reject'; verified_followers?: number; note?: string },
+    adminEmail?: string,
+  ): Promise<any> {
+    const profile = await this.getProfile(userId);
+    if (!profile) throw new NotFoundException('Creator profile not found');
+    const result = decideClaim(profile.social_links, platform, { ...decision, by: adminEmail ? `Verified by ${adminEmail}` : undefined });
+    if (!result) throw new NotFoundException('No claim for that platform');
+    profile.social_links = result.raw;
+    await this.profileRepository.save(profile);
+    const label = platform.charAt(0).toUpperCase() + platform.slice(1);
+    await this.notificationsService
+      .createNotification(
+        userId,
+        decision.action === 'verify' ? 'FOLLOWERS_VERIFIED' : 'FOLLOWERS_REJECTED',
+        decision.action === 'verify'
+          ? `Your ${label} audience of ${Number(result.entry.verified_followers || 0).toLocaleString()} followers is now verified — brands see the badge on your profile.`
+          : `We couldn't verify your ${label} follower count${decision.note ? `: ${decision.note}` : ''}. Update the number or add a screenshot of your analytics and resubmit.`,
+      )
+      .catch(() => {});
+    return { platform, ...result.entry };
   }
 
   async getPublicProfile(userId: string): Promise<any> {
@@ -216,7 +292,7 @@ export class CreatorsService {
         follower_range: user.creatorProfile.follower_range,
         bio: user.creatorProfile.bio,
         avatar_url: user.creatorProfile.avatar_url,
-        social_links: user.creatorProfile.social_links,
+        social_links: publicSocialLinks(user.creatorProfile.social_links),
         joined: user.created_at,
       };
     }

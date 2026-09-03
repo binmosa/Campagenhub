@@ -1,6 +1,13 @@
-import { Injectable, NotFoundException, OnModuleInit, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Country } from 'country-state-city';
 import { Campaign } from './campaign.entity';
 import { User, UserRole } from '../users/user.entity';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -11,6 +18,168 @@ import { TranslationsService } from '../translations/translations.service';
 /** SQL expression for the canonical USD budget: the stored budget_usd,
  *  falling back to the raw budget for legacy USD rows not yet backfilled. */
 const BUDGET_USD_SQL = "COALESCE(c.budget_usd, CASE WHEN c.currency = 'USD' THEN c.budget END)";
+
+/** Campaign lifecycle. `draft` is invisible to creators, `active` is open
+ *  for applications, `paused` hides it without losing applicants, `closed`
+ *  is final (kept for records / contracts). */
+export const CAMPAIGN_STATUSES = ['draft', 'active', 'paused', 'closed'] as const;
+export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
+
+/** Values older clients wrote — mapped so filters and the UI stay sane. */
+const LEGACY_STATUS: Record<string, CampaignStatus> = {
+  inactive: 'paused',
+  open: 'active',
+  completed: 'closed',
+  archived: 'closed',
+  cancelled: 'closed',
+};
+
+export const normalizeCampaignStatus = (s?: string | null): CampaignStatus | undefined => {
+  if (!s) return undefined;
+  const k = String(s).toLowerCase().trim();
+  if ((CAMPAIGN_STATUSES as readonly string[]).includes(k)) return k as CampaignStatus;
+  return LEGACY_STATUS[k];
+};
+
+/** Fields a brand may set on its own campaign. Everything else — id, brand,
+ *  budget_usd / fx_rate (locked server-side), source_language, timestamps —
+ *  is server-owned and silently dropped from client payloads. */
+const WRITABLE_FIELDS = [
+  'title', 'description', 'budget', 'currency', 'platform', 'platforms',
+  'target_audience', 'targeting', 'media_links', 'script', 'script_required',
+  'content_type', 'objective', 'deadline', 'cover_image',
+  'contract_template', 'post_to_telegram', 'status',
+] as const;
+
+const pickWritable = (data: any): Partial<Campaign> => {
+  const out: any = {};
+  if (!data || typeof data !== 'object') return out;
+  for (const k of WRITABLE_FIELDS) if (data[k] !== undefined) out[k] = data[k];
+  if (out.deadline === '') out.deadline = null;
+  if (out.budget === '' || out.budget === null) out.budget = null;
+  return out;
+};
+
+/* ── Structured targeting + creator assets ──────────────────────── */
+export const TARGET_GENDERS = ['all', 'female', 'male'] as const;
+export const AGE_GROUPS = ['13-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+'] as const;
+export const MEDIA_TYPES = ['video', 'image', 'article'] as const;
+
+export type Targeting = {
+  gender: (typeof TARGET_GENDERS)[number];
+  age_groups: string[];
+  countries: { code: string; name: string }[];
+  cities: { country_code: string; city: string }[];
+};
+
+const EMPTY_TARGETING: Targeting = { gender: 'all', age_groups: [], countries: [], cities: [] };
+
+const countryName = (code: string): string => Country.getCountryByCode(code)?.name || code;
+
+/** Resolve a `country` filter value — ISO-2 code or a country name — to a code. */
+export const resolveCountryCode = (raw?: string): string | undefined => {
+  if (!raw) return undefined;
+  const v = String(raw).trim();
+  if (/^[A-Za-z]{2}$/.test(v)) return v.toUpperCase();
+  const hit = Country.getAllCountries().find((c) => c.name.toLowerCase() === v.toLowerCase());
+  return hit?.isoCode;
+};
+
+const parseJson = <T,>(raw: any, fallback: T): T => {
+  if (raw == null || raw === '') return fallback;
+  if (typeof raw === 'object') return raw as T;
+  try {
+    return JSON.parse(String(raw)) as T;
+  } catch {
+    return fallback;
+  }
+};
+
+/** Validate + serialize client targeting / media / script fields in place. */
+const normalizeAssets = (data: any): void => {
+  if (data.targeting !== undefined) {
+    const t = parseJson<any>(data.targeting, {}) || {};
+    const gender = (TARGET_GENDERS as readonly string[]).includes(String(t.gender)) ? t.gender : 'all';
+    const age_groups: string[] = Array.isArray(t.age_groups)
+      ? [
+          ...new Set<string>(
+            t.age_groups
+              .map((a: unknown) => String(a))
+              .filter((a: string) => (AGE_GROUPS as readonly string[]).includes(a)),
+          ),
+        ]
+      : [];
+    const countries = (Array.isArray(t.countries) ? t.countries : [])
+      .map((c: any) => (typeof c === 'string' ? { code: c } : c))
+      .filter((c: any) => c && /^[A-Za-z]{2}$/.test(String(c.code || '')))
+      .map((c: any) => {
+        const code = String(c.code).toUpperCase();
+        return { code, name: String(c.name || countryName(code)).slice(0, 80) };
+      })
+      .filter((c: any, i: number, arr: any[]) => arr.findIndex((x) => x.code === c.code) === i)
+      .slice(0, 30);
+    const codes = new Set(countries.map((c: any) => c.code));
+    const cities = (Array.isArray(t.cities) ? t.cities : [])
+      .filter((c: any) => c && c.city && /^[A-Za-z]{2}$/.test(String(c.country_code || '')))
+      .map((c: any) => ({ country_code: String(c.country_code).toUpperCase(), city: String(c.city).trim().slice(0, 120) }))
+      .filter((c: any) => codes.size === 0 || codes.has(c.country_code))
+      .slice(0, 60);
+    const targeting: Targeting = { gender, age_groups, countries, cities };
+    data.targeting = JSON.stringify(targeting);
+    data.target_countries = countries.map((c: any) => c.code).join(',');
+    // Legacy summary for readers that still show free text.
+    const parts: string[] = [];
+    parts.push(gender === 'all' ? 'All genders' : gender === 'female' ? 'Women' : 'Men');
+    if (age_groups.length) parts.push(age_groups.join(', '));
+    if (countries.length) {
+      const cityNames = cities.map((c: any) => c.city);
+      parts.push(countries.map((c: any) => c.name).join(', ') + (cityNames.length ? ` (${cityNames.join(', ')})` : ''));
+    } else parts.push('Anywhere');
+    data.target_audience = parts.join(' · ');
+  }
+  if (data.media_links !== undefined) {
+    const list = parseJson<any[]>(data.media_links, []);
+    const clean = (Array.isArray(list) ? list : [])
+      .filter((m) => m && typeof m.url === 'string' && /^https?:\/\/\S+$/i.test(m.url.trim()))
+      .map((m) => ({
+        type: (MEDIA_TYPES as readonly string[]).includes(m.type) ? m.type : 'article',
+        url: m.url.trim().slice(0, 2048),
+        ...(m.label ? { label: String(m.label).slice(0, 120) } : {}),
+      }))
+      .slice(0, 20);
+    data.media_links = JSON.stringify(clean);
+  }
+  if (data.script !== undefined) data.script = data.script == null ? null : String(data.script).slice(0, 20000);
+  if (data.script_required !== undefined) data.script_required = !!data.script_required;
+};
+
+/** Parse the JSON columns for API consumers (strings in the DB, objects out). */
+export const hydrateCampaign = <T extends Record<string, any>>(c: T): T => {
+  if (!c || typeof c !== 'object') return c;
+  const out: any = { ...c };
+  if ('targeting' in out) out.targeting = parseJson<Targeting>(out.targeting, EMPTY_TARGETING) || EMPTY_TARGETING;
+  if ('media_links' in out) {
+    const list = parseJson<any[]>(out.media_links, []);
+    out.media_links = Array.isArray(list) ? list : [];
+  }
+  return out;
+};
+
+const ASSET_COLUMNS = [
+  'c.targeting', 'c.target_countries', 'c.media_links', 'c.script', 'c.script_required',
+];
+
+/** Safe select list for a brand's own campaigns (all statuses). */
+const OWNER_SELECT = [
+  'c.id', 'c.title', 'c.description', 'c.budget', 'c.currency', 'c.platform',
+  'c.target_audience', 'c.deadline', 'c.status', 'c.cover_image',
+  'c.contract_template', 'c.post_to_telegram', 'c.created_at', 'c.updated_at',
+  'c.content_type', 'c.objective', 'c.budget_usd', 'c.fx_rate', 'c.fx_rate_at',
+  'c.source_language',
+  ...ASSET_COLUMNS,
+  'b.id', 'b.account_status',
+  'bp.id', 'bp.company_name', 'bp.logo_url', 'bp.industry',
+];
 
 @Injectable()
 export class CampaignsService implements OnModuleInit {
@@ -125,6 +294,7 @@ export class CampaignsService implements OnModuleInit {
         'c.target_audience', 'c.deadline', 'c.status', 'c.cover_image',
         'c.contract_template', 'c.created_at', 'c.content_type', 'c.objective',
         'c.budget_usd', 'c.fx_rate', 'c.source_language',
+        ...ASSET_COLUMNS,
         'b.id', 'b.account_status',
         'bp.id', 'bp.company_name', 'bp.logo_url', 'bp.industry',
       ]);
@@ -132,7 +302,7 @@ export class CampaignsService implements OnModuleInit {
 
   async getActiveCampaigns(lang?: string): Promise<Campaign[]> {
     const items = await this.publicCampaignQb().orderBy('c.created_at', 'DESC').getMany();
-    return this.attachTranslations(items as any[], lang);
+    return this.attachTranslations(items.map(hydrateCampaign) as any[], lang);
   }
 
   /**
@@ -147,6 +317,7 @@ export class CampaignsService implements OnModuleInit {
   async getCampaignFacets(): Promise<{
     sectors: { value: string; count: number }[];
     objectives: { value: string; count: number }[];
+    countries: { value: string; label: string; count: number }[];
   }> {
     const base = () =>
       this.campaignsRepository
@@ -154,6 +325,21 @@ export class CampaignsService implements OnModuleInit {
         .leftJoin('c.brand', 'b')
         .leftJoin('b.brandProfile', 'bp')
         .where('c.status = :status', { status: 'active' });
+
+    // Target countries: comma lists in SQL, so count them in JS (small set).
+    const countryRows = await base()
+      .andWhere("COALESCE(c.target_countries, '') != ''")
+      .select('c.target_countries', 'codes')
+      .getRawMany();
+    const countryCounts = new Map<string, number>();
+    for (const r of countryRows) {
+      for (const code of String(r.codes).split(',').map((s) => s.trim()).filter(Boolean)) {
+        countryCounts.set(code, (countryCounts.get(code) || 0) + 1);
+      }
+    }
+    const countries = [...countryCounts.entries()]
+      .map(([value, count]) => ({ value, label: countryName(value), count }))
+      .sort((a, b) => a.label.localeCompare(b.label));
 
     const sectorRows = await base()
       .andWhere("COALESCE(bp.industry, '') != ''")
@@ -173,7 +359,7 @@ export class CampaignsService implements OnModuleInit {
 
     const shape = (rows: any[]) =>
       rows.map((r) => ({ value: r.value, count: Number(r.count) || 0 }));
-    return { sectors: shape(sectorRows), objectives: shape(objectiveRows) };
+    return { sectors: shape(sectorRows), objectives: shape(objectiveRows), countries };
   }
 
   async getPublicCampaigns(filters: {
@@ -183,6 +369,8 @@ export class CampaignsService implements OnModuleInit {
     maxBudget?: string;
     industry?: string;
     objective?: string;
+    /** ISO-2 code or country name: briefs targeting it OR open to anywhere. */
+    country?: string;
     sort?: string;
     limit?: string;
     offset?: string;
@@ -226,6 +414,14 @@ export class CampaignsService implements OnModuleInit {
     if (filters.objective) {
       qb.andWhere('LOWER(c.objective) = LOWER(:obj)', { obj: filters.objective });
     }
+    const countryCode = resolveCountryCode(filters.country);
+    if (countryCode) {
+      // Briefs that target this country, plus briefs open to anywhere.
+      qb.andWhere(
+        "(COALESCE(c.target_countries, '') = '' OR (',' || c.target_countries || ',') ILIKE :cc)",
+        { cc: `%,${countryCode},%` },
+      );
+    }
 
     const total = await qb.getCount();
 
@@ -248,7 +444,7 @@ export class CampaignsService implements OnModuleInit {
     const { entities, raw } = await qb.offset(offset).limit(limit).getRawAndEntities();
 
     const items = entities.map((c, i) => ({
-      ...c,
+      ...hydrateCampaign(c),
       applicants_count: Number(raw[i]?.applicants_count) || 0,
     }));
     await this.attachTranslations(items, filters.lang);
@@ -256,12 +452,197 @@ export class CampaignsService implements OnModuleInit {
     return { items, total, limit, offset, hasMore: offset + items.length < total };
   }
 
-  async getCampaignsByBrand(brandId: string): Promise<Campaign[]> {
-    return this.campaignsRepository.find({
-      where: { brand: { id: brandId } },
-      relations: ['brand', 'brand.brandProfile'],
-      order: { created_at: 'DESC' },
-    });
+  /** Per-campaign applicant funnel as correlated subqueries. */
+  private addApplicantCounts<T>(qb: any): T {
+    const count = (extra = '') => (sub: any) =>
+      sub.select('COUNT(*)').from('applications', 'a').where(`a.campaign_id = c.id${extra}`);
+    qb.addSelect(count(), 'applicants_count');
+    qb.addSelect(count(" AND a.status = 'pending'"), 'pending_count');
+    qb.addSelect(count(" AND a.status = 'shortlisted'"), 'shortlisted_count');
+    qb.addSelect(count(" AND a.status = 'accepted'"), 'accepted_count');
+    return qb;
+  }
+
+  private withCounts(entities: any[], raw: any[]): any[] {
+    return entities.map((c, i) => ({
+      ...hydrateCampaign(c),
+      status: normalizeCampaignStatus(c.status) ?? c.status,
+      applicants_count: Number(raw[i]?.applicants_count) || 0,
+      pending_count: Number(raw[i]?.pending_count) || 0,
+      shortlisted_count: Number(raw[i]?.shortlisted_count) || 0,
+      accepted_count: Number(raw[i]?.accepted_count) || 0,
+    }));
+  }
+
+  /**
+   * A brand's own campaigns — every status, newest first, with the
+   * applicant funnel per campaign. Safe field list: never the brand's User
+   * row (password hash, KYC documents) that `relations: ['brand']` leaked.
+   */
+  async getCampaignsByBrand(
+    brandId: string,
+    filters: { status?: string; search?: string } = {},
+  ): Promise<any[]> {
+    const qb = this.campaignsRepository
+      .createQueryBuilder('c')
+      .leftJoin('c.brand', 'b')
+      .leftJoin('b.brandProfile', 'bp')
+      .where('b.id = :brandId', { brandId })
+      .select(OWNER_SELECT);
+
+    const status = normalizeCampaignStatus(filters.status);
+    if (status) {
+      const aliases = [status, ...Object.entries(LEGACY_STATUS).filter(([, v]) => v === status).map(([k]) => k)];
+      qb.andWhere('LOWER(c.status) IN (:...st)', { st: aliases });
+    }
+    if (filters.search) {
+      qb.andWhere('(c.title ILIKE :s OR c.description ILIKE :s)', { s: `%${filters.search}%` });
+    }
+
+    this.addApplicantCounts(qb);
+    qb.orderBy('c.created_at', 'DESC').addOrderBy('c.id', 'ASC');
+
+    const { entities, raw } = await qb.getRawAndEntities();
+    return this.withCounts(entities, raw);
+  }
+
+  /**
+   * One campaign. Owners (and admins) see it in any status with the
+   * applicant funnel; everyone else only while it is active, with
+   * translations attached for `lang` viewers.
+   */
+  async getCampaignById(
+    id: string,
+    viewer?: { userId?: string; role?: string },
+    lang?: string,
+  ): Promise<any> {
+    const qb = this.campaignsRepository
+      .createQueryBuilder('c')
+      .leftJoin('c.brand', 'b')
+      .leftJoin('b.brandProfile', 'bp')
+      .where('c.id = :id', { id })
+      .select(OWNER_SELECT);
+    this.addApplicantCounts(qb);
+
+    const { entities, raw } = await qb.getRawAndEntities();
+    const campaign = entities[0];
+    if (!campaign) throw new NotFoundException('Campaign not found');
+
+    const isOwner = !!viewer?.userId && campaign.brand?.id === viewer.userId;
+    const isAdmin = viewer?.role === UserRole.ADMIN;
+    if (!isOwner && !isAdmin && normalizeCampaignStatus(campaign.status) !== 'active') {
+      throw new NotFoundException('Campaign not found');
+    }
+
+    const [item] = this.withCounts([campaign], raw);
+    if (!isOwner) {
+      // Non-owners never need the private Telegram flag.
+      delete item.post_to_telegram;
+      await this.attachTranslations([item], lang);
+    }
+    return item;
+  }
+
+  /**
+   * Brand overview numbers: campaign + applicant funnels, committed budget
+   * in canonical USD, and 12 weekly buckets for the dashboard sparklines.
+   * One round-trip per table — no per-campaign fan-out.
+   */
+  async getBrandStats(brandId: string): Promise<any> {
+    const campaigns = await this.campaignsRepository
+      .createQueryBuilder('c')
+      .leftJoin('c.brand', 'b')
+      .where('b.id = :brandId', { brandId })
+      .select(['c.id', 'c.status', 'c.budget', 'c.currency', 'c.budget_usd', 'c.created_at', 'c.deadline'])
+      .getMany();
+
+    const apps: { status: string; created_at: Date }[] = await this.campaignsRepository.manager
+      .createQueryBuilder()
+      .select('a.status', 'status')
+      .addSelect('a.created_at', 'created_at')
+      .from('applications', 'a')
+      .innerJoin('campaigns', 'c', 'c.id = a.campaign_id')
+      .where('c.brand_id = :brandId', { brandId })
+      .getRawMany();
+
+    const byStatus: Record<CampaignStatus, number> = { draft: 0, active: 0, paused: 0, closed: 0 };
+    let committedUsd = 0;
+    let activeUsd = 0;
+    const now = Date.now();
+    let closingSoon = 0;
+    for (const c of campaigns) {
+      const s = normalizeCampaignStatus(c.status) ?? 'active';
+      byStatus[s]++;
+      const usd =
+        c.budget_usd != null
+          ? Number(c.budget_usd)
+          : c.currency === 'USD' && c.budget != null
+            ? Number(c.budget)
+            : 0;
+      if (Number.isFinite(usd)) {
+        committedUsd += usd;
+        if (s === 'active') activeUsd += usd;
+      }
+      if (s === 'active' && c.deadline) {
+        const days = (new Date(c.deadline as any).getTime() - now) / 86_400_000;
+        if (days >= 0 && days <= 7) closingSoon++;
+      }
+    }
+
+    const funnel = { total: apps.length, pending: 0, shortlisted: 0, accepted: 0, rejected: 0, other: 0 };
+    for (const a of apps) {
+      const s = (a.status || '').toLowerCase();
+      if (s in funnel && s !== 'total' && s !== 'other') (funnel as any)[s]++;
+      else funnel.other++;
+    }
+
+    // 12 weekly buckets ending this week (Monday-based), oldest → newest.
+    const WEEKS = 12;
+    const monday = new Date();
+    monday.setHours(0, 0, 0, 0);
+    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+    const starts: Date[] = [];
+    for (let i = WEEKS - 1; i >= 0; i--) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() - i * 7);
+      starts.push(d);
+    }
+    const bucketOf = (t: Date | string) => {
+      const ms = new Date(t).getTime();
+      if (ms < starts[0].getTime()) return -1;
+      const idx = Math.floor((ms - starts[0].getTime()) / (7 * 86_400_000));
+      return Math.min(idx, WEEKS - 1);
+    };
+    // Local calendar dates (toISOString would shift the label by the TZ offset).
+    const ymd = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const series = {
+      weeks: starts.map(ymd),
+      campaigns: new Array(WEEKS).fill(0) as number[],
+      applications: new Array(WEEKS).fill(0) as number[],
+      accepted: new Array(WEEKS).fill(0) as number[],
+    };
+    for (const c of campaigns) {
+      const i = bucketOf(c.created_at);
+      if (i >= 0) series.campaigns[i]++;
+    }
+    for (const a of apps) {
+      const i = bucketOf(a.created_at);
+      if (i < 0) continue;
+      series.applications[i]++;
+      if ((a.status || '').toLowerCase() === 'accepted') series.accepted[i]++;
+    }
+
+    return {
+      campaigns: { total: campaigns.length, by_status: byStatus, closing_soon: closingSoon },
+      applications: funnel,
+      budget: {
+        committed_usd: Math.round(committedUsd * 100) / 100,
+        active_usd: Math.round(activeUsd * 100) / 100,
+      },
+      series,
+      generated_at: new Date().toISOString(),
+    };
   }
 
   // Stock cover images by category (from Unsplash)
@@ -334,13 +715,76 @@ export class CampaignsService implements OnModuleInit {
     return data;
   }
 
-  async createCampaign(user: any, data: Partial<Campaign>): Promise<Campaign> {
-    data = this.normalizePlatformInput(data);
+  /**
+   * Announce a newly published brief to creators — in-app for everyone,
+   * Telegram when the brand opted in. Runs after the response is sent; a
+   * brand with thousands of creators on the platform must not wait on
+   * N notification inserts to see "Campaign posted".
+   */
+  private announceToCreators(saved: Campaign, telegram: boolean): void {
+    void (async () => {
+      try {
+        const creators = await this.usersRepository.find({
+          where: { role: UserRole.CREATOR },
+          select: ['id'],
+        });
+        const message = `A new campaign "${saved.title}" was just posted! Check it out and apply.`;
+        // Small parallel batches: fast, but never a thundering herd on Telegram.
+        const BATCH = 20;
+        for (let i = 0; i < creators.length; i += BATCH) {
+          await Promise.allSettled(
+            creators
+              .slice(i, i + BATCH)
+              .map((c) => this.notificationsService.createNotification(c.id, 'NEW_CAMPAIGN', message, saved.id)),
+          );
+        }
+      } catch (e: any) {
+        console.error('[campaigns] creator notifications failed:', e?.message);
+      }
+    })();
+
+    if (telegram) {
+      const budgetStr =
+        saved.budget != null
+          ? `${saved.currency || 'USD'} ${Number(saved.budget).toLocaleString()}`
+          : 'TBD';
+      const msg = `🚀 *New Campaign Alert!*\n\n📋 *${saved.title}*\n💰 Budget: ${budgetStr}\n📱 Platform: ${saved.platform || 'Multiple'}\n\n${saved.description ? saved.description.substring(0, 200) : 'Check out this opportunity!'}\n\n🔗 Apply here: ${process.env.FRONTEND_URL || 'http://localhost:5173'}/campaigns`;
+      this.telegramService
+        .broadcastToRole('creator', msg)
+        .catch((e) => console.error('Telegram broadcast error:', e));
+    }
+  }
+
+  private validateWritable(data: Partial<Campaign>): void {
+    if (data.title !== undefined && !String(data.title).trim()) {
+      throw new BadRequestException('Title is required');
+    }
+    if (data.budget != null && data.budget !== undefined) {
+      const n = Number(data.budget);
+      if (!Number.isFinite(n) || n < 0) throw new BadRequestException('Budget must be a positive number');
+    }
+    if (data.currency !== undefined && !/^[A-Za-z]{3}$/.test(String(data.currency))) {
+      throw new BadRequestException('Currency must be a 3-letter ISO code');
+    }
+    if (data.status !== undefined && !normalizeCampaignStatus(data.status)) {
+      throw new BadRequestException(`Status must be one of: ${CAMPAIGN_STATUSES.join(', ')}`);
+    }
+  }
+
+  async createCampaign(user: any, input: any): Promise<Campaign> {
+    const data = this.normalizePlatformInput(pickWritable(input));
+    normalizeAssets(data);
+    this.validateWritable(data);
+    if (!data.title) throw new BadRequestException('Title is required');
+
+    // Brands may save a draft (invisible to creators) or publish straight away.
+    const status: CampaignStatus = normalizeCampaignStatus(data.status) === 'draft' ? 'draft' : 'active';
+
     const campaign = this.campaignsRepository.create({
       ...data,
       brand: { id: user.userId } as User,
-      status: 'active',
-      cover_image: (data as any).cover_image || this.pickCoverImage(data.title || '', data.description),
+      status,
+      cover_image: data.cover_image || this.pickCoverImage(data.title || '', data.description),
     });
     campaign.currency = (campaign.currency || 'USD').toUpperCase();
     this.applyFx(campaign); // USD value + rate locked at post time
@@ -350,37 +794,25 @@ export class CampaignsService implements OnModuleInit {
 
     const saved = await this.campaignsRepository.save(campaign);
     this.queueTranslation(saved);
-
-    // Notify creators via in-app notifications
-    const creators = await this.usersRepository.find({ where: { role: UserRole.CREATOR } });
-    for (const creator of creators) {
-      await this.notificationsService.createNotification(
-        creator.id,
-        'NEW_CAMPAIGN',
-        `A new campaign "${saved.title}" was just posted! Check it out and apply.`,
-        saved.id
-      );
-    }
-
-    // Broadcast to Telegram if enabled
-    if ((data as any).post_to_telegram) {
-      const budgetStr = saved.budget ? `$${Number(saved.budget).toLocaleString()}` : 'TBD';
-      const msg = `🚀 *New Campaign Alert!*\n\n📋 *${saved.title}*\n💰 Budget: ${budgetStr}\n📱 Platform: ${saved.platform || 'Multiple'}\n\n${saved.description ? saved.description.substring(0, 200) : 'Check out this opportunity!'}\n\n🔗 Apply here: ${process.env.FRONTEND_URL || 'http://localhost:5173'}/campaigns`;
-      this.telegramService.broadcastToRole('creator', msg).catch(e => console.error('Telegram broadcast error:', e));
-    }
-
-    return saved;
+    if (status === 'active') this.announceToCreators(saved, !!data.post_to_telegram);
+    return hydrateCampaign(saved);
   }
 
-  async updateCampaign(campaignId: string, brandId: string, data: Partial<Campaign>): Promise<Campaign> {
+  async updateCampaign(campaignId: string, brandId: string, input: any): Promise<Campaign> {
     const campaign = await this.campaignsRepository.findOne({ where: { id: campaignId }, relations: ['brand'] });
     if (!campaign) throw new NotFoundException('Campaign not found');
     if (campaign.brand.id !== brandId) throw new UnauthorizedException('Not authorized');
 
+    const data = this.normalizePlatformInput(pickWritable(input));
+    normalizeAssets(data);
+    this.validateWritable(data);
+
     const moneyChanged = data.budget !== undefined || data.currency !== undefined;
     const textChanged = data.title !== undefined || data.description !== undefined;
+    const wasDraft = normalizeCampaignStatus(campaign.status) === 'draft';
+    if (data.status !== undefined) data.status = normalizeCampaignStatus(data.status)!;
 
-    Object.assign(campaign, this.normalizePlatformInput(data));
+    Object.assign(campaign, data);
     if (moneyChanged) {
       campaign.currency = (campaign.currency || 'USD').toUpperCase();
       this.applyFx(campaign); // re-lock at today's rate — the brand changed the money
@@ -392,7 +824,13 @@ export class CampaignsService implements OnModuleInit {
     }
     const saved = await this.campaignsRepository.save(campaign);
     if (textChanged) this.queueTranslation(saved);
-    return saved;
+    // First publish of a draft is the moment creators should hear about it.
+    if (wasDraft && normalizeCampaignStatus(saved.status) === 'active') {
+      this.announceToCreators(saved, !!saved.post_to_telegram);
+    }
+    // Strip the brand relation (loaded for the ownership check) from the response.
+    const { brand: _brand, ...rest } = saved as any;
+    return { ...hydrateCampaign(rest), brand: { id: brandId } } as Campaign;
   }
 
   async deleteCampaign(campaignId: string, brandId: string): Promise<void> {

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards, Request, Patch, Param } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, Request, Patch, Param, Query } from '@nestjs/common';
 import { ApplicationsService } from './applications.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -17,13 +17,21 @@ export class ApplicationsController {
   }
 
   @Get()
-  async getMyApplications(@Request() req: any) {
-    return this.applicationsService.getApplications(req.user);
+  async getMyApplications(
+    @Request() req: any,
+    @Query('campaignId') campaignId?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.applicationsService.getApplications(req.user, { campaignId, status });
   }
 
   @Get('mine')
-  async getMine(@Request() req: any) {
-    return this.applicationsService.getApplications(req.user);
+  async getMine(
+    @Request() req: any,
+    @Query('campaignId') campaignId?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.applicationsService.getApplications(req.user, { campaignId, status });
   }
 
   @Patch(':id/status')

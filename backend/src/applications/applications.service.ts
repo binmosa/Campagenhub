@@ -7,6 +7,20 @@ import { UserRole } from '../users/user.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Contract } from '../contracts/contract.entity';
 import { BrandTeam } from '../invitations/brand-team.entity';
+import { toPublicUser } from '../users/public-user';
+
+/** Applicant pipeline: pending → shortlisted → accepted | rejected.
+ *  `refunded` is set by the payments flow after a cancelled engagement. */
+export const APPLICATION_STATUSES = ['pending', 'shortlisted', 'accepted', 'rejected', 'refunded'] as const;
+export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
+
+export const normalizeApplicationStatus = (s?: string | null): ApplicationStatus | undefined => {
+  if (!s) return undefined;
+  const k = String(s).toLowerCase().trim();
+  if (k === 'approved') return 'accepted';
+  if (k === 'declined') return 'rejected';
+  return (APPLICATION_STATUSES as readonly string[]).includes(k) ? (k as ApplicationStatus) : undefined;
+};
 
 @Injectable()
 export class ApplicationsService {
@@ -45,24 +59,53 @@ export class ApplicationsService {
     }
   }
 
-  async getApplications(user: any): Promise<Application[]> {
+  /**
+   * Applications visible to the caller, newest first.
+   *  - creators: their own, with the campaign + a SAFE brand summary;
+   *  - brands: everything on their campaigns, with a SAFE creator summary
+   *    (id/email/status + creator profile — never the User row's password
+   *    hash or KYC documents), filterable by campaign and status.
+   */
+  async getApplications(
+    user: any,
+    filters: { campaignId?: string; status?: string } = {},
+  ): Promise<Application[]> {
     if (user.role === UserRole.CREATOR) {
-      return this.applicationsRepository.find({
-        where: { creator: { id: user.userId } },
-        relations: ['campaign', 'campaign.brand', 'campaign.brand.brandProfile'],
-        order: { created_at: 'DESC' },
-      });
-    } else if (user.role === UserRole.BRAND) {
-      return this.applicationsRepository.find({
-        where: { campaign: { brand: { id: user.userId } } },
-        relations: ['campaign', 'creator', 'creator.creatorProfile'],
-        order: { created_at: 'DESC' },
-      });
+      return this.applicationsRepository
+        .createQueryBuilder('a')
+        .innerJoin('a.campaign', 'c')
+        .leftJoin('c.brand', 'b')
+        .leftJoin('b.brandProfile', 'bp')
+        .leftJoin('a.creator', 'u')
+        .where('u.id = :uid', { uid: user.userId })
+        .select(['a', 'c', 'b.id', 'b.account_status', 'bp.id', 'bp.company_name', 'bp.logo_url', 'bp.industry'])
+        .orderBy('a.created_at', 'DESC')
+        .getMany();
+    }
+    if (user.role === UserRole.BRAND) {
+      const qb = this.applicationsRepository
+        .createQueryBuilder('a')
+        .innerJoin('a.campaign', 'c')
+        .innerJoin('c.brand', 'b')
+        .leftJoin('a.creator', 'u')
+        .leftJoin('u.creatorProfile', 'cp')
+        .where('b.id = :brandId', { brandId: user.userId })
+        .select(['a', 'c', 'u.id', 'u.email', 'u.account_status', 'u.created_at', 'cp'])
+        .orderBy('a.created_at', 'DESC');
+      if (filters.campaignId) qb.andWhere('c.id = :cid', { cid: filters.campaignId });
+      const status = normalizeApplicationStatus(filters.status);
+      if (status) qb.andWhere('LOWER(a.status) = :st', { st: status });
+      return qb.getMany();
     }
     return [];
   }
 
-  async updateStatus(applicationId: string, brandId: string, status: string): Promise<Application> {
+  async updateStatus(applicationId: string, brandId: string, rawStatus: string): Promise<Application> {
+    const status = normalizeApplicationStatus(rawStatus);
+    if (!status) {
+      throw new BadRequestException(`Status must be one of: ${APPLICATION_STATUSES.join(', ')}`);
+    }
+
     const application = await this.applicationsRepository.findOne({
       where: { id: applicationId },
       relations: ['campaign', 'campaign.brand', 'creator'],
@@ -73,19 +116,41 @@ export class ApplicationsService {
       throw new BadRequestException('Not authorized');
     }
 
+    const previous = application.status;
     application.status = status;
     const saved = await this.applicationsRepository.save(application);
 
-    if (status === 'accepted') {
-      await this.notificationsService.createNotification(
-        application.creator.id,
-        'APPLICATION_APPROVED',
-        `Your application for campaign "${application.campaign.title}" has been accepted! You can now view your contract or message the brand.`,
-        application.id
-      );
+    if (status !== previous) {
+      const title = application.campaign.title;
+      const notify = (type: string, message: string) =>
+        this.notificationsService
+          .createNotification(application.creator.id, type, message, application.id)
+          .catch(() => {});
+      if (status === 'accepted') {
+        await notify(
+          'APPLICATION_APPROVED',
+          `Your application for campaign "${title}" has been accepted! You can now view your contract or message the brand.`,
+        );
+      } else if (status === 'shortlisted') {
+        await notify(
+          'APPLICATION_SHORTLISTED',
+          `Good news — you've been shortlisted for "${title}". The brand is reviewing final candidates.`,
+        );
+      } else if (status === 'rejected') {
+        await notify(
+          'APPLICATION_REJECTED',
+          `Your application for "${title}" wasn't selected this time. Keep an eye on new briefs — more are posted every week.`,
+        );
+      }
     }
 
-    return saved;
+    // Never echo the brand's User row back to the client.
+    const { campaign, creator, ...rest } = saved as any;
+    return {
+      ...rest,
+      campaign: campaign ? { id: campaign.id, title: campaign.title, status: campaign.status } : undefined,
+      creator: toPublicUser(creator),
+    } as Application;
   }
 
   async setPaymentSchedule(

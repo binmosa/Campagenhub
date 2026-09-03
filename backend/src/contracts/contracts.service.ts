@@ -6,6 +6,7 @@ import { Application } from '../applications/application.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Invitation } from '../invitations/invitation.entity';
 import { BrandTeam } from '../invitations/brand-team.entity';
+import { toPublicUser } from '../users/public-user';
 
 @Injectable()
 export class ContractsService {
@@ -81,8 +82,24 @@ export class ContractsService {
       ...appContracts.map(c => {
         const isCreator = c.application?.creator?.id === userId;
         const opponentEmail = isCreator ? c.application?.campaign?.brand?.email : c.application?.creator?.email;
+        // Never ship the User rows (password hash, KYC blobs) hanging off the
+        // application — only their public shape.
+        const application = c.application
+          ? {
+              ...c.application,
+              creator: toPublicUser(c.application.creator),
+              campaign: c.application.campaign
+                ? { ...c.application.campaign, brand: toPublicUser(c.application.campaign.brand) }
+                : c.application.campaign,
+            }
+          : c.application;
         return {
           ...c,
+          application,
+          // Payment terms live on the application (set when the brand accepted).
+          currency: c.application?.currency || 'USD',
+          payment_frequency: c.application?.payment_frequency || undefined,
+          payment_day: c.application?.payment_day || undefined,
           title: `Contract with ${opponentEmail ? opponentEmail.split('@')[0] : 'User'}`,
           opponent_id: isCreator ? c.application?.campaign?.brand?.id : c.application?.creator?.id,
           opponent_email: opponentEmail

@@ -6,6 +6,17 @@ import { ManagerFeedback } from './manager-feedback.entity';
 import { UsersService } from '../users/users.service';
 import { withDerivedFullName } from '../core/name.util';
 
+const WRITABLE_FIELDS = [
+  'first_name', 'last_name', 'full_name', 'bio', 'avatar_url', 'location', 'specialty', 'experience_years',
+  'country', 'country_code', 'state', 'state_code', 'city', 'website', 'services', 'languages',
+] as const;
+const pickWritable = (data: any) => {
+  const out: Record<string, unknown> = {};
+  for (const k of WRITABLE_FIELDS) if (data && data[k] !== undefined) out[k] = data[k];
+  if (out.experience_years !== undefined) out.experience_years = Math.max(0, Math.min(60, Math.round(Number(out.experience_years) || 0)));
+  return out;
+};
+
 @Injectable()
 export class ManagersService {
   constructor(
@@ -44,7 +55,9 @@ export class ManagersService {
   }
 
   async createProfile(userId: string, data: any) {
-    data = withDerivedFullName(data);
+    // Only presentation fields are client-writable; rating and the
+    // blacklist are platform-owned.
+    data = withDerivedFullName(pickWritable(data));
     const user = await this.usersService.findById(userId);
     if (!user) throw new BadRequestException('User not found');
     let profile = await this.managersRepo.findOne({ where: { user: { id: userId } } });
@@ -96,6 +109,12 @@ export class ManagersService {
          location: true,
          specialty: true,
          experience_years: true,
+         country: true,
+         country_code: true,
+         city: true,
+         website: true,
+         services: true,
+         languages: true,
          user: { id: true }
       }
     });
@@ -104,7 +123,10 @@ export class ManagersService {
       const s = filters.search.toLowerCase();
       results = results.filter(m =>
         m.full_name?.toLowerCase().includes(s) ||
-        m.bio?.toLowerCase().includes(s)
+        m.bio?.toLowerCase().includes(s) ||
+        m.specialty?.toLowerCase().includes(s) ||
+        m.services?.toLowerCase().includes(s) ||
+        m.location?.toLowerCase().includes(s)
       );
     }
     if (filters?.minRating) {

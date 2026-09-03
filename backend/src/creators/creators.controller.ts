@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards, Request, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, UseGuards, Request, Param, Query } from '@nestjs/common';
 import { CreatorsService } from './creators.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -55,6 +55,28 @@ export class CreatorsController {
   @UseGuards(JwtAuthGuard)
   async getPublicProfile(@Param('id') id: string) {
     return this.creatorsService.getPublicProfile(id);
+  }
+
+  /* ── Follower claims — admin / support review queue ─────────────── */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPPORT)
+  @Get('admin/follower-claims')
+  async listFollowerClaims(@Query('status') status?: string) {
+    const s = status === 'verified' || status === 'rejected' ? status : 'pending';
+    return this.creatorsService.listFollowerClaims(s);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPPORT)
+  @Patch('admin/follower-claims/:userId/:platform')
+  async decideFollowerClaim(
+    @Request() req: any,
+    @Param('userId') userId: string,
+    @Param('platform') platform: string,
+    @Body() body: { action: 'verify' | 'reject'; verified_followers?: number; note?: string },
+  ) {
+    const action = body?.action === 'reject' ? 'reject' : 'verify';
+    return this.creatorsService.decideFollowerClaim(userId, platform, { action, verified_followers: body?.verified_followers, note: body?.note }, req.user?.email);
   }
 }
 

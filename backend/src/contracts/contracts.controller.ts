@@ -29,7 +29,7 @@ The Talent agrees to create, publish, and promote content as agreed upon with th
 
 PAYMENT TERMS
 Compensation: ${body.currency || 'NGN'} ${body.amount || '[amount]'} per ${body.frequency || 'month'}.
-Payment Schedule: Funds will be transferred on the agreed payment date each ${body.frequency === 'yearly' ? 'year' : 'month'} via the CampaignHub automated payment system.
+Payment Schedule: Funds will be transferred on the agreed payment date each ${({ one_time: 'one-time milestone', daily: 'day', weekly: 'week', monthly: 'month', quarterly: 'quarter', yearly: 'year' } as Record<string, string>)[String(body.frequency)] || 'month'} via the CampaignHub automated payment system.
 
 INTELLECTUAL PROPERTY
 All content created under this agreement remains the intellectual property of the Talent. The Brand is granted a non-exclusive license to use and distribute the content for the duration of this agreement.

@@ -8,6 +8,18 @@ import { BrandTeam } from './brand-team.entity';
 import { User } from '../users/user.entity';
 import { ManagerProfile } from '../managers/manager-profile.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { toPublicUser } from '../users/public-user';
+
+/** Strip User rows on an invitation / team row down to their public shape. */
+const sanitizeInvitation = (inv: any): any => {
+  if (!inv) return inv;
+  const out = { ...inv };
+  if (out.sender) out.sender = toPublicUser(out.sender);
+  if (out.receiver) out.receiver = toPublicUser(out.receiver);
+  if (out.brand) out.brand = toPublicUser(out.brand);
+  if (out.member) out.member = toPublicUser(out.member);
+  return out;
+};
 
 @Injectable()
 export class InvitationsService {
@@ -174,23 +186,25 @@ export class InvitationsService {
 
   // ─── Get Received Invitations ───────────────────────────────────────────────
   async getReceived(userId: string): Promise<Invitation[]> {
-    return this.invRepo.find({
+    const rows = await this.invRepo.find({
       where: { receiver: { id: userId } },
-      relations: ['sender', 'brand'],
+      relations: ['sender', 'sender.brandProfile', 'sender.managerProfile', 'brand', 'brand.brandProfile'],
       order: { created_at: 'DESC' },
     });
+    return rows.map(sanitizeInvitation);
   }
 
   // ─── Get Sent Invitations ───────────────────────────────────────────────────
   async getSent(userId: string): Promise<Invitation[]> {
-    return this.invRepo.find({
+    const rows = await this.invRepo.find({
       where: [
         { sender: { id: userId } },
         { brand: { id: userId } },
       ],
-      relations: ['receiver', 'sender'],
+      relations: ['receiver', 'receiver.creatorProfile', 'receiver.managerProfile', 'sender'],
       order: { created_at: 'DESC' },
     });
+    return rows.map(sanitizeInvitation);
   }
 
   // ─── Accept Invitation ──────────────────────────────────────────────────────
@@ -301,12 +315,15 @@ export class InvitationsService {
   }
 
   // ─── Get My Team ────────────────────────────────────────────────────────────
-  async getMyTeam(brandId: string): Promise<BrandTeam[]> {
-    return this.teamRepo.find({
+  async getMyTeam(brandId: string): Promise<any[]> {
+    const rows = await this.teamRepo.find({
       where: { brand: { id: brandId }, is_active: true },
-      relations: ['member'],
+      relations: ['member', 'member.creatorProfile', 'member.managerProfile'],
       order: { joined_at: 'DESC' },
     });
+    // Members arrive with their profile (name, avatar, socials) and nothing
+    // sensitive from the User row.
+    return rows.map(sanitizeInvitation);
   }
 
   // ─── Update Team Member Permissions ─────────────────────────────────────────

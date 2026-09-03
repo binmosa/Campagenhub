@@ -43,8 +43,33 @@ export class Campaign {
   @Column({ nullable: true })
   platform: string;
 
+  /** Legacy free-text summary — now GENERATED from `targeting` on save so
+   *  older readers keep working. */
   @Column({ type: 'text', nullable: true })
   target_audience: string;
+
+  /** Structured audience targeting (JSON), ads-manager style:
+   *  { gender: 'all'|'female'|'male', age_groups: ['18-24',…],
+   *    countries: [{ code: 'ET', name: 'Ethiopia' }],
+   *    cities: [{ country_code: 'ET', city: 'Addis Ababa' }] } */
+  @Column({ type: 'text', nullable: true })
+  targeting: string;
+
+  /** Comma-separated ISO-3166 alpha-2 codes mirrored from targeting.countries
+   *  — the column SQL filters hit (`',' || target_countries || ','` ILIKE). */
+  @Column({ type: 'text', nullable: true })
+  target_countries: string;
+
+  /** Reference assets for creators (JSON): [{ type: 'video'|'image'|'article', url, label? }] */
+  @Column({ type: 'text', nullable: true })
+  media_links: string;
+
+  /** Script / key messages creators must (or should) follow. */
+  @Column({ type: 'text', nullable: true })
+  script: string;
+
+  @Column({ type: 'boolean', default: false })
+  script_required: boolean;
 
   /** Content orientation, e.g. Photo / Video / Story / Reel */
   @Column({ nullable: true })

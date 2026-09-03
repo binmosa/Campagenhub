@@ -1,6 +1,11 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { toPublicUser } from '../users/public-user';
+
+/** Task rows carry two User relations — strip them to their public shape. */
+const sanitizeTask = (task: any): any =>
+  task ? { ...task, assignedBy: toPublicUser(task.assignedBy), assignedTo: toPublicUser(task.assignedTo) } : task;
 
 @Controller('api/tasks')
 @UseGuards(JwtAuthGuard)
@@ -14,17 +19,17 @@ export class TasksController {
 
   @Get('mine')
   async getMyTasks(@Request() req: any) {
-    return this.tasksService.getMyTasks(req.user.userId);
+    return (await this.tasksService.getMyTasks(req.user.userId)).map(sanitizeTask);
   }
 
   @Get('assigned')
   async getAssignedByMe(@Request() req: any) {
-    return this.tasksService.getAssignedByMe(req.user.userId);
+    return (await this.tasksService.getAssignedByMe(req.user.userId)).map(sanitizeTask);
   }
 
   @Get('contract/:contractId')
   async getForContract(@Request() req: any, @Param('contractId') contractId: string) {
-    return this.tasksService.getTasksForContract(req.user.userId, contractId);
+    return (await this.tasksService.getTasksForContract(req.user.userId, contractId)).map(sanitizeTask);
   }
 
   @Get('progress')

@@ -38,6 +38,35 @@ export class ManagerProfile {
   @Column({ type: 'int', nullable: true, default: 0 })
   experience_years: number;
 
+  /* Structured location (ISO codes) — same shape as creator profiles so
+     the talent directory can filter managers by place. `location` stays
+     the derived display string. */
+  @Column({ nullable: true })
+  country: string;
+
+  @Column({ type: 'varchar', length: 2, nullable: true })
+  country_code: string;
+
+  @Column({ nullable: true })
+  state: string;
+
+  @Column({ nullable: true })
+  state_code: string;
+
+  @Column({ nullable: true })
+  city: string;
+
+  @Column({ nullable: true })
+  website: string;
+
+  /** Comma-separated service list, e.g. "Campaign strategy, Creator sourcing". */
+  @Column({ type: 'text', nullable: true })
+  services: string;
+
+  /** Comma-separated languages the manager works in. */
+  @Column({ nullable: true })
+  languages: string;
+
   @Column({ type: 'simple-json', nullable: true })
   blacklisted_brand_ids: string[]; // List of brand User IDs that banned them
 
