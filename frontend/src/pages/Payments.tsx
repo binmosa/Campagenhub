@@ -37,7 +37,9 @@ import type { DataGridColumn } from '@heroui-pro/react';
 import { Input } from 'react-aria-components';
 import api from '../lib/api';
 import PayoutSettings from '../components/PayoutSettings';
-import { PageShell } from '../components/ui';
+import { MetricCard, PageShell } from '../components/ui';
+import { EmptyPanel } from '../components/common/EmptyPanel';
+import { Users as TeamIcon, Clock as PendingIcon, ArrowLeftRight as TxIcon } from 'lucide-react';
 
 type Transaction = {
   id?: string;
@@ -287,17 +289,22 @@ const Payments: React.FC = () => {
     };
   }, [transactions, contracts, teamMembers, isBrand]);
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center p-16">
-        <div className="w-10 h-10 rounded-full border-4 border-border border-t-accent animate-spin" />
-      </div>
-    );
-  }
+  const fmt = (n: number) => `$${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
   return (
     <PageShell
-      title="Payments"
+      hero
+      containerSize="wide"
+      title={isBrand ? 'Team' : 'Your'}
+      titleAccent="payments"
+      stats={
+        <div className={`grid grid-cols-2 gap-3 ${isBrand ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
+          <MetricCard label="Total paid" value={fmt(stats.totalPaid)} hint="completed" icon={DollarSign} iconStatus={stats.totalPaid > 0 ? 'success' : undefined} />
+          <MetricCard label="Pending" value={fmt(stats.totalPending)} hint="in flight" icon={PendingIcon} iconStatus={stats.totalPending > 0 ? 'warning' : undefined} />
+          {isBrand && <MetricCard label="Payees" value={stats.team} hint="contracts + team" icon={TeamIcon} />}
+          <MetricCard label="Transactions" value={stats.count} hint="all time" icon={TxIcon} />
+        </div>
+      }
       description={
         isBrand
           ? 'Send instant payments to your team members via Flutterwave or Telebirr.'
@@ -317,66 +324,6 @@ const Payments: React.FC = () => {
         ) : null
       }
     >
-      {/* KPIs */}
-      <div
-        className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${isBrand ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}
-      >
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Total paid</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value
-              value={stats.totalPaid}
-              style="currency"
-              currency="USD"
-              notation="compact"
-              maximumFractionDigits={1}
-            />
-            <KPI.Trend trend={stats.totalPaid > 0 ? 'up' : 'neutral'}>
-              Completed
-            </KPI.Trend>
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Pending</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value
-              value={stats.totalPending}
-              style="currency"
-              currency="USD"
-              notation="compact"
-              maximumFractionDigits={1}
-            />
-            <KPI.Trend trend="neutral">In flight</KPI.Trend>
-          </KPI.Content>
-        </KPI>
-        {isBrand && (
-          <KPI>
-            <KPI.Header>
-              <KPI.Title>Team members</KPI.Title>
-            </KPI.Header>
-            <KPI.Content>
-              <KPI.Value value={stats.team} maximumFractionDigits={0} />
-              <KPI.Trend trend={stats.team > 0 ? 'up' : 'neutral'}>
-                Contracts + team
-              </KPI.Trend>
-            </KPI.Content>
-          </KPI>
-        )}
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Transactions</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={stats.count} maximumFractionDigits={0} />
-            <KPI.Trend trend="neutral">All time</KPI.Trend>
-          </KPI.Content>
-        </KPI>
-      </div>
-
       {/* Transaction history */}
       <Card>
         <Card.Header className="flex-row items-center justify-between">
@@ -396,19 +343,31 @@ const Payments: React.FC = () => {
         </Card.Header>
         <Separator />
         <Card.Content className="p-0">
-          {transactions.length === 0 ? (
-            <div className="p-8">
-              <EmptyState>
-                <EmptyState.Media>
-                  <DollarSign className="size-7" />
-                </EmptyState.Media>
-                <EmptyState.Title>No transactions yet</EmptyState.Title>
-                <EmptyState.Description>
-                  {isBrand
-                    ? 'Click "Instant pay" to send your first payment.'
-                    : 'Your payment history will appear here.'}
-                </EmptyState.Description>
-              </EmptyState>
+          {loading ? (
+            <div className="p-4 space-y-2" aria-hidden>
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="v-skel h-10 w-full" />
+              ))}
+            </div>
+          ) : transactions.length === 0 ? (
+            <div className="p-4">
+              <EmptyPanel
+                size="sm"
+                icon={<DollarSign size={18} />}
+                title="No transactions yet"
+                description={
+                  isBrand
+                    ? 'Send your first payment to a creator on your team — Flutterwave and Telebirr are wired in, with escrow per campaign.'
+                    : 'Payments from brands land here. Add a payout account below so you can be paid without delay.'
+                }
+                actions={
+                  isBrand ? (
+                    <Button variant="primary" size="sm" onPress={() => setShowPay(true)}>
+                      Instant pay
+                    </Button>
+                  ) : undefined
+                }
+              />
             </div>
           ) : (
             <TransactionsTable transactions={transactions} isBrand={isBrand} />
@@ -652,9 +611,10 @@ const InstantPayModal: React.FC<{
 
   return (
     <Modal isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <Modal.Backdrop>
+      <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
       <Modal.Container>
         <Modal.Dialog>
+          <Modal.CloseTrigger />
           <Modal.Header>
             <Modal.Heading className="inline-flex items-center gap-2">
               <Send size={16} className="text-accent" /> Instant pay

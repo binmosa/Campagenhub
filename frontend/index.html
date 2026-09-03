@@ -10,7 +10,10 @@
     <title>CampaignHub</title>
     <script src="https://checkout.flutterwave.com/v3.js"></script>
   </head>
-  <body>
+  <!-- `landing-visitors` = the Campgains design system scope (tokens, type,
+       story-ring cards, gradients). On <body> so the dashboard, the public
+       site AND portaled overlays (modals, sheets, popovers) all inherit it. -->
+  <body class="landing-visitors">
     <div id="app"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

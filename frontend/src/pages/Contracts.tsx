@@ -23,7 +23,11 @@ import {
   Segment,
 } from '@heroui-pro/react';
 import api from '../lib/api';
-import { PageShell } from '../components/ui';
+import { MetricCard, PageShell } from '../components/ui';
+import { EmptyPanel } from '../components/common/EmptyPanel';
+import { toast } from '../lib/toast';
+import { Link } from 'react-router-dom';
+import { CheckCircle2 as ActiveIcon, Archive as EndedIcon } from 'lucide-react';
 
 type Contract = {
   id: string;
@@ -73,7 +77,7 @@ const ContractCard: React.FC<{ contract: Contract; onChange: () => void }> = ({
     contract.content || contract.contract_content || contract.terms || '';
 
   const downloadContract = () => {
-    const fallback = `COLLABORATION AGREEMENT\n\nContract #${contract.id}\nStatus: ${contract.status}\nPayment: ${contract.currency || 'NGN'} ${contract.payment_amount || contract.monthly_payment || 0}\n\nBound by the platform terms of Campgains Hub, digitally accepted.`;
+    const fallback = `COLLABORATION AGREEMENT\n\nContract #${contract.id}\nStatus: ${contract.status}\nPayment: ${contract.currency || 'USD'} ${contract.payment_amount || contract.monthly_payment || 0}\n\nBound by the platform terms of Campgains Hub, digitally accepted.`;
     const blob = new Blob([text || fallback], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -94,7 +98,7 @@ const ContractCard: React.FC<{ contract: Contract; onChange: () => void }> = ({
       await api.patch(`/contracts/${contract.id}/end`);
       onChange();
     } catch {
-      alert('Failed to end contract');
+      toast.error('Failed to end contract');
     }
   };
 
@@ -190,7 +194,7 @@ const ContractCard: React.FC<{ contract: Contract; onChange: () => void }> = ({
           <div className="flex flex-wrap gap-2">
             <Chip color="success" variant="soft" size="sm">
               <DollarSign size={11} />
-              {contract.currency || 'NGN'}{' '}
+              {contract.currency || 'USD'}{' '}
               {Number(
                 contract.monthly_payment || contract.payment_amount
               ).toLocaleString()}{' '}
@@ -281,46 +285,23 @@ const ContractsPage: React.FC = () => {
 
   return (
     <PageShell
-      title="Contracts"
+      hero
+      title={role === 'brand' ? 'Team' : 'Your'}
+      titleAccent="contracts"
       description={
         role === 'brand'
-          ? 'All collaboration agreements with your team members.'
-          : 'Your active and past collaboration agreements.'
+          ? 'Every agreement with your creators and managers — terms, payment schedule and status in one place.'
+          : 'Your active and past collaboration agreements, with the payment terms you signed.'
       }
       icon={<FileText size={18} />}
+      stats={
+        <div className="grid grid-cols-3 gap-3">
+          <MetricCard label="Contracts" value={counts.all} hint="all time" icon={FileText} />
+          <MetricCard label="Active" value={counts.active} hint="currently signed" icon={ActiveIcon} iconStatus={counts.active ? 'success' : undefined} />
+          <MetricCard label="Ended" value={counts.ended} hint="completed or terminated" icon={EndedIcon} />
+        </div>
+      }
     >
-      {/* KPIs */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Total contracts</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={counts.all} maximumFractionDigits={0} />
-            <KPI.Trend trend="neutral">All time</KPI.Trend>
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Active</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={counts.active} maximumFractionDigits={0} />
-            <KPI.Trend trend={counts.active > 0 ? 'up' : 'neutral'}>
-              Currently signed
-            </KPI.Trend>
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Ended</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={counts.ended} maximumFractionDigits={0} />
-            <KPI.Trend trend="neutral">Completed</KPI.Trend>
-          </KPI.Content>
-        </KPI>
-      </div>
 
       {/* Filter */}
       <Segment
@@ -337,25 +318,41 @@ const ContractsPage: React.FC = () => {
 
       {/* List */}
       {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-10 h-10 border-4 border-border border-t-accent rounded-full animate-spin" />
+        <div className="space-y-3" aria-hidden>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="v-talent-card p-4">
+              <div className="v-skel h-4 w-1/3 mb-2" />
+              <div className="v-skel h-3 w-2/3" />
+            </div>
+          ))}
         </div>
       ) : filtered.length === 0 ? (
-        <Card>
-          <Card.Content className="p-8">
-            <EmptyState>
-              <EmptyState.Media>
-                <FileText className="size-7" />
-              </EmptyState.Media>
-              <EmptyState.Title>
-                No {filter === 'all' ? '' : filter} contracts yet
-              </EmptyState.Title>
-              <EmptyState.Description>
-                Contracts are created when collaboration invitations are accepted.
-              </EmptyState.Description>
-            </EmptyState>
-          </Card.Content>
-        </Card>
+        <EmptyPanel
+          icon={<FileText size={22} />}
+          title={filter === 'all' ? 'No contracts yet' : filter === 'active' ? 'No active contracts' : 'No ended contracts'}
+          description={
+            filter !== 'all' && contracts.length > 0
+              ? 'Switch the filter to see your other agreements.'
+              : role === 'brand'
+                ? 'A contract is created the moment you accept an applicant with payment terms, or a creator accepts your invitation.'
+                : 'Contracts appear here once a brand accepts your application or you accept an invitation.'
+          }
+          actions={
+            filter !== 'all' && contracts.length > 0 ? (
+              <Button variant="primary" size="sm" onPress={() => setFilter('all')}>
+                Show all
+              </Button>
+            ) : role === 'brand' ? (
+              <Link to="/dashboard/applications">
+                <Button variant="primary">Open the applicant inbox</Button>
+              </Link>
+            ) : (
+              <Link to="/campaigns">
+                <Button variant="primary">Browse open briefs</Button>
+              </Link>
+            )
+          }
+        />
       ) : (
         <div className="space-y-4">
           {filtered.map((c) => (

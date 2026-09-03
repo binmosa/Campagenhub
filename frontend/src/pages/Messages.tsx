@@ -18,7 +18,9 @@ import {
 } from '@heroui/react';
 import { EmptyState } from '@heroui-pro/react';
 import api from '../lib/api';
-import { PageShell } from '../components/ui';
+import { MetricCard, PageShell } from '../components/ui';
+import { EmptyPanel } from '../components/common/EmptyPanel';
+import { Inbox as InboxIcon, BellDot as UnreadIcon } from 'lucide-react';
 
 /**
  * Messages — direct messaging shell.
@@ -180,9 +182,25 @@ const Messages: React.FC = () => {
 
   return (
     <PageShell
-      title="Messages"
-      description={`Communicate with ${role === 'brand' ? 'creators' : 'brands'} directly.`}
+      hero
+      containerSize="wide"
+      title="Your"
+      titleAccent="messages"
+      description={`Direct conversations with ${role === 'brand' ? 'the creators and managers you work with' : 'brands and managers'} — offers, briefs and deliverables in one thread.`}
       icon={<MessageSquare size={18} />}
+      stats={
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <MetricCard label="Conversations" value={conversations.length} icon={InboxIcon} />
+          <MetricCard
+            label="Unread"
+            value={conversations.reduce((s, c) => s + (Number(c.unread) || 0), 0)}
+            hint={`${conversations.filter((c) => Number(c.unread) > 0).length} threads`}
+            icon={UnreadIcon}
+            iconStatus={conversations.some((c) => Number(c.unread) > 0) ? 'warning' : undefined}
+          />
+          <MetricCard label="Open thread" value={activeConvo ? (activeConvo.name || '—') : '—'} hint={activeConvo ? `${messages.length} messages` : 'pick a conversation'} icon={MessageSquare} className="hidden sm:block" />
+        </div>
+      }
     >
       <Card className="overflow-hidden">
         <div className="flex" style={{ minHeight: 600, height: '75vh' }}>
@@ -217,16 +235,13 @@ const Messages: React.FC = () => {
                   No results found for "{searchQuery}".
                 </div>
               ) : displayList.length === 0 ? (
-                <div className="p-6">
-                  <EmptyState>
-                    <EmptyState.Media>
-                      <MessageSquare className="size-6" />
-                    </EmptyState.Media>
-                    <EmptyState.Title>No conversations yet</EmptyState.Title>
-                    <EmptyState.Description>
-                      Search above to find someone.
-                    </EmptyState.Description>
-                  </EmptyState>
+                <div className="p-3">
+                  <EmptyPanel
+                    size="sm"
+                    icon={<MessageSquare size={16} />}
+                    title="No conversations yet"
+                    description="Search above by name to start one."
+                  />
                 </div>
               ) : (
                 <ul>
@@ -290,7 +305,7 @@ const Messages: React.FC = () => {
 
           {/* ─── Chat area ──────────────────────────────────────── */}
           <div
-            className={`flex-1 flex flex-col ${!activeConvo ? 'hidden md:flex' : 'flex'}`}
+            className={`flex-1 flex flex-col ${!activeConvo ? 'hidden md:flex v-bg-dawn-subtle' : 'flex'}`}
             style={{ background: 'var(--background)' }}
           >
             {activeConvo ? (
@@ -457,16 +472,12 @@ const Messages: React.FC = () => {
               </>
             ) : (
               <div className="flex-1 flex items-center justify-center p-6">
-                <EmptyState>
-                  <EmptyState.Media>
-                    <MessageSquare className="size-7" />
-                  </EmptyState.Media>
-                  <EmptyState.Title>Your conversations</EmptyState.Title>
-                  <EmptyState.Description>
-                    Select a conversation on the left or search for someone to
-                    start messaging in real-time.
-                  </EmptyState.Description>
-                </EmptyState>
+                <EmptyPanel
+                  className="w-full max-w-md"
+                  icon={<MessageSquare size={22} />}
+                  title="Pick a conversation"
+                  description="Select a thread on the left, or search for a creator, manager or brand to start one. Messages refresh in real time."
+                />
               </div>
             )}
           </div>

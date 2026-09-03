@@ -1,159 +1,365 @@
 import React, { useEffect, useState } from 'react';
-import { Users, UserPlus, Trash2, Shield, Settings2, Edit } from 'lucide-react';
+import { AlertTriangle, Settings2, Shield, Trash2, UserPlus, Users } from 'lucide-react';
+import { AlertDialog, Button, Chip, Label, Modal, Switch } from '@heroui/react';
+import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
+import { toast } from '../lib/toast';
+import { fieldClass, accentFor } from '../pages/talent/shared';
+import { EmptyPanel } from './common/EmptyPanel';
+import { Notice } from './common/Notice';
+
+/**
+ * TeamManager — sub-users of the brand account (colleagues who sign in
+ * under the same brand). Invite, edit permissions, remove, and define
+ * custom roles — all via HeroUI modals and dialogs.
+ */
+type Member = { id: string; email: string; role?: string; permissions?: Record<string, boolean>; custom_role_id?: string };
+type Role = { id: string; name: string; permissions?: Record<string, boolean> };
+
+const PERMISSIONS = ['can_add_campaigns', 'can_view_analytics', 'can_manage_applications'] as const;
 
 const TeamManager: React.FC = () => {
-  const [team, setTeam] = useState<any[]>([]);
-  const [roles, setRoles] = useState<any[]>([]);
+  const { t } = useTranslation();
+  const [team, setTeam] = useState<Member[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [showInvite, setShowInvite] = useState(false);
-  const [showRoleCreate, setShowRoleCreate] = useState(false);
-  const [newUser, setNewUser] = useState({ email: '', password: '', role: 'brand', custom_role_id: '', permissions: {} });
-  const [newRole, setNewRole] = useState({ name: '', permissions: '' });
+  const [invite, setInvite] = useState({ email: '', password: '', custom_role_id: '' });
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState('');
+
+  const [showRole, setShowRole] = useState(false);
+  const [role, setRole] = useState<{ name: string; perms: Record<string, boolean> }>({ name: '', perms: {} });
+  const [roleBusy, setRoleBusy] = useState(false);
+  const [roleError, setRoleError] = useState('');
+
+  const [permsFor, setPermsFor] = useState<Member | null>(null);
+  const [perms, setPerms] = useState<Record<string, boolean>>({});
+  const [permsBusy, setPermsBusy] = useState(false);
+
+  const [pendingRemove, setPendingRemove] = useState<Member | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const fetchTeam = () => {
-    setLoading(true);
-    Promise.all([
-      api.get('/brands/team'),
-      api.get('/roles/brand').catch(() => ({ data: [] }))
-    ]).then(([resTeam, resRoles]) => {
-      setTeam(resTeam.data);
-      setRoles(resRoles.data);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    Promise.all([api.get('/brands/team'), api.get('/roles/brand').catch(() => ({ data: [] }))])
+      .then(([resTeam, resRoles]) => {
+        setTeam(Array.isArray(resTeam.data) ? resTeam.data : []);
+        setRoles(Array.isArray(resRoles.data) ? resRoles.data : []);
+      })
+      .catch(() => toast.error(t('teamMgr.loadFailed')))
+      .finally(() => setLoading(false));
   };
-
-  useEffect(() => {
-    fetchTeam();
-  }, []);
+  useEffect(fetchTeam, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (invite.password.length < 8) return setInviteError(t('account.pwShort'));
+    setInviteBusy(true);
+    setInviteError('');
     try {
-      await api.post('/brands/team', newUser);
+      await api.post('/brands/team', { email: invite.email.trim(), password: invite.password, role: 'brand', custom_role_id: invite.custom_role_id || undefined, permissions: {} });
       setShowInvite(false);
-      setNewUser({ email: '', password: '', role: 'brand', custom_role_id: '', permissions: {} });
+      setInvite({ email: '', password: '', custom_role_id: '' });
+      toast.success(t('teamMgr.invited', { email: invite.email.trim() }));
       fetchTeam();
-    } catch { alert('Failed to invite team member'); }
+    } catch (err: any) {
+      setInviteError(err?.response?.data?.message || t('teamMgr.inviteFailed'));
+    } finally {
+      setInviteBusy(false);
+    }
   };
 
   const handleCreateRole = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!role.name.trim()) return setRoleError(t('teamMgr.roleNameRequired'));
+    setRoleBusy(true);
+    setRoleError('');
     try {
-      const perms = newRole.permissions.trim() ? JSON.parse(newRole.permissions) : {};
-      await api.post('/roles/brand', { name: newRole.name, permissions: perms });
-      setShowRoleCreate(false);
-      setNewRole({ name: '', permissions: '' });
+      await api.post('/roles/brand', { name: role.name.trim(), permissions: role.perms });
+      setShowRole(false);
+      setRole({ name: '', perms: {} });
+      toast.success(t('teamMgr.roleCreated'));
       fetchTeam();
-    } catch { alert('Creation failed. Ensure JSON is valid.'); }
+    } catch (err: any) {
+      setRoleError(err?.response?.data?.message || t('teamMgr.roleFailed'));
+    } finally {
+      setRoleBusy(false);
+    }
   };
 
-  const handleRemove = async (id: string) => {
-    if (!window.confirm('Remove this team member?')) return;
-    try {
-      await api.delete(`/brands/team/${id}`);
-      fetchTeam();
-    } catch { alert('Failed to remove'); }
+  const openPerms = (m: Member) => {
+    setPermsFor(m);
+    setPerms({ ...(m.permissions || {}) });
   };
+  const savePerms = async () => {
+    if (!permsFor) return;
+    setPermsBusy(true);
+    try {
+      await api.patch(`/brands/team/${permsFor.id}`, { permissions: perms });
+      toast.success(t('teamMgr.permsSaved'));
+      setPermsFor(null);
+      fetchTeam();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || t('teamMgr.permsFailed'));
+    } finally {
+      setPermsBusy(false);
+    }
+  };
+
+  const confirmRemove = async () => {
+    if (!pendingRemove) return;
+    setRemoving(true);
+    try {
+      await api.delete(`/brands/team/${pendingRemove.id}`);
+      toast.success(t('teamMgr.removed', { email: pendingRemove.email }));
+      setPendingRemove(null);
+      fetchTeam();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || t('teamMgr.removeFailed'));
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  const roleName = (m: Member) => roles.find((r) => r.id === m.custom_role_id)?.name || t('teamMgr.defaultRole');
 
   return (
-    <div className="card p-6 md:p-8 mt-12 bg-white">
-      <div className="flex justify-between items-center mb-6 border-b border-surface-100 pb-4">
-        <div>
-          <h2 className="text-xl font-bold text-surface-900 flex items-center gap-2">
-            <Users className="text-brand-500"/> Team Management
-          </h2>
-          <p className="text-sm text-surface-500 mt-1">Manage sub-users and colleagues within your brand account.</p>
+    <section className="v-talent-card p-5">
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
+        <div className="flex items-start gap-3">
+          <span className="v-hero-icon" style={{ width: 32, height: 32, borderRadius: 10 }}>
+            <Users size={14} />
+          </span>
+          <div>
+            <h3 className="v-ink font-medium" style={{ fontSize: 15, letterSpacing: '-0.012em' }}>{t('teamMgr.title')}</h3>
+            <p className="v-caption v-quiet mt-0.5" style={{ fontSize: 12 }}>{t('teamMgr.desc')}</p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => setShowRoleCreate(true)} className="bg-surface-100 hover:bg-surface-200 text-surface-700 border border-surface-200 px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors flex items-center gap-2">
-            <Shield size={16} /> Manage Roles
-          </button>
-          <button onClick={() => setShowInvite(true)} className="bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors flex items-center gap-2">
-            <UserPlus size={16} /> Invite Member
-          </button>
+        <div className="flex items-center gap-2">
+          <Button variant="tertiary" size="sm" onPress={() => setShowRole(true)}>
+            <Shield size={12} /> {t('teamMgr.roles')}
+          </Button>
+          <Button variant="primary" size="sm" onPress={() => setShowInvite(true)}>
+            <UserPlus size={12} /> {t('teamMgr.invite')}
+          </Button>
         </div>
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-10"><div className="w-8 h-8 rounded-full border-4 border-surface-200 border-t-brand-500 animate-spin"></div></div>
+        <div className="space-y-2" aria-hidden>
+          <div className="v-skel h-12 w-full" />
+          <div className="v-skel h-12 w-full" />
+        </div>
       ) : team.length === 0 ? (
-        <div className="text-center py-10 border-2 border-dashed border-surface-200 rounded-xl bg-surface-50">
-          <Users size={32} className="mx-auto text-surface-300 mb-2"/>
-          <p className="text-surface-600 font-bold">No team members yet.</p>
-          <p className="text-surface-400 text-sm">Add a member to collaborate on campaigns.</p>
-        </div>
+        <EmptyPanel
+          size="sm"
+          icon={<Users size={18} />}
+          title={t('teamMgr.empty')}
+          description={t('teamMgr.emptyDesc')}
+          actions={
+            <Button variant="primary" size="sm" onPress={() => setShowInvite(true)}>
+              <UserPlus size={12} /> {t('teamMgr.invite')}
+            </Button>
+          }
+        />
       ) : (
-        <div className="space-y-4">
-          {team.map(member => (
-            <div key={member.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border border-surface-200 rounded-xl bg-surface-50 hover:bg-surface-100 transition-colors gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-surface-200 flex items-center justify-center text-surface-700 font-extrabold text-sm shadow-sm border border-surface-300 shrink-0">
-                  {member.email[0].toUpperCase()}
+        <ul className="divide-y divide-border">
+          {team.map((m) => {
+            const accent = accentFor(m.email);
+            return (
+              <li key={m.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                <span className="v-story-ring" style={{ padding: 2 }}>
+                  <span className="inline-flex h-8 w-8 items-center justify-center text-xs font-medium text-white" style={{ background: accent.from }}>
+                    {m.email[0]?.toUpperCase()}
+                  </span>
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="v-ink font-medium truncate" style={{ fontSize: 13 }}>{m.email}</div>
+                  <div className="v-caption v-quiet" style={{ fontSize: 11 }}>{roleName(m)}</div>
                 </div>
-                <div>
-                  <div className="font-bold text-surface-900">{member.email}</div>
-                  <div className="text-xs text-surface-500 flex items-center gap-1"><Shield size={12}/> Role: {member.role}</div>
+                <div className="hidden sm:flex items-center gap-1 flex-wrap justify-end max-w-[40%]">
+                  {PERMISSIONS.filter((k) => m.permissions?.[k]).map((k) => (
+                    <Chip key={k} size="sm" variant="soft" color="accent">
+                      <Chip.Label>{t(`team.perm.${k}`)}</Chip.Label>
+                    </Chip>
+                  ))}
                 </div>
-              </div>
-              <div className="flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                <button
-                  onClick={() => alert('Editing permissions UI goes here.')}
-                  className="w-full sm:w-auto px-4 py-2 bg-white border border-surface-200 rounded-lg text-xs font-bold text-surface-600 hover:text-surface-900 shadow-sm flex justify-center items-center gap-1"
-                >
-                  <Settings2 size={14}/> Perms
-                </button>
-                <button
-                  onClick={() => handleRemove(member.id)}
-                  className="w-full sm:w-auto px-4 py-2 bg-white border border-red-200 rounded-lg text-xs font-bold text-red-600 hover:bg-red-50 shadow-sm flex justify-center items-center gap-1"
-                >
-                  <Trash2 size={14}/> Remove
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+                <Button variant="ghost" size="sm" onPress={() => openPerms(m)}>
+                  <Settings2 size={12} /> {t('teamMgr.perms')}
+                </Button>
+                <Button variant="ghost" size="sm" className="!text-danger" onPress={() => setPendingRemove(m)}>
+                  <Trash2 size={12} /> {t('teamMgr.remove')}
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
       )}
 
-      {showInvite && (
-        <div className="fixed inset-0 bg-surface-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-          <div className="bg-white border border-surface-200 rounded-2xl max-w-md w-full p-6 shadow-2xl">
-            <h2 className="text-xl font-bold text-surface-900 mb-4">Invite Team Member</h2>
-            <form onSubmit={handleInvite} className="space-y-4">
-              <div><label className="text-sm font-bold text-surface-700 mb-1 block">Email</label><input type="email" required value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} className="w-full bg-surface-50 border border-surface-200 rounded-xl px-4 py-2" /></div>
-              <div><label className="text-sm font-bold text-surface-700 mb-1 block">Temporary Password</label><input type="password" required value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full bg-surface-50 border border-surface-200 rounded-xl px-4 py-2" /></div>
-              <div>
-                <label className="text-sm font-bold text-surface-700 mb-1 block">Role (Optional)</label>
-                <select value={newUser.custom_role_id} onChange={e => setNewUser({...newUser, custom_role_id: e.target.value})} className="w-full bg-surface-50 border border-surface-200 rounded-xl px-4 py-2">
-                  <option value="">Default Brand (Full Access)</option>
-                  {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                </select>
-              </div>
-              <div className="pt-4 flex justify-end gap-3 border-t border-surface-100">
-                <button type="button" onClick={() => setShowInvite(false)} className="px-4 py-2 text-surface-600 font-bold hover:bg-surface-100 rounded-xl">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-brand-500 text-white font-bold rounded-xl hover:bg-brand-600">Invite Member</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Invite */}
+      <Modal isOpen={showInvite} onOpenChange={(open) => !open && !inviteBusy && setShowInvite(false)}>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
+          <Modal.Container>
+            <Modal.Dialog>
+              <Modal.CloseTrigger />
+              <Modal.Header>
+                <Modal.Heading className="flex items-center gap-2">
+                  <UserPlus size={16} style={{ color: 'var(--color-campaign-purple)' }} /> {t('teamMgr.inviteTitle')}
+                </Modal.Heading>
+              </Modal.Header>
+              <form id="team-invite-form" onSubmit={handleInvite}>
+                <Modal.Body>
+                  <div className="space-y-4">
+                    <p className="v-body v-muted" style={{ fontSize: 13 }}>{t('teamMgr.inviteDesc')}</p>
+                    {inviteError && <Notice tone="error" onDismiss={() => setInviteError('')}>{inviteError}</Notice>}
+                    <label className="block">
+                      <span className="v-caption v-ink font-medium block mb-1" style={{ fontSize: 12 }}>{t('teamMgr.email')}</span>
+                      <input type="email" className={fieldClass} value={invite.email} onChange={(e) => setInvite({ ...invite, email: e.target.value })} required autoFocus />
+                    </label>
+                    <label className="block">
+                      <span className="v-caption v-ink font-medium block mb-1" style={{ fontSize: 12 }}>{t('teamMgr.tempPassword')}</span>
+                      <input type="password" autoComplete="new-password" className={fieldClass} value={invite.password} onChange={(e) => setInvite({ ...invite, password: e.target.value })} required minLength={8} />
+                    </label>
+                    <label className="block">
+                      <span className="v-caption v-ink font-medium block mb-1" style={{ fontSize: 12 }}>{t('teamMgr.roleLbl')}</span>
+                      <select className={fieldClass} value={invite.custom_role_id} onChange={(e) => setInvite({ ...invite, custom_role_id: e.target.value })}>
+                        <option value="">{t('teamMgr.defaultRole')}</option>
+                        {roles.map((r) => (
+                          <option key={r.id} value={r.id}>{r.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </Modal.Body>
+                <Modal.Footer>
+                  <Button variant="ghost" onPress={() => setShowInvite(false)} isDisabled={inviteBusy}>{t('common.cancel')}</Button>
+                  <Button type="submit" variant="primary" isPending={inviteBusy}>
+                    <UserPlus size={13} /> {t('teamMgr.inviteBtn')}
+                  </Button>
+                </Modal.Footer>
+              </form>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
 
-      {showRoleCreate && (
-        <div className="fixed inset-0 bg-surface-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-          <div className="bg-white border border-surface-200 rounded-2xl max-w-md w-full p-6 shadow-2xl">
-            <h2 className="text-xl font-bold text-surface-900 mb-4">Create Local Role</h2>
-            <form onSubmit={handleCreateRole} className="space-y-4">
-              <div><label className="text-sm font-bold text-surface-700 mb-1 block">Role Name</label><input type="text" required value={newRole.name} onChange={e => setNewRole({...newRole, name: e.target.value})} placeholder="e.g. Campaign Assistant" className="w-full bg-surface-50 border border-surface-200 rounded-xl px-4 py-2" /></div>
-              <div><label className="text-sm font-bold text-surface-700 mb-1 block">Permissions (JSON)</label><textarea rows={4} value={newRole.permissions} onChange={e => setNewRole({...newRole, permissions: e.target.value})} placeholder='{"can_post": true, "can_pay": false}' className="w-full bg-slate-900 text-green-400 font-mono text-xs border border-surface-200 rounded-xl px-4 py-2 resize-none" /></div>
-              <div className="pt-4 flex justify-end gap-3 border-t border-surface-100">
-                <button type="button" onClick={() => setShowRoleCreate(false)} className="px-4 py-2 text-surface-600 font-bold hover:bg-surface-100 rounded-xl">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-brand-500 text-white font-bold rounded-xl hover:bg-brand-600">Create Role</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
+      {/* Create role */}
+      <Modal isOpen={showRole} onOpenChange={(open) => !open && !roleBusy && setShowRole(false)}>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
+          <Modal.Container>
+            <Modal.Dialog>
+              <Modal.CloseTrigger />
+              <Modal.Header>
+                <Modal.Heading className="flex items-center gap-2">
+                  <Shield size={16} style={{ color: 'var(--color-campaign-purple)' }} /> {t('teamMgr.rolesTitle')}
+                </Modal.Heading>
+              </Modal.Header>
+              <form id="team-role-form" onSubmit={handleCreateRole}>
+                <Modal.Body>
+                  <div className="space-y-4">
+                    <p className="v-body v-muted" style={{ fontSize: 13 }}>{t('teamMgr.rolesDesc')}</p>
+                    {roles.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {roles.map((r) => (
+                          <Chip key={r.id} size="sm" variant="soft" color="default">
+                            <Chip.Label>{r.name}</Chip.Label>
+                          </Chip>
+                        ))}
+                      </div>
+                    )}
+                    {roleError && <Notice tone="error" onDismiss={() => setRoleError('')}>{roleError}</Notice>}
+                    <label className="block">
+                      <span className="v-caption v-ink font-medium block mb-1" style={{ fontSize: 12 }}>{t('teamMgr.roleName')}</span>
+                      <input className={fieldClass} value={role.name} onChange={(e) => setRole({ ...role, name: e.target.value })} placeholder={t('teamMgr.roleNamePh')} required autoFocus />
+                    </label>
+                    <div>
+                      <span className="v-caption v-ink font-medium block mb-2" style={{ fontSize: 12 }}>{t('teamMgr.rolePerms')}</span>
+                      <div className="flex flex-col gap-1.5">
+                        {PERMISSIONS.map((k) => (
+                          <Switch key={k} isSelected={!!role.perms[k]} onChange={(v) => setRole({ ...role, perms: { ...role.perms, [k]: v } })}>
+                            <Switch.Control>
+                              <Switch.Thumb />
+                            </Switch.Control>
+                            <Switch.Content>
+                              <Label className="text-sm">{t(`team.perm.${k}`)}</Label>
+                            </Switch.Content>
+                          </Switch>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </Modal.Body>
+                <Modal.Footer>
+                  <Button variant="ghost" onPress={() => setShowRole(false)} isDisabled={roleBusy}>{t('common.cancel')}</Button>
+                  <Button type="submit" variant="primary" isPending={roleBusy}>
+                    <Shield size={13} /> {t('teamMgr.createRole')}
+                  </Button>
+                </Modal.Footer>
+              </form>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+
+      {/* Permissions */}
+      <Modal isOpen={!!permsFor} onOpenChange={(open) => !open && !permsBusy && setPermsFor(null)}>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
+          <Modal.Container>
+            <Modal.Dialog>
+              <Modal.CloseTrigger />
+              <Modal.Header>
+                <Modal.Heading className="flex items-center gap-2">
+                  <Settings2 size={16} style={{ color: 'var(--color-campaign-purple)' }} /> {t('teamMgr.permsTitle', { email: permsFor?.email || '' })}
+                </Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                <div className="flex flex-col gap-2">
+                  {PERMISSIONS.map((k) => (
+                    <Switch key={k} isSelected={!!perms[k]} onChange={(v) => setPerms({ ...perms, [k]: v })}>
+                      <Switch.Control>
+                        <Switch.Thumb />
+                      </Switch.Control>
+                      <Switch.Content>
+                        <Label className="text-sm">{t(`team.perm.${k}`)}</Label>
+                      </Switch.Content>
+                    </Switch>
+                  ))}
+                </div>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button variant="ghost" onPress={() => setPermsFor(null)} isDisabled={permsBusy}>{t('common.cancel')}</Button>
+                <Button variant="primary" onPress={savePerms} isPending={permsBusy}>{t('team.savePerms')}</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+
+      {/* Remove */}
+      <AlertDialog isOpen={!!pendingRemove} onOpenChange={(open) => !open && !removing && setPendingRemove(null)}>
+        <AlertDialog.Backdrop isDismissable={false} isKeyboardDismissDisabled>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog>
+              <AlertDialog.CloseTrigger />
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="danger">
+                  <AlertTriangle size={18} />
+                </AlertDialog.Icon>
+                <AlertDialog.Heading>{t('teamMgr.removeTitle')}</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>{t('teamMgr.removeBody', { email: pendingRemove?.email || '' })}</AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="ghost" isDisabled={removing} onPress={() => setPendingRemove(null)}>{t('common.cancel')}</Button>
+                <Button variant="danger" isPending={removing} onPress={confirmRemove}>
+                  <Trash2 size={13} /> {t('teamMgr.remove')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog>
+    </section>
   );
 };
 

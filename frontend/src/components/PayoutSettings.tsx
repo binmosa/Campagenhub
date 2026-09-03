@@ -1,207 +1,262 @@
-import React, { useEffect, useState } from 'react';
-import { CreditCard, Building2, Smartphone, CheckCircle, AlertCircle, Loader, ChevronDown } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Check, Landmark, ShieldCheck, Smartphone, Wallet } from 'lucide-react';
+import { Button, Chip } from '@heroui/react';
+import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
+import { fieldClass } from '../pages/talent/shared';
+import { Notice } from './common/Notice';
+import { PillChips } from './common/filters';
+
+/**
+ * PayoutSettings — where a creator / manager gets paid. Bank transfer (with
+ * the live bank list + account verification where the provider supports it)
+ * or mobile money. Only the account fields are sent back — never the
+ * server-owned id / verification flag the old form echoed.
+ */
+const COUNTRIES: { code: string; name: string; currency: string; networks: string[] }[] = [
+  { code: 'ET', name: 'Ethiopia', currency: 'ETB', networks: ['Telebirr', 'M-Pesa'] },
+  { code: 'NG', name: 'Nigeria', currency: 'NGN', networks: ['OPay', 'PalmPay', 'MTN MoMo'] },
+  { code: 'KE', name: 'Kenya', currency: 'KES', networks: ['M-Pesa', 'Airtel Money'] },
+  { code: 'GH', name: 'Ghana', currency: 'GHS', networks: ['MTN MoMo', 'Vodafone Cash', 'AirtelTigo Money'] },
+  { code: 'UG', name: 'Uganda', currency: 'UGX', networks: ['MTN MoMo', 'Airtel Money'] },
+  { code: 'ZA', name: 'South Africa', currency: 'ZAR', networks: [] },
+  { code: 'US', name: 'United States', currency: 'USD', networks: [] },
+  { code: 'GB', name: 'United Kingdom', currency: 'GBP', networks: [] },
+];
+
+type Form = {
+  account_type: 'bank' | 'mobile_money';
+  country: string;
+  currency: string;
+  bank_name: string;
+  bank_code: string;
+  account_number: string;
+  account_name: string;
+  mobile_number: string;
+  mobile_network: string;
+};
+const EMPTY: Form = { account_type: 'bank', country: 'ET', currency: 'ETB', bank_name: '', bank_code: '', account_number: '', account_name: '', mobile_number: '', mobile_network: '' };
+
+const Field: React.FC<{ label: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode }> = ({ label, hint, children }) => (
+  <div>
+    <div className="flex items-center justify-between mb-1.5 gap-2">
+      <label className="v-caption v-ink font-medium" style={{ fontSize: 12.5 }}>{label}</label>
+      {hint && <span className="v-caption v-quiet" style={{ fontSize: 11 }}>{hint}</span>}
+    </div>
+    {children}
+  </div>
+);
 
 const PayoutSettings: React.FC = () => {
-  const normalizeCountry = (raw?: string) => {
-    const value = (raw || '').trim().toUpperCase();
-    const map: Record<string, string> = {
-      NIGERIA: 'NG',
-      KENYA: 'KE',
-      GHANA: 'GH',
-      'SOUTH AFRICA': 'ZA',
-      UGANDA: 'UG',
-      TANZANIA: 'TZ',
-      ETHIOPIA: 'ET',
-      'UNITED STATES': 'US',
-      USA: 'US',
-      'UNITED KINGDOM': 'GB',
-      UK: 'GB',
-      EUROPE: 'EU',
-    };
-    if (value.length === 2) return value;
-    return map[value] || 'NG';
-  };
-
-  const [payoutAccount, setPayoutAccount] = useState<any>(null);
-  const [form, setForm] = useState({
-    account_type: 'bank' as 'bank' | 'mobile_money',
-    bank_name: '', bank_code: '', account_number: '', account_name: '',
-    mobile_number: '', mobile_network: '',
-    country: 'NG', currency: 'NGN',
-  });
+  const { t } = useTranslation();
+  const [form, setForm] = useState<Form>(EMPTY);
+  const [verified, setVerified] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [banks, setBanks] = useState<{ code: string; name: string }[]>([]);
+  const [notice, setNotice] = useState<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Load existing payout account
   useEffect(() => {
-    api.get('/payout-accounts/mine').then(res => {
-      if (res.data) {
-        const normalizedCountry = normalizeCountry(res.data.country);
-        setPayoutAccount(res.data);
-        setForm(f => ({ ...f, ...res.data, country: normalizedCountry }));
-      }
-    }).catch(() => {});
+    api
+      .get('/payout-accounts/mine')
+      .then((res) => {
+        const d = res.data;
+        if (d && typeof d === 'object') {
+          setForm({
+            account_type: d.account_type === 'mobile_money' ? 'mobile_money' : 'bank',
+            country: (d.country || 'ET').toUpperCase(),
+            currency: d.currency || COUNTRIES.find((c) => c.code === (d.country || 'ET').toUpperCase())?.currency || 'USD',
+            bank_name: d.bank_name || '',
+            bank_code: d.bank_code || '',
+            account_number: d.account_number || '',
+            account_name: d.account_name || '',
+            mobile_number: d.mobile_number || '',
+            mobile_network: d.mobile_network || '',
+          });
+          setVerified(!!d.is_verified);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  // Auto-set currency when country changes
+  /* Bank list for the chosen country (provider-backed; empty → free text). */
   useEffect(() => {
-    const map: Record<string, string> = { NG: 'NGN', KE: 'KES', GH: 'GHS', ZA: 'ZAR', UG: 'UGX', TZ: 'TZS', ET: 'ETB', US: 'USD', GB: 'GBP', EU: 'EUR' };
-    if (map[form.country]) setForm(f => ({ ...f, currency: map[form.country] }));
-  }, [form.country]);
+    if (form.account_type !== 'bank') return;
+    let cancelled = false;
+    api
+      .get(`/payout-accounts/banks/${form.country}`)
+      .then((res) => {
+        if (cancelled) return;
+        const list = (Array.isArray(res.data) ? res.data : []).map((b: any) => ({ code: String(b.code ?? b.id ?? ''), name: String(b.name || '') })).filter((b: any) => b.name);
+        setBanks(list);
+      })
+      .catch(() => !cancelled && setBanks([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [form.country, form.account_type]);
 
-  const handleSave = async () => {
-    if (form.account_type === 'bank') {
-      if (!form.bank_name || !form.country) {
-        setMsg({ type: 'error', text: 'Please provide bank name and country.' });
-        return;
+  const country = useMemo(() => COUNTRIES.find((c) => c.code === form.country), [form.country]);
+  const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const setCountry = (code: string) => {
+    const c = COUNTRIES.find((x) => x.code === code);
+    setForm((f) => ({ ...f, country: code, currency: c?.currency || f.currency, bank_name: '', bank_code: '', mobile_network: '' }));
+  };
+
+  const verify = async () => {
+    if (!form.account_number || !form.bank_code) return setNotice({ tone: 'error', text: t('payout.verifyNeeds') });
+    setVerifying(true);
+    setNotice(null);
+    try {
+      const res = await api.post('/payout-accounts/verify', { account_number: form.account_number, bank_code: form.bank_code, country: form.country });
+      const name = res.data?.account_name || res.data?.data?.account_name;
+      if (name) {
+        set('account_name', name);
+        setNotice({ tone: 'success', text: t('payout.verifiedAs', { name }) });
+      } else {
+        setNotice({ tone: 'info', text: t('payout.verifyUnavailable') });
       }
-      if (!form.account_number) {
-        setMsg({ type: 'error', text: 'Please provide account number.' });
-        return;
-      }
-    } else {
-      if (!form.mobile_number) {
-        setMsg({ type: 'error', text: 'Please provide mobile number for mobile money.' });
-        return;
-      }
+    } catch (e: any) {
+      setNotice({ tone: 'error', text: e?.response?.data?.message || t('payout.verifyFailed') });
+    } finally {
+      setVerifying(false);
     }
+  };
 
-    setSaving(true); setMsg(null);
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (form.account_type === 'bank') {
+      if (!form.bank_name.trim()) return setNotice({ tone: 'error', text: t('payout.errBank') });
+      if (!form.account_number.trim()) return setNotice({ tone: 'error', text: t('payout.errNumber') });
+      if (!form.account_name.trim()) return setNotice({ tone: 'error', text: t('payout.errHolder') });
+    } else {
+      if (!form.mobile_number.trim()) return setNotice({ tone: 'error', text: t('payout.errMobile') });
+      if (!form.mobile_network) return setNotice({ tone: 'error', text: t('payout.errNetwork') });
+    }
+    setSaving(true);
+    setNotice(null);
     try {
       const res = await api.post('/payout-accounts', form);
-      setPayoutAccount(res.data);
-      setMsg({ type: 'success', text: 'Payout account saved successfully.' });
-      setTimeout(() => setMsg(null), 4000);
-    } catch {
-      setMsg({ type: 'error', text: 'Failed to save. Please check your details.' });
-    } finally { setSaving(false); }
+      setVerified(!!res.data?.is_verified);
+      setNotice({ tone: 'success', text: t('payout.saved') });
+    } catch (err: any) {
+      setNotice({ tone: 'error', text: err?.response?.data?.message || t('payout.saveFailed') });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div className="bg-surface rounded-2xl border border-surface-200 shadow-sm overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center gap-3 p-6 border-b border-surface-100">
-        <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center border border-green-200">
-          <CreditCard size={18} className="text-green-600" />
-        </div>
-        <div>
-          <h2 className="font-bold text-surface-900">Payout Account</h2>
-          <p className="text-xs text-surface-400">Configure your bank to receive payments</p>
-        </div>
-        {payoutAccount?.is_verified && (
-          <span className="ml-auto flex items-center gap-1.5 text-xs font-bold text-green-700 bg-green-50 px-3 py-1.5 rounded-xl border border-green-200">
-            <CheckCircle size={12} /> Verified
+    <form onSubmit={save} className="v-talent-card p-5 space-y-5">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-start gap-3">
+          <span className="v-hero-icon" style={{ width: 32, height: 32, borderRadius: 10 }}>
+            <Wallet size={14} />
           </span>
-        )}
-      </div>
-
-      <div className="p-6 space-y-5">
-        {/* Account Type Toggle */}
-        <div className="flex items-center gap-2 p-1 bg-surface-100 rounded-2xl w-fit">
-          {(['bank', 'mobile_money'] as const).map(t => (
-            <button key={t} onClick={() => setForm(f => ({ ...f, account_type: t }))}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
-                form.account_type === t ? 'bg-surface dark:bg-surface-800 text-surface-900 dark:text-white shadow-sm' : 'text-surface-500 hover:text-surface-700'
-              }`}>
-              {t === 'bank' ? <Building2 size={14} /> : <Smartphone size={14} />}
-              {t === 'bank' ? 'Bank Account' : 'Mobile Money'}
-            </button>
-          ))}
+          <div>
+            <h3 className="v-ink font-medium" style={{ fontSize: 15, letterSpacing: '-0.012em' }}>{t('payout.title')}</h3>
+            <p className="v-caption v-quiet mt-0.5" style={{ fontSize: 12 }}>{t('payout.desc')}</p>
+          </div>
         </div>
-
-        {form.account_type === 'bank' ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Country */}
-            <div>
-              <label className="text-xs font-bold text-surface-500 uppercase tracking-wider block mb-1.5">Country</label>
-              <div className="relative">
-                <select value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))}
-                  className="w-full px-4 py-2.5 border border-surface-200 dark:border-surface-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 appearance-none bg-surface-50 dark:bg-surface-800 text-surface-900 dark:text-surface-100">
-                  {[['NG','Nigeria'],['KE','Kenya'],['GH','Ghana'],['ZA','South Africa'],['UG','Uganda'],['TZ','Tanzania'],['ET','Ethiopia'],['US','United States'],['GB','United Kingdom']].map(([code, name]) => (
-                    <option key={code} value={code}>{name}</option>
-                  ))}
-                </select>
-                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 pointer-events-none" />
-              </div>
-            </div>
-
-            {/* Bank Selection - Live from Flutterwave */}
-            <div>
-              <label className="text-xs font-bold text-surface-500 uppercase tracking-wider block mb-1.5">Bank Name</label>
-              <input
-                value={form.bank_name}
-                onChange={e => setForm(f => ({ ...f, bank_name: e.target.value }))}
-                placeholder="e.g. Commercial Bank of Ethiopia"
-                className="w-full px-4 py-2.5 border border-surface-200 dark:border-surface-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 bg-white dark:bg-surface-800 text-surface-900 dark:text-white"
-              />
-            </div>
-
-            {/* Account Number */}
-            <div>
-              <label className="text-xs font-bold text-surface-500 uppercase tracking-wider block mb-1.5">Account Number</label>
-              <input value={form.account_number} onChange={e => setForm(f => ({ ...f, account_number: e.target.value }))}
-                placeholder="Enter account number" className="w-full px-4 py-2.5 border border-surface-200 dark:border-surface-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 bg-white dark:bg-surface-800 text-surface-900 dark:text-white" />
-            </div>
-
-            {/* Account Holder Name */}
-            <div>
-              <label className="text-xs font-bold text-surface-500 uppercase tracking-wider block mb-1.5">Account Holder Name</label>
-              <input value={form.account_name} onChange={e => setForm(f => ({ ...f, account_name: e.target.value }))}
-                placeholder="Name on bank account" className="w-full px-4 py-2.5 border border-surface-200 dark:border-surface-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 bg-white dark:bg-surface-800 text-surface-900 dark:text-white" />
-            </div>
-
-            {/* Currency */}
-            <div>
-              <label className="text-xs font-bold text-surface-500 uppercase tracking-wider block mb-1.5">Currency</label>
-              <div className="relative">
-                <select value={form.currency} onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}
-                  className="w-full px-4 py-2.5 border border-surface-200 dark:border-surface-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 appearance-none bg-white dark:bg-surface-800 text-surface-900 dark:text-white">
-                  {['NGN','KES','GHS','ZAR','UGX','TZS','ETB','USD','EUR','GBP'].map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 pointer-events-none" />
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-surface-500 uppercase tracking-wider block mb-1.5">Mobile Number</label>
-              <input value={form.mobile_number} onChange={e => setForm(f => ({ ...f, mobile_number: e.target.value }))}
-                placeholder="e.g. +234xxxxxxxxxx" className="w-full px-4 py-2.5 border border-surface-200 dark:border-surface-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 bg-white dark:bg-surface-800 text-surface-900 dark:text-white" />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-surface-500 uppercase tracking-wider block mb-1.5">Network</label>
-              <div className="relative">
-                <select value={form.mobile_network} onChange={e => setForm(f => ({ ...f, mobile_network: e.target.value }))}
-                  className="w-full px-4 py-2.5 border border-surface-200 dark:border-surface-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 appearance-none bg-white dark:bg-surface-800 text-surface-900 dark:text-white">
-                  <option value="">Select network</option>
-                  {['Ethio Telecom (Telebirr)', 'MTN','Airtel','Vodafone','Tigo','Safaricom','Orange'].map(n => <option key={n} value={n}>{n}</option>)}
-                </select>
-                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 pointer-events-none" />
-              </div>
-            </div>
-          </div>
+        {verified && (
+          <Chip color="success" variant="soft" size="sm">
+            <ShieldCheck size={11} />
+            <Chip.Label>{t('payout.verified')}</Chip.Label>
+          </Chip>
         )}
-
-        {/* Status Message */}
-        {msg && (
-          <div className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold ${
-            msg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'
-          }`}>
-            {msg.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
-            {msg.text}
-          </div>
-        )}
-
-        {/* Save Button */}
-        <button onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors disabled:opacity-50 shadow-sm">
-          {saving ? <Loader size={14} className="animate-spin" /> : <CreditCard size={14} />}
-          {saving ? 'Saving...' : 'Save Payout Account'}
-        </button>
       </div>
-    </div>
+
+      {loading ? (
+        <div className="space-y-2" aria-hidden>
+          <div className="v-skel h-10 w-1/2" />
+          <div className="v-skel h-10 w-full" />
+        </div>
+      ) : (
+        <>
+          {notice && <Notice tone={notice.tone} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
+
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-4 items-end">
+            <Field label={t('payout.method')}>
+              <PillChips
+                options={[
+                  { id: 'bank', label: <span className="inline-flex items-center gap-1.5"><Landmark size={12} /> {t('payout.bank')}</span> },
+                  { id: 'mobile_money', label: <span className="inline-flex items-center gap-1.5"><Smartphone size={12} /> {t('payout.mobile')}</span> },
+                ]}
+                value={form.account_type}
+                onSelect={(id) => id && set('account_type', id as Form['account_type'])}
+              />
+            </Field>
+            <Field label={t('payout.country')}>
+              <select className={fieldClass} value={form.country} onChange={(e) => setCountry(e.target.value)}>
+                {COUNTRIES.map((c) => (
+                  <option key={c.code} value={c.code}>{c.name} · {c.currency}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          {form.account_type === 'bank' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label={t('payout.bankName')} hint={banks.length ? t('payout.banksLive') : t('payout.banksManual')}>
+                {banks.length ? (
+                  <select className={fieldClass} value={form.bank_code} onChange={(e) => { const b = banks.find((x) => x.code === e.target.value); setForm((f) => ({ ...f, bank_code: e.target.value, bank_name: b?.name || '' })); }}>
+                    <option value="">{t('payout.pickBank')}</option>
+                    {banks.map((b) => (
+                      <option key={b.code} value={b.code}>{b.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input className={fieldClass} value={form.bank_name} onChange={(e) => set('bank_name', e.target.value)} placeholder={t('payout.bankPh')} />
+                )}
+              </Field>
+              <Field label={t('payout.accountNumber')}>
+                <div className="flex items-center gap-2">
+                  <input className={fieldClass} value={form.account_number} onChange={(e) => set('account_number', e.target.value.replace(/\s+/g, ''))} inputMode="numeric" />
+                  {banks.length > 0 && (
+                    <Button variant="tertiary" size="sm" onPress={verify} isPending={verifying} isDisabled={!form.account_number || !form.bank_code}>
+                      {t('payout.verify')}
+                    </Button>
+                  )}
+                </div>
+              </Field>
+              <Field label={t('payout.holder')} hint={t('payout.holderHint')}>
+                <input className={fieldClass} value={form.account_name} onChange={(e) => set('account_name', e.target.value)} />
+              </Field>
+              <Field label={t('wizard.currency')}>
+                <input className={fieldClass} value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase().slice(0, 3))} maxLength={3} />
+              </Field>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label={t('payout.mobileNumber')}>
+                <input className={fieldClass} value={form.mobile_number} onChange={(e) => set('mobile_number', e.target.value)} inputMode="tel" placeholder="+251 9…" />
+              </Field>
+              <Field label={t('payout.network')}>
+                {country?.networks.length ? (
+                  <select className={fieldClass} value={form.mobile_network} onChange={(e) => set('mobile_network', e.target.value)}>
+                    <option value="">{t('payout.pickNetwork')}</option>
+                    {country.networks.map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input className={fieldClass} value={form.mobile_network} onChange={(e) => set('mobile_network', e.target.value)} placeholder="M-Pesa, MTN MoMo…" />
+                )}
+              </Field>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
+            <p className="v-caption v-quiet" style={{ fontSize: 11.5 }}>{t('payout.note')}</p>
+            <Button type="submit" variant="primary" size="sm" isPending={saving}>
+              <Check size={12} /> {t('payout.save')}
+            </Button>
+          </div>
+        </>
+      )}
+    </form>
   );
 };
 

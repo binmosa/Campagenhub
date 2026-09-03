@@ -321,9 +321,10 @@ const AdminUsers: React.FC = () => {
 
       {/* Create user modal */}
       <Modal isOpen={showCreate} onOpenChange={(open) => !open && setShowCreate(false)}>
-        <Modal.Backdrop>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
         <Modal.Container>
           <Modal.Dialog>
+            <Modal.CloseTrigger />
             <Modal.Header>
               <Modal.Heading>Create new user</Modal.Heading>
             </Modal.Header>
@@ -407,9 +408,10 @@ const AdminUsers: React.FC = () => {
         isOpen={!!editingUser}
         onOpenChange={(open) => !open && setEditingUser(null)}
       >
-        <Modal.Backdrop>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
         <Modal.Container>
           <Modal.Dialog>
+            <Modal.CloseTrigger />
             <Modal.Header>
               <Modal.Heading>Edit permissions</Modal.Heading>
             </Modal.Header>

@@ -336,9 +336,10 @@ export const Testimonials: React.FC<TestimonialsProps> = ({
       </div>
 
       <Modal isOpen={open} onOpenChange={setOpen}>
-        <Modal.Backdrop>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
         <Modal.Container>
           <Modal.Dialog>
+            <Modal.CloseTrigger />
             <Modal.Header>
               <Modal.Heading>{t('testi.leaveReview')}</Modal.Heading>
             </Modal.Header>

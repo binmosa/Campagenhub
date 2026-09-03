@@ -31,7 +31,11 @@ import {
   Segment,
 } from '@heroui-pro/react';
 import api from '../lib/api';
-import { PageShell } from '../components/ui';
+import { MetricCard, PageShell } from '../components/ui';
+import { EmptyPanel } from '../components/common/EmptyPanel';
+import { toast } from '../lib/toast';
+import { Link } from 'react-router-dom';
+import { CheckCircle2 as DoneIcon, Clock as TodoIcon } from 'lucide-react';
 
 type Task = {
   id: string;
@@ -130,7 +134,7 @@ const AddTaskModal: React.FC<{
       onCreated();
       onClose();
     } catch (e: any) {
-      alert(e?.response?.data?.message || 'Failed to create task(s)');
+      toast.error(e?.response?.data?.message || 'Failed to create task(s)');
     } finally {
       setSaving(false);
     }
@@ -138,9 +142,10 @@ const AddTaskModal: React.FC<{
 
   return (
     <Modal isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <Modal.Backdrop>
+      <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
       <Modal.Container>
         <Modal.Dialog>
+          <Modal.CloseTrigger />
           <Modal.Header>
             <Modal.Heading>New task</Modal.Heading>
           </Modal.Header>
@@ -294,7 +299,7 @@ const SubmitPostModal: React.FC<{
       onCreated();
       onClose();
     } catch (e: any) {
-      alert(e?.response?.data?.message || 'Failed to submit post');
+      toast.error(e?.response?.data?.message || 'Failed to submit post');
     } finally {
       setSaving(false);
     }
@@ -302,9 +307,10 @@ const SubmitPostModal: React.FC<{
 
   return (
     <Modal isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <Modal.Backdrop>
+      <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
       <Modal.Container>
         <Modal.Dialog>
+          <Modal.CloseTrigger />
           <Modal.Header>
             <Modal.Heading className="inline-flex items-center gap-2">
               <Sparkles size={16} className="text-accent" />
@@ -398,7 +404,7 @@ const TaskCard: React.FC<{
       await api.patch(`/tasks/${task.id}`, { status, post_link: postLink });
       onUpdate();
     } catch {
-      alert('Failed to update');
+      toast.error('Failed to update');
     } finally {
       setSaving(false);
     }
@@ -695,58 +701,42 @@ const WorkspacePage: React.FC = () => {
 
   return (
     <PageShell
-      title="Workspace"
+      hero
+      containerSize="wide"
+      title={isBrand ? 'Team' : 'Your'}
+      titleAccent="workspace"
       description={
         isBrand
-          ? 'Manage tasks for your team across all active contracts.'
-          : 'Your assigned tasks and deliverables.'
+          ? 'Tasks and deliverables for every creator on an active contract — assign, track, review.'
+          : 'Your assigned tasks and deliverables, with the links you submit for review.'
       }
       icon={<ClipboardList size={18} />}
+      actions={
+        isBrand && contracts.length > 0 ? (
+          <Button variant="primary" size="md" onPress={openAddTaskModal}>
+            <Plus size={14} /> Assign task
+          </Button>
+        ) : role === 'creator' && contracts.length > 0 ? (
+          <Button variant="primary" size="md" onPress={() => setShowSubmitModal(true)}>
+            <Sparkles size={14} /> Submit content
+          </Button>
+        ) : undefined
+      }
+      stats={
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <MetricCard label="Total tasks" value={stats.total} icon={ClipboardList} />
+          <MetricCard label="To do" value={stats.pending} hint="pending start" icon={TodoIcon} iconStatus={stats.pending ? 'warning' : undefined} />
+          <MetricCard label="In progress" value={stats.in_progress} hint="active now" icon={TrendingUp} />
+          <MetricCard
+            label="Completed"
+            value={stats.completed}
+            hint={stats.total > 0 ? `${Math.round((stats.completed / stats.total) * 100)}% done` : 'no tasks yet'}
+            icon={DoneIcon}
+            iconStatus="success"
+          />
+        </div>
+      }
     >
-      {/* KPIs */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Total</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={stats.total} maximumFractionDigits={0} />
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>To do</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={stats.pending} maximumFractionDigits={0} />
-            <KPI.Trend trend="neutral">Pending start</KPI.Trend>
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>In progress</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={stats.in_progress} maximumFractionDigits={0} />
-            <KPI.Trend trend={stats.in_progress > 0 ? 'up' : 'neutral'}>
-              Active
-            </KPI.Trend>
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Completed</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={stats.completed} maximumFractionDigits={0} />
-            <KPI.Trend trend={stats.completed > 0 ? 'up' : 'neutral'}>
-              {stats.total > 0
-                ? `${Math.round((stats.completed / stats.total) * 100)}% done`
-                : 'No data'}
-            </KPI.Trend>
-          </KPI.Content>
-        </KPI>
-      </div>
 
       {/* Brand team progress */}
       {isBrand && progress?.team_breakdown?.length > 0 && (
@@ -837,44 +827,48 @@ const WorkspacePage: React.FC = () => {
             </Segment>
           )}
 
-          {isBrand && contracts.length > 0 && (
-            <Button variant="primary" size="md" onPress={openAddTaskModal}>
-              <Plus size={14} /> Assign task
-            </Button>
-          )}
-          {role === 'creator' && contracts.length > 0 && (
-            <Button
-              variant="primary"
-              size="md"
-              onPress={() => setShowSubmitModal(true)}
-            >
-              <Sparkles size={14} /> Submit content
-            </Button>
-          )}
         </div>
       </div>
 
       {/* Tasks */}
       {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-10 h-10 border-4 border-border border-t-accent rounded-full animate-spin" />
+        <div className="space-y-3" aria-hidden>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="v-talent-card p-4">
+              <div className="v-skel h-4 w-1/3 mb-2" />
+              <div className="v-skel h-3 w-2/3" />
+            </div>
+          ))}
         </div>
       ) : filteredTasks.length === 0 ? (
-        <Card>
-          <Card.Content className="p-8">
-            <EmptyState>
-              <EmptyState.Media>
-                <ClipboardList className="size-7" />
-              </EmptyState.Media>
-              <EmptyState.Title>No tasks yet</EmptyState.Title>
-              <EmptyState.Description>
-                {isBrand
-                  ? 'Start assigning tasks to your team members.'
-                  : 'Tasks assigned to you will appear here.'}
-              </EmptyState.Description>
-            </EmptyState>
-          </Card.Content>
-        </Card>
+        <EmptyPanel
+          icon={<ClipboardList size={22} />}
+          title={tasks.length === 0 ? 'No tasks yet' : 'Nothing in this view'}
+          description={
+            tasks.length > 0
+              ? 'Switch the status or contract filter to see the rest.'
+              : isBrand
+                ? contracts.length > 0
+                  ? 'Assign the first deliverable to someone on your team — they get notified and can submit links here.'
+                  : 'Tasks live on contracts. Accept an applicant or invitation first, then assign work here.'
+                : 'Tasks assigned to you by brands will appear here with their deadlines.'
+          }
+          actions={
+            tasks.length > 0 ? (
+              <Button variant="primary" size="sm" onPress={() => { setFilter('all'); setActiveContract(null); }}>
+                Show all tasks
+              </Button>
+            ) : isBrand && contracts.length > 0 ? (
+              <Button variant="primary" onPress={openAddTaskModal}>
+                <Plus size={13} /> Assign a task
+              </Button>
+            ) : isBrand ? (
+              <Link to="/dashboard/applications">
+                <Button variant="primary">Open the applicant inbox</Button>
+              </Link>
+            ) : undefined
+          }
+        />
       ) : (
         <div className="space-y-3">
           {filteredTasks.map((task) => (

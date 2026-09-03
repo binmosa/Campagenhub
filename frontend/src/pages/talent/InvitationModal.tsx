@@ -1,330 +1,272 @@
-import React, { useState } from 'react';
-import {
-  CheckCircle,
-  DollarSign,
-  FileText,
-  Send,
-  Sparkles,
-} from 'lucide-react';
-import {
-  Avatar,
-  Button,
-  Card,
-  Chip,
-  Label,
-  Modal,
-  Switch,
-  TextArea,
-  TextField,
-} from '@heroui/react';
-import { Segment } from '@heroui-pro/react';
-import { Input } from 'react-aria-components';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Check, DollarSign, FileText, Link2, MessageSquare, Send, Shield, Sparkles } from 'lucide-react';
+import { Button, Chip, Label, Modal, Switch } from '@heroui/react';
+import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
-import { CURRENCIES, fieldClass, type Talent } from './shared';
+import { formatBudget } from '../../lib/campaignFormat';
+import { CURRENCIES, PAYMENT_FREQUENCIES, hasPaymentDay } from '../../lib/catalog';
+import { Notice } from '../../components/common/Notice';
+import { accentFor, fieldClass, type Talent } from './shared';
 
 /**
- * InvitationModal — brand/manager sends a collaboration invite + contract
- * (with optional AI generation), payment terms, and permission grants.
+ * InvitationModal — brand/manager invites a creator or manager with a
+ * message, an optional video pitch, payment terms, the contract, and
+ * (for creators) permission grants. One scrollable HeroUI dialog, sections
+ * in the order the recipient reads them.
  */
+const PERMISSIONS = ['can_add_campaigns', 'can_view_analytics', 'can_manage_applications'] as const;
+const URL_RE = /^https?:\/\/\S+$/i;
+
+const Field: React.FC<{ label: React.ReactNode; hint?: React.ReactNode; required?: boolean; children: React.ReactNode }> = ({ label, hint, required, children }) => (
+  <div>
+    <div className="flex items-center justify-between mb-1.5 gap-2">
+      <label className="v-caption v-ink font-medium" style={{ fontSize: 12.5 }}>
+        {label}
+        {required && <span style={{ color: 'var(--color-error-coral)' }}> *</span>}
+      </label>
+      {hint && <span className="v-caption v-quiet text-right" style={{ fontSize: 11 }}>{hint}</span>}
+    </div>
+    {children}
+  </div>
+);
+
+const Section: React.FC<{ icon: React.ReactNode; title: string; children: React.ReactNode }> = ({ icon, title, children }) => (
+  <section>
+    <div className="v-caption v-quiet font-medium uppercase tracking-wider mb-2.5 inline-flex items-center gap-1.5" style={{ fontSize: 10.5 }}>
+      {icon} {title}
+    </div>
+    {children}
+  </section>
+);
+
 export const InvitationModal: React.FC<{
   talent: Talent;
   isOpen: boolean;
   type: 'creator_collab' | 'manager_assign';
   onClose: () => void;
 }> = ({ talent, isOpen, type, onClose }) => {
+  const { t } = useTranslation();
   const role = localStorage.getItem('role') || '';
-  const [message, setMessage] = useState(
-    `Hi ${talent.full_name || 'there'}, I'd love to collaborate with you on an upcoming campaign. Let's work together!`
-  );
+  const isCreatorInvite = type === 'creator_collab';
+  const name = talent.full_name || talent.username || t(isCreatorInvite ? 'talent.creatorFallback' : 'talent.managerFallback');
+  const accent = accentFor(String(talent.id || name));
+
+  const [message, setMessage] = useState('');
   const [videoLink, setVideoLink] = useState('');
-  const [contractContent, setContractContent] = useState('');
-  const [contractMode, setContractMode] = useState<'ai' | 'manual'>('manual');
+  const [contract, setContract] = useState('');
   const [generating, setGenerating] = useState(false);
   const [amount, setAmount] = useState('');
-  const [frequency, setFrequency] = useState<'monthly' | 'yearly'>('monthly');
-  const [day, setDay] = useState(1);
-  const [currency, setCurrency] = useState('NGN');
-  const [perms, setPerms] = useState({
-    can_add_campaigns: false,
-    can_view_analytics: false,
-    can_manage_applications: false,
-  });
+  const [frequency, setFrequency] = useState<string>('monthly');
+  const [day, setDay] = useState('1');
+  const [currency, setCurrency] = useState('USD');
+  const [perms, setPerms] = useState<Record<string, boolean>>({});
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setMessage(t('invite.defaultMessage', { name }));
+    setVideoLink('');
+    setContract('');
+    setAmount('');
+    setFrequency('monthly');
+    setDay('1');
+    setCurrency('USD');
+    setPerms({});
+    setSent(false);
+    setError('');
+  }, [isOpen, name, t]);
+
+  const amountNum = Number(amount);
+  const receiverId = talent.user?.id || talent.user_id || (isCreatorInvite ? talent.id : undefined);
 
   const generateContract = async () => {
     setGenerating(true);
+    setError('');
     try {
       const res = await api.post('/contracts/generate', {
         type,
-        talent_name: talent.full_name,
-        amount,
+        talent_name: name,
+        amount: amountNum > 0 ? amountNum : undefined,
         frequency,
         currency,
       });
-      setContractContent(res.data?.content || res.data?.contract || '');
-    } catch {
-      setContractContent(
-        `COLLABORATION AGREEMENT\n\nThis agreement is between the Brand and ${
-          talent.full_name || 'the Talent'
-        } for professional content collaboration services.\n\nPayment: ${currency} ${amount} per ${frequency}, paid on day ${day} of each ${
-          frequency === 'monthly' ? 'month' : 'year'
-        }.\n\nBoth parties agree to maintain professionalism, deliver agreed deliverables on time, and treat all shared information as confidential.\n\nThis agreement is enforceable from the date of acceptance on CampaignHub.`
-      );
+      const text = res.data?.content || res.data?.contract;
+      if (!text) throw new Error('empty');
+      setContract(text);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || t('wizard.errAi'));
+    } finally {
+      setGenerating(false);
     }
-    setGenerating(false);
   };
 
   const send = async () => {
+    if (!receiverId) return setError(t('invite.errReceiver'));
+    if (!amount || !Number.isFinite(amountNum) || amountNum <= 0) return setError(t('apps.errAmount'));
+    if (videoLink.trim() && !URL_RE.test(videoLink.trim())) return setError(t('wizard.errMediaUrl'));
     setSending(true);
+    setError('');
     try {
       await api.post('/invitations', {
-        receiver_id: talent.user?.id || talent.user_id || talent.id,
+        receiver_id: receiverId,
         type,
-        message,
-        contract_content: contractContent,
-        payment_amount: amount ? Number(amount) : undefined,
+        message: message.trim(),
+        contract_content: contract,
+        payment_amount: amountNum,
         payment_frequency: frequency,
-        payment_day: day,
+        payment_day: hasPaymentDay(frequency) ? Number(day) : 1,
         currency,
-        permissions: type === 'creator_collab' ? perms : undefined,
-        video_link: videoLink,
+        permissions: isCreatorInvite ? perms : undefined,
+        video_link: videoLink.trim() || undefined,
         ...(role === 'manager' ? { payment_approved: false } : {}),
       });
       setSent(true);
-      setTimeout(onClose, 1500);
+      setTimeout(onClose, 1400);
     } catch (e: any) {
-      alert(e?.response?.data?.message || 'Failed to send invitation');
+      setError(e?.response?.data?.message || t('invite.errSend'));
     } finally {
       setSending(false);
     }
   };
 
-  const togglePerm = (key: keyof typeof perms, v: boolean) =>
-    setPerms((p) => ({ ...p, [key]: v }));
-
-  const initial = (talent.full_name || 'T')[0].toUpperCase();
+  const termsPreview = useMemo(() => {
+    if (!(amountNum > 0)) return null;
+    const freq = t(`apps.freq.${frequency}`, { defaultValue: frequency });
+    return `${formatBudget(amountNum, currency)} · ${freq}${hasPaymentDay(frequency) ? ` · ${t('apps.dayN', { n: Number(day) })}` : ''}`;
+  }, [amountNum, currency, frequency, day, t]);
 
   return (
-    <Modal isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <Modal.Backdrop>
+    <Modal isOpen={isOpen} onOpenChange={(open) => !open && !sending && onClose()}>
+      <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
         <Modal.Container>
-          <Modal.Dialog className="!max-w-xl">
+          <Modal.Dialog className="!max-w-2xl">
+            <Modal.CloseTrigger />
             <Modal.Header>
-              <div className="flex items-center gap-3">
-                <Avatar size="md">
-                  {talent.avatar_url && (
-                    <Avatar.Image
-                      src={talent.avatar_url}
-                      alt={talent.full_name}
-                    />
+              <Modal.Heading className="flex items-center gap-3 min-w-0">
+                <span className="v-story-ring" style={{ padding: 2 }}>
+                  {talent.avatar_url ? (
+                    <img src={talent.avatar_url} alt="" className="h-9 w-9 object-cover" />
+                  ) : (
+                    <span className="inline-flex h-9 w-9 items-center justify-center text-sm font-medium text-white" style={{ background: accent.from }}>
+                      {name[0]?.toUpperCase()}
+                    </span>
                   )}
-                  <Avatar.Fallback>{initial}</Avatar.Fallback>
-                </Avatar>
-                <div>
-                  <Modal.Heading>
-                    {talent.full_name || talent.username || 'Talent'}
-                  </Modal.Heading>
-                  <p className="text-muted text-xs mt-0.5">
-                    {type === 'creator_collab'
-                      ? 'Creator collaboration'
-                      : 'Manager invitation'}
-                  </p>
-                </div>
-              </div>
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate" style={{ fontSize: 16 }}>{t('invite.title', { name })}</span>
+                  <span className="block v-caption v-quiet font-normal" style={{ fontSize: 11.5 }}>
+                    {isCreatorInvite ? t('invite.subtitleCreator') : t('invite.subtitleManager')}
+                  </span>
+                </span>
+              </Modal.Heading>
             </Modal.Header>
-            <Modal.Body>
-              <div className="space-y-5">
-                <div>
-                  <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                    Personal message
-                  </Label>
-                  <TextArea
-                    value={message}
-                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                      setMessage(e.target.value)
-                    }
-                    rows={3}
-                    className={`${fieldClass} resize-none`}
-                  />
-                </div>
 
-                <TextField
-                  value={videoLink}
-                  onChange={setVideoLink}
-                  aria-label="Video pitch link"
-                >
-                  <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                    Video pitch link (optional)
-                  </Label>
-                  <Input
-                    className={fieldClass}
-                    type="url"
-                    placeholder="e.g. https://loom.com/share/…"
-                  />
-                </TextField>
+            <Modal.Body className="max-h-[68vh] overflow-y-auto">
+              <div className="space-y-6">
+                {error && <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice>}
+                {role === 'manager' && <Notice tone="info">{t('invite.managerNote')}</Notice>}
 
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <Label className="text-muted text-xs font-medium uppercase tracking-wider inline-flex items-center gap-1.5">
-                      <FileText size={11} /> Contract
-                    </Label>
-                    <Segment
-                      selectedKey={contractMode}
-                      onSelectionChange={(k) =>
-                        setContractMode(k as typeof contractMode)
-                      }
-                      size="sm"
-                    >
-                      <Segment.Item id="ai">AI generate</Segment.Item>
-                      <Segment.Item id="manual">Write</Segment.Item>
-                    </Segment>
+                <Section icon={<MessageSquare size={11} />} title={t('invite.message')}>
+                  <textarea className={`${fieldClass} resize-y`} rows={3} value={message} onChange={(e) => setMessage(e.target.value)} />
+                  <div className="mt-2.5">
+                    <Field label={t('invite.video')} hint={t('wizard.optional')}>
+                      <div className="relative">
+                        <Link2 size={13} className="absolute left-3 top-1/2 -translate-y-1/2 v-quiet pointer-events-none" />
+                        <input className={`${fieldClass} !pl-9`} value={videoLink} onChange={(e) => setVideoLink(e.target.value)} placeholder="https://loom.com/share/…" inputMode="url" />
+                      </div>
+                    </Field>
                   </div>
-                  {contractMode === 'ai' && (
-                    <Button
-                      variant="outline"
-                      size="md"
-                      fullWidth
-                      className="!mb-3"
-                      isPending={generating}
-                      onPress={generateContract}
-                    >
-                      <Sparkles size={13} /> Generate contract with AI
-                    </Button>
-                  )}
-                  <TextArea
-                    value={contractContent}
-                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                      setContractContent(e.target.value)
-                    }
-                    rows={5}
-                    placeholder="Enter or generate contract terms…"
-                    className={`${fieldClass} font-mono text-xs resize-none`}
-                  />
-                </div>
+                </Section>
 
-                <div>
-                  <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-2 inline-flex items-center gap-1.5">
-                    <DollarSign size={11} /> Payment terms
-                  </Label>
-                  {role === 'manager' && (
-                    <Card className="bg-warning-soft border-warning/40 mb-3">
-                      <Card.Content className="p-3 text-xs text-warning-soft-foreground font-medium">
-                        Payment terms you set require brand approval before the
-                        recipient can accept.
-                      </Card.Content>
-                    </Card>
-                  )}
-                  <div className="grid grid-cols-2 gap-3">
-                    <TextField
-                      value={amount}
-                      onChange={setAmount}
-                      aria-label="Amount"
-                    >
-                      <Label className="text-muted text-[10px] font-medium uppercase block mb-1">
-                        Amount
-                      </Label>
-                      <Input
-                        className={fieldClass}
-                        type="number"
-                        placeholder="0"
-                      />
-                    </TextField>
-                    <div>
-                      <Label className="text-muted text-[10px] font-medium uppercase block mb-1">
-                        Currency
-                      </Label>
-                      <select
-                        value={currency}
-                        onChange={(e) => setCurrency(e.target.value)}
-                        className={fieldClass}
-                      >
+                <Section icon={<DollarSign size={11} />} title={t('invite.payment')}>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <Field label={t('wizard.currency')}>
+                      <select className={fieldClass} value={currency} onChange={(e) => setCurrency(e.target.value)}>
                         {CURRENCIES.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
+                          <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
-                    </div>
-                    <div>
-                      <Label className="text-muted text-[10px] font-medium uppercase block mb-1">
-                        Frequency
-                      </Label>
-                      <select
-                        value={frequency}
-                        onChange={(e) =>
-                          setFrequency(e.target.value as 'monthly' | 'yearly')
-                        }
-                        className={fieldClass}
-                      >
-                        <option value="monthly">Monthly</option>
-                        <option value="yearly">Yearly</option>
+                    </Field>
+                    <Field label={t('apps.amount')} required>
+                      <input type="number" min={0} step="0.01" inputMode="decimal" className={fieldClass} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="500" />
+                    </Field>
+                    <Field label={t('apps.frequency')}>
+                      <select className={fieldClass} value={frequency} onChange={(e) => setFrequency(e.target.value)}>
+                        {PAYMENT_FREQUENCIES.map((f) => (
+                          <option key={f} value={f}>{t(`apps.freq.${f}`)}</option>
+                        ))}
                       </select>
-                    </div>
-                    <div>
-                      <Label className="text-muted text-[10px] font-medium uppercase block mb-1">
-                        Payment day (1–28)
-                      </Label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={28}
-                        value={day}
-                        onChange={(e) => setDay(Number(e.target.value))}
-                        className={fieldClass}
-                      />
-                    </div>
+                    </Field>
+                    <Field label={t('apps.paymentDay')}>
+                      <select className={fieldClass} value={day} onChange={(e) => setDay(e.target.value)} disabled={!hasPaymentDay(frequency)} style={!hasPaymentDay(frequency) ? { opacity: 0.5 } : undefined}>
+                        {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                    </Field>
                   </div>
-                </div>
+                  <div
+                    className="mt-3 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-3 flex-wrap"
+                    style={{ background: 'linear-gradient(135deg, rgba(22,199,132,0.10) 0%, rgba(0,212,199,0.12) 100%)', border: '1px solid rgba(22,199,132,0.20)' }}
+                  >
+                    <span className="v-caption font-medium" style={{ color: '#0b6e3e', fontSize: 11.5 }}>{t('invite.termsPreview')}</span>
+                    <span className="font-medium tabular-nums" style={{ color: '#0b6e3e', fontSize: 14 }}>{termsPreview || '—'}</span>
+                  </div>
+                </Section>
 
-                {type === 'creator_collab' && (
-                  <div>
-                    <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-2">
-                      Permissions to grant
-                    </Label>
-                    <div className="flex flex-col gap-2">
-                      {(
-                        [
-                          ['can_add_campaigns', 'Can add campaigns'],
-                          ['can_view_analytics', 'Can view analytics'],
-                          ['can_manage_applications', 'Can manage applications'],
-                        ] as const
-                      ).map(([key, label]) => (
-                        <Switch
-                          key={key}
-                          isSelected={perms[key]}
-                          onChange={(v) => togglePerm(key, v)}
-                        >
+                <Section icon={<FileText size={11} />} title={t('invite.contract')}>
+                  <Field
+                    label={t('wizard.contract')}
+                    hint={
+                      <button type="button" onClick={generateContract} disabled={generating} className="inline-flex items-center gap-1 font-medium disabled:opacity-50" style={{ color: 'var(--color-campaign-purple)' }}>
+                        <Sparkles size={11} /> {generating ? t('wizard.generating') : t('wizard.generateAi')}
+                      </button>
+                    }
+                  >
+                    <textarea
+                      className={`${fieldClass} resize-y min-h-[120px] font-mono`}
+                      style={{ fontSize: 12.5, lineHeight: 1.55 }}
+                      rows={5}
+                      value={contract}
+                      onChange={(e) => setContract(e.target.value)}
+                      placeholder={t('invite.contractPh')}
+                    />
+                  </Field>
+                </Section>
+
+                {isCreatorInvite && (
+                  <Section icon={<Shield size={11} />} title={t('invite.permissions')}>
+                    <p className="v-caption v-quiet mb-2" style={{ fontSize: 11.5 }}>{t('invite.permissionsHint')}</p>
+                    <div className="flex flex-col gap-1.5">
+                      {PERMISSIONS.map((k) => (
+                        <Switch key={k} isSelected={!!perms[k]} onChange={(v) => setPerms((p) => ({ ...p, [k]: v }))}>
                           <Switch.Control>
                             <Switch.Thumb />
                           </Switch.Control>
                           <Switch.Content>
-                            <Label className="text-sm">{label}</Label>
+                            <Label className="text-sm">{t(`team.perm.${k}`)}</Label>
                           </Switch.Content>
                         </Switch>
                       ))}
                     </div>
-                  </div>
+                  </Section>
                 )}
               </div>
             </Modal.Body>
+
             <Modal.Footer>
               {sent ? (
                 <Chip color="success" variant="soft" size="md">
-                  <CheckCircle size={13} />
-                  <Chip.Label>Invitation & contract sent</Chip.Label>
+                  <Check size={13} />
+                  <Chip.Label>{t('invite.sent')}</Chip.Label>
                 </Chip>
               ) : (
                 <>
-                  <Button variant="ghost" onPress={onClose}>
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="primary"
-                    isPending={sending}
-                    onPress={send}
-                  >
-                    <Send size={13} /> Send invitation & contract
+                  <Button variant="ghost" onPress={onClose} isDisabled={sending}>{t('common.cancel')}</Button>
+                  <Button variant="primary" onPress={send} isPending={sending}>
+                    <Send size={13} /> {t('invite.send')}
                   </Button>
                 </>
               )}

@@ -12,17 +12,24 @@ import {
   Video,
   Zap,
 } from 'lucide-react';
-import { Button, Chip, Modal, SearchField, Card } from '@heroui/react';
-import { EmptyState, Segment } from '@heroui-pro/react';
+import { Button, Chip, Modal } from '@heroui/react';
+import { Segment } from '@heroui-pro/react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { formatBudget } from '../lib/campaignFormat';
 import LandingNav from './landing/sections/LandingNav';
 import Footer from './landing/sections/Footer';
 import FacetPopover from '../components/common/FacetPopover';
-import CampaignCard, { PLATFORM_META, type PlatformId } from '../components/common/CampaignCard';
+import CampaignCard, { CampaignCardSkeleton, type PlatformId } from '../components/common/CampaignCard';
 import SearchSelect from '../components/common/SearchSelect';
-import PlatformIcon from './landing/mocks/PlatformIcon';
+import { EmptyPanel } from '../components/common/EmptyPanel';
+import { BriefDetails } from '../components/common/BriefDetails';
+import {
+  DirectoryToolbar,
+  LoadMoreFooter,
+  OptionRows,
+  PlatformChipRow,
+} from '../components/common/filters';
 import { VideoPitchRecorder } from '../components/common/VideoPitchRecorder';
 import { PitchModal } from '../components/common/PitchModal';
 
@@ -57,63 +64,11 @@ const BUDGET_RANGES = [
 type FacetData = {
   sectors: { value: string; count: number }[];
   objectives: { value: string; count: number }[];
+  countries: { value: string; label: string; count: number }[];
 };
 
-/* Radio-style option rows used inside facet panels */
-const OptionRows: React.FC<{
-  options: { id: string; label: string; hint?: string }[];
-  value: string;
-  onSelect: (id: string) => void;
-}> = ({ options, value, onSelect }) => (
-  <div className="space-y-1">
-    {options.map((o) => {
-      const active = value === o.id;
-      return (
-        <button
-          key={o.id}
-          type="button"
-          onClick={() => onSelect(o.id)}
-          className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-            active
-              ? 'bg-accent-soft border-accent/40 text-foreground'
-              : 'bg-surface border-border text-foreground hover:border-accent/40'
-          }`}
-        >
-          <span className="inline-flex items-center gap-2 min-w-0">
-            <span className="truncate">{o.label}</span>
-            {o.hint && <span className="text-muted text-xs shrink-0 tabular-nums">{o.hint}</span>}
-          </span>
-          <span
-            className={`size-4 rounded-full border-2 transition-colors shrink-0 ${
-              active ? 'border-accent bg-accent' : 'border-border bg-transparent'
-            }`}
-          />
-        </button>
-      );
-    })}
-  </div>
-);
-
-/* ── Skeleton card ─────────────────────────────────────────────── */
-const SkeletonCard: React.FC = () => (
-  <div className="v-talent-card p-4" aria-hidden>
-    <div className="flex items-center gap-2.5">
-      <div className="v-skel h-9 w-9 !rounded-lg shrink-0" />
-      <div className="flex-1">
-        <div className="v-skel h-3.5 w-2/5 mb-1.5" />
-        <div className="v-skel h-2.5 w-1/4" />
-      </div>
-      <div className="v-skel h-[26px] w-20 !rounded-[9px]" />
-    </div>
-    <div className="v-skel h-4 w-11/12 mt-4 mb-1.5" />
-    <div className="v-skel h-3 w-full mb-1" />
-    <div className="v-skel h-3 w-3/4 mb-4" />
-    <div className="flex items-center justify-between pt-3 border-t border-border">
-      <div className="v-skel h-5 w-20" />
-      <div className="v-skel h-8 w-16 !rounded-lg" />
-    </div>
-  </div>
-);
+const SkeletonCard = CampaignCardSkeleton;
+const GRID = 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4';
 
 /* ── Page ──────────────────────────────────────────────────────── */
 const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }) => {
@@ -137,15 +92,26 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
   const [orientation, setOrientation] = useState('');
   const [sort, setSort] = useState<SortKey>('newest');
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'applied'>('all');
+  /* Geo: ISO-2 code or a country name (market pages deep-link ?country=Ethiopia);
+     the API accepts both and also returns briefs open to anywhere. */
+  const [country, setCountry] = useState(() => new URLSearchParams(window.location.search).get('country') || '');
 
   /* Facet values that actually exist among active campaigns */
-  const [facets, setFacets] = useState<FacetData>({ sectors: [], objectives: [] });
+  const [facets, setFacets] = useState<FacetData>({ sectors: [], objectives: [], countries: [] });
   useEffect(() => {
     api
       .get('/campaigns/facets')
-      .then((res) => setFacets({ sectors: res.data?.sectors || [], objectives: res.data?.objectives || [] }))
+      .then((res) =>
+        setFacets({
+          sectors: res.data?.sectors || [],
+          objectives: res.data?.objectives || [],
+          countries: res.data?.countries || [],
+        }),
+      )
       .catch(() => {});
   }, []);
+  const countryLabel = (v: string) =>
+    facets.countries.find((c) => c.value.toLowerCase() === v.toLowerCase() || c.label.toLowerCase() === v.toLowerCase())?.label || v;
 
   const [selectedCampaign, setSelectedCampaign] = useState<any>(null);
   const [pitch, setPitch] = useState('');
@@ -188,6 +154,7 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
         if (range?.max) params.maxBudget = String(range.max);
         if (sector) params.industry = sector;
         if (orientation) params.objective = orientation;
+        if (country) params.country = country;
 
         const res = await api.get('/campaigns/public-list', { params, signal: ctrl.signal });
         const data = res.data || {};
@@ -206,7 +173,7 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
         setLoadingMore(false);
       }
     },
-    [search, platformFilter, budgetId, sector, orientation, sort, i18n.language],
+    [search, platformFilter, budgetId, sector, orientation, country, sort, i18n.language],
   );
 
   useEffect(() => {
@@ -328,109 +295,66 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
 
   /* ── Render ──────────────────────────────────────────────────── */
   return (
-    <div className="landing-visitors min-h-screen flex flex-col">
+    <div className={isDashboard ? '' : 'landing-visitors min-h-screen flex flex-col'}>
       {!isDashboard && <LandingNav />}
 
-      <main className="flex-1">
-        {/* Header */}
-        <section className={`px-6 lg:px-10 ${isDashboard ? 'pt-2 pb-4' : 'pt-10 pb-4'}`}>
-          <div className="max-w-[1100px] mx-auto text-center">
-            {!isDashboard && (
-              <>
-                <Chip color="accent" variant="soft" size="md" className="!mb-4">
-                  <Zap size={12} />
-                  <Chip.Label>{t('board.pill')}</Chip.Label>
-                </Chip>
-                <h1 className="v-heading-xl mb-2">
-                  {t('board.titleA')} <span className="v-text-signature">{t('board.titleB')}</span>
-                </h1>
-                <p className="v-body-lg v-muted max-w-2xl mx-auto">
-                  {t('board.desc')}
-                </p>
-              </>
-            )}
-          </div>
-        </section>
+      <main className={isDashboard ? '' : 'flex-1'}>
+        {/* Header — the dashboard embeds this under its own hero */}
+        {!isDashboard && (
+          <section className="px-6 lg:px-10 pt-10 pb-4">
+            <div className="max-w-[1100px] mx-auto text-center">
+              <Chip color="accent" variant="soft" size="md" className="!mb-4">
+                <Zap size={12} />
+                <Chip.Label>{t('board.pill')}</Chip.Label>
+              </Chip>
+              <h1 className="v-heading-xl mb-2">
+                {t('board.titleA')} <span className="v-text-signature">{t('board.titleB')}</span>
+              </h1>
+              <p className="v-body-lg v-muted max-w-2xl mx-auto">
+                {t('board.desc')}
+              </p>
+            </div>
+          </section>
+        )}
 
         {/* Toolbar + results */}
-        <section className="px-6 lg:px-10 pb-16">
-          <div className="max-w-[1100px] mx-auto">
+        <section className={isDashboard ? '' : 'px-6 lg:px-10 pb-16'}>
+          <div className={isDashboard ? '' : 'max-w-[1100px] mx-auto'}>
             {/* Toolbar */}
-            <div className="flex items-center gap-x-3 gap-y-2 mb-3 flex-wrap">
-              <div className="w-full sm:w-[260px]">
-                <SearchField aria-label="Search campaigns" value={search} onChange={setSearch}>
-                  <SearchField.Group>
-                    <SearchField.SearchIcon />
-                    <SearchField.Input placeholder={t('board.searchPh')} />
-                    <SearchField.ClearButton />
-                  </SearchField.Group>
-                </SearchField>
-              </div>
-
-              <p className="hidden lg:block text-muted text-xs whitespace-nowrap" aria-live="polite">
-                {loading
-                  ? t('common.searching')
-                  : t('board.count', { shown: visible.length, total })}
-              </p>
-
-              <div className="ml-auto flex items-center gap-2 flex-wrap">
-                {loggedIn && isCreator && (
-                  <Segment
-                    size="sm"
-                    selectedKey={statusFilter}
-                    onSelectionChange={(k) => setStatusFilter(k as typeof statusFilter)}
-                    aria-label="Application status"
-                  >
-                    <Segment.Item id="all">{t('board.statusAll')}</Segment.Item>
-                    <Segment.Item id="open">{t('board.statusOpen')}</Segment.Item>
-                    <Segment.Item id="applied">{t('board.statusApplied')}</Segment.Item>
-                  </Segment>
-                )}
+            <DirectoryToolbar
+              search={{ value: search, onChange: setSearch, placeholder: t('board.searchPh'), ariaLabel: 'Search campaigns' }}
+              count={loading ? t('common.searching') : t('board.count', { shown: visible.length, total })}
+            >
+              {loggedIn && isCreator && (
                 <Segment
                   size="sm"
-                  selectedKey={sort}
-                  onSelectionChange={(k) => setSort(k as SortKey)}
-                  aria-label="Sort briefs"
+                  selectedKey={statusFilter}
+                  onSelectionChange={(k) => setStatusFilter(k as typeof statusFilter)}
+                  aria-label="Application status"
                 >
-                  <Segment.Item id="newest">{t('board.sortNewest')}</Segment.Item>
-                  <Segment.Item id="budget">{t('board.sortBudget')}</Segment.Item>
-                  <Segment.Item id="deadline">{t('board.sortDeadline')}</Segment.Item>
+                  <Segment.Item id="all">{t('board.statusAll')}</Segment.Item>
+                  <Segment.Item id="open">{t('board.statusOpen')}</Segment.Item>
+                  <Segment.Item id="applied">{t('board.statusApplied')}</Segment.Item>
                 </Segment>
-              </div>
-            </div>
-
-            {/* Platform filter row */}
-            <div className="flex items-center gap-1.5 mb-5 flex-wrap">
-              <button
-                type="button"
-                onClick={() => setPlatformFilter('all')}
-                className="v-niche-chip"
-                data-active={platformFilter === 'all' || undefined}
-                aria-pressed={platformFilter === 'all'}
+              )}
+              <Segment
+                size="sm"
+                selectedKey={sort}
+                onSelectionChange={(k) => setSort(k as SortKey)}
+                aria-label="Sort briefs"
               >
-                {t('board.allPlatforms')}
-              </button>
-              {PLATFORM_META.filter((m) => m.id !== 'other').map((m) => {
-                const active = platformFilter === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setPlatformFilter(active ? 'all' : m.id)}
-                    className="v-niche-chip"
-                    data-active={active || undefined}
-                    aria-pressed={active}
-                  >
-                    <span className="inline-flex" style={{ color: active ? '#fff' : m.color }}>
-                      {m.glyph && <PlatformIcon platform={m.glyph} size={12} />}
-                    </span>
-                    {m.label}
-                  </button>
-                );
-              })}
+                <Segment.Item id="newest">{t('board.sortNewest')}</Segment.Item>
+                <Segment.Item id="budget">{t('board.sortBudget')}</Segment.Item>
+                <Segment.Item id="deadline">{t('board.sortDeadline')}</Segment.Item>
+              </Segment>
+            </DirectoryToolbar>
 
-              {/* Facet dropdowns — budget band, brand sector, campaign orientation */}
-              <div className="ml-auto flex items-center gap-2 flex-wrap">
+            {/* Platform filter row + facet dropdowns — budget band, brand sector, campaign orientation */}
+            <PlatformChipRow
+              value={platformFilter}
+              onChange={setPlatformFilter}
+              trailing={
+                <>
                 <FacetPopover
                   label={t('board.fBudget')}
                   width={230}
@@ -474,68 +398,65 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                     onSelect={setOrientation}
                   />
                 </FacetPopover>
-              </div>
-            </div>
+                <FacetPopover label={t('board.fLocation')} width={260} badge={country ? countryLabel(country) : undefined}>
+                  <OptionRows
+                    options={[
+                      { id: '', label: t('board.anyLocation') },
+                      ...facets.countries.map((c) => ({ id: c.value, label: c.label, hint: String(c.count) })),
+                    ]}
+                    value={facets.countries.find((c) => c.value.toLowerCase() === country.toLowerCase() || c.label.toLowerCase() === country.toLowerCase())?.value || ''}
+                    onSelect={setCountry}
+                  />
+                </FacetPopover>
+                </>
+              }
+            />
 
             {/* Results */}
             {loading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4" aria-label="Loading campaigns">
+              <div className={GRID} aria-label="Loading campaigns">
                 {Array.from({ length: 9 }).map((_, i) => (
                   <SkeletonCard key={i} />
                 ))}
               </div>
             ) : error ? (
-              <Card>
-                <Card.Content className="p-8">
-                  <EmptyState>
-                    <EmptyState.Media>
-                      <AlertCircle className="size-7" />
-                    </EmptyState.Media>
-                    <EmptyState.Title>{t('board.errTitle')}</EmptyState.Title>
-                    <EmptyState.Description>
-                      {t('board.errDesc')}
-                    </EmptyState.Description>
-                    <EmptyState.Content>
-                      <Button variant="primary" size="md" onPress={() => fetchPage(true)}>
-                        {t('common.tryAgain')}
-                      </Button>
-                    </EmptyState.Content>
-                  </EmptyState>
-                </Card.Content>
-              </Card>
+              <EmptyPanel
+                tone="error"
+                icon={<AlertCircle size={22} />}
+                title={t('board.errTitle')}
+                description={t('board.errDesc')}
+                actions={
+                  <Button variant="primary" size="md" onPress={() => fetchPage(true)}>
+                    {t('common.tryAgain')}
+                  </Button>
+                }
+              />
             ) : visible.length === 0 ? (
-              <Card>
-                <Card.Content className="p-8">
-                  <EmptyState>
-                    <EmptyState.Media>
-                      <SearchIcon className="size-7" />
-                    </EmptyState.Media>
-                    <EmptyState.Title>{t('board.emptyTitle')}</EmptyState.Title>
-                    <EmptyState.Description>
-                      {items.length === 0 ? t('board.emptyNone') : t('board.emptyStatus')}
-                    </EmptyState.Description>
-                    <EmptyState.Content>
-                      <Button
-                        variant="primary"
-                        size="md"
-                        onPress={() => {
-                          setSearch('');
-                          setPlatformFilter('all');
-                          setStatusFilter('all');
-                          setBudgetId('any');
-                          setSector('');
-                          setOrientation('');
-                        }}
-                      >
-                        {t('board.resetFilters')}
-                      </Button>
-                    </EmptyState.Content>
-                  </EmptyState>
-                </Card.Content>
-              </Card>
+              <EmptyPanel
+                icon={<SearchIcon size={22} />}
+                title={t('board.emptyTitle')}
+                description={items.length === 0 ? t('board.emptyNone') : t('board.emptyStatus')}
+                actions={
+                  <Button
+                    variant="primary"
+                    size="md"
+                    onPress={() => {
+                      setSearch('');
+                      setPlatformFilter('all');
+                      setStatusFilter('all');
+                      setBudgetId('any');
+                      setSector('');
+                      setOrientation('');
+                      setCountry('');
+                    }}
+                  >
+                    {t('board.resetFilters')}
+                  </Button>
+                }
+              />
             ) : (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div className={GRID}>
                   {visible.map((camp, i) => (
                     <CampaignCard
                       key={camp.id}
@@ -550,27 +471,17 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                   ))}
                 </div>
 
-                {/* Infinite-scroll sentinel + fallback */}
-                <div ref={sentinelRef} aria-hidden className="h-px" />
-                {loadingMore && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mt-4" aria-label="Loading more">
-                    {Array.from({ length: 3 }).map((_, i) => (
-                      <SkeletonCard key={i} />
-                    ))}
-                  </div>
-                )}
-                {hasMore && !loadingMore && (
-                  <div className="flex justify-center mt-6">
-                    <Button variant="outline" size="md" onPress={() => fetchPage(false)}>
-                      {t('common.loadMore', { n: total - items.length })}
-                    </Button>
-                  </div>
-                )}
-                {!hasMore && items.length > PAGE_SIZE && (
-                  <p className="text-center text-muted text-xs mt-6">
-                    {t('board.seenAll', { total })}
-                  </p>
-                )}
+                <LoadMoreFooter
+                  sentinelRef={sentinelRef}
+                  hasMore={hasMore}
+                  loadingMore={loadingMore}
+                  remaining={total - items.length}
+                  onLoadMore={() => fetchPage(false)}
+                  skeleton={<SkeletonCard />}
+                  gridClass={GRID}
+                  showSeenAll={items.length > PAGE_SIZE}
+                  seenAll={t('board.seenAll', { total })}
+                />
               </>
             )}
           </div>
@@ -581,9 +492,10 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
 
       {/* ─── Application modal ───────────────────────────────────── */}
       <Modal isOpen={!!selectedCampaign} onOpenChange={(open) => !open && setSelectedCampaign(null)}>
-        <Modal.Backdrop>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
           <Modal.Container>
             <Modal.Dialog>
+              <Modal.CloseTrigger />
               <Modal.Header>
                 <Modal.Heading>{t('board.applyTitle')}</Modal.Heading>
               </Modal.Header>
@@ -623,6 +535,8 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
                         ) : null}
                       </span>
                     </div>
+
+                    <BriefDetails campaign={selectedCampaign} />
 
                     {selectedCampaign.contract_template && (
                       <div
@@ -729,9 +643,10 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
 
       {/* ─── Contract modal ──────────────────────────────────────── */}
       <Modal isOpen={!!viewingContract} onOpenChange={(open) => !open && setViewingContract(null)}>
-        <Modal.Backdrop>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
           <Modal.Container>
             <Modal.Dialog>
+              <Modal.CloseTrigger />
               <Modal.Header>
                 <Modal.Heading className="flex items-center gap-2">
                   <FileText size={18} style={{ color: 'var(--color-campaign-purple)' }} />

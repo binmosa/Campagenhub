@@ -24,13 +24,11 @@ import {
   Chip,
   Separator,
 } from '@heroui/react';
-import {
-  EmptyState,
-  Segment,
-} from '@heroui-pro/react';
+import { Segment } from '@heroui-pro/react';
 import api from '../lib/api';
 import { NegotiationModal } from '../components/chat/NegotiationModal';
-import { PageShell } from '../components/ui';
+import { EmptyPanel } from '../components/common/EmptyPanel';
+import { MetricCard, PageShell } from '../components/ui';
 
 type Invitation = {
   id: string;
@@ -46,9 +44,23 @@ type Invitation = {
   permissions?: Record<string, boolean>;
   contract_content?: string;
   created_at?: string;
-  sender?: { id?: string; email?: string };
-  receiver?: { id?: string; email?: string };
+  sender?: { id?: string; email?: string; brandProfile?: any; managerProfile?: any };
+  receiver?: { id?: string; email?: string; creatorProfile?: any; managerProfile?: any };
 };
+
+/** Display name from the counterparty's profile, falling back to the email. */
+const partyName = (u?: Invitation['sender'] | Invitation['receiver']): string => {
+  const p: any = u || {};
+  return (
+    p.brandProfile?.company_name ||
+    p.creatorProfile?.full_name ||
+    p.managerProfile?.full_name ||
+    p.email?.split('@')[0] ||
+    'Unknown'
+  );
+};
+const partyAvatar = (u?: any): string | undefined =>
+  u?.brandProfile?.logo_url || u?.creatorProfile?.avatar_url || u?.managerProfile?.avatar_url || undefined;
 
 const STATUS_COLOR: Record<
   string,
@@ -68,60 +80,48 @@ const InvitationCard: React.FC<{
   onNegotiate: (id: string) => void;
 }> = ({ inv, mode, onAction, onNegotiate }) => {
   const [expanded, setExpanded] = useState(false);
-  const [pending, setPending] = useState<'accept' | 'decline' | 'cancel' | null>(
+  const [pending, setPending] = useState<'accept' | 'decline' | 'cancel' | 'edit' | null>(
     null
   );
+  const [editingMsg, setEditingMsg] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [confirm, setConfirm] = useState<'decline' | 'cancel' | null>(null);
 
   const counterparty = mode === 'received' ? inv.sender : inv.receiver;
   const isCreatorCollab = inv.type === 'creator_collab';
-  const counterpartyName =
-    counterparty?.email?.split('@')[0] || counterparty?.email || 'Unknown';
+  const counterpartyName = partyName(counterparty);
+  const avatarUrl = partyAvatar(counterparty);
   const initial = counterpartyName.slice(0, 1).toUpperCase();
 
-  const handleAccept = async () => {
-    setPending('accept');
+  const run = async (kind: 'accept' | 'decline' | 'cancel', req: () => Promise<any>) => {
+    setPending(kind);
+    setError('');
     try {
-      await api.patch(`/invitations/${inv.id}/accept`);
+      await req();
       onAction();
     } catch (e: any) {
-      alert(e?.response?.data?.message || 'Failed to accept');
+      setError(e?.response?.data?.message || `Could not ${kind} this invitation.`);
     } finally {
       setPending(null);
+      setConfirm(null);
     }
   };
+  const handleAccept = () => run('accept', () => api.patch(`/invitations/${inv.id}/accept`));
+  const handleDecline = () => run('decline', () => api.patch(`/invitations/${inv.id}/decline`));
+  const handleCancel = () => run('cancel', () => api.delete(`/invitations/${inv.id}/cancel`));
 
-  const handleDecline = async () => {
-    if (!window.confirm('Decline this invitation?')) return;
-    setPending('decline');
+  const saveEdit = async () => {
+    if (editingMsg === null) return;
+    setPending('edit');
+    setError('');
     try {
-      await api.patch(`/invitations/${inv.id}/decline`);
-      onAction();
-    } catch {}
-    finally {
-      setPending(null);
-    }
-  };
-
-  const handleCancel = async () => {
-    if (!window.confirm('Cancel this invitation?')) return;
-    setPending('cancel');
-    try {
-      await api.delete(`/invitations/${inv.id}/cancel`);
-      onAction();
-    } catch {}
-    finally {
-      setPending(null);
-    }
-  };
-
-  const handleEdit = async () => {
-    const newMsg = prompt('Edit invitation message:', inv.message || '');
-    if (newMsg === null) return;
-    try {
-      await api.patch(`/invitations/${inv.id}/message`, { message: newMsg });
+      await api.patch(`/invitations/${inv.id}/message`, { message: editingMsg });
+      setEditingMsg(null);
       onAction();
     } catch (e: any) {
-      alert(e?.response?.data?.message || 'Failed to edit invitation');
+      setError(e?.response?.data?.message || 'Failed to edit invitation');
+    } finally {
+      setPending(null);
     }
   };
 
@@ -140,14 +140,15 @@ const InvitationCard: React.FC<{
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
             <Avatar size="md">
+              {avatarUrl && <Avatar.Image src={avatarUrl} alt="" />}
               <Avatar.Fallback className="bg-accent-soft text-accent-soft-foreground font-semibold">
                 {initial}
               </Avatar.Fallback>
             </Avatar>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-foreground text-sm font-semibold truncate">
-                  {counterparty?.email || 'Unknown'}
+                <span className="text-foreground text-sm font-semibold truncate" title={counterparty?.email}>
+                  {counterpartyName}
                 </span>
                 <Chip
                   color={isCreatorCollab ? 'accent' : 'success'}
@@ -173,9 +174,34 @@ const InvitationCard: React.FC<{
                   {inv.status}
                 </Chip>
               </div>
-              <p className="text-muted text-sm mt-1">
-                {inv.message || 'No personal message provided.'}
-              </p>
+              {editingMsg === null ? (
+                <p className="text-muted text-sm mt-1">
+                  {inv.message || 'No personal message provided.'}
+                </p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  <textarea
+                    className="w-full px-3 py-2 rounded-lg bg-surface text-foreground text-sm border border-border focus:outline-none focus:border-field-border-focus resize-y"
+                    rows={3}
+                    value={editingMsg}
+                    onChange={(e) => setEditingMsg(e.target.value)}
+                    autoFocus
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button variant="primary" size="sm" onPress={saveEdit} isPending={pending === 'edit'}>
+                      Save message
+                    </Button>
+                    <Button variant="ghost" size="sm" onPress={() => setEditingMsg(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {error && (
+                <p className="text-danger text-xs mt-2" role="alert">
+                  {error}
+                </p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
@@ -198,7 +224,7 @@ const InvitationCard: React.FC<{
                 isIconOnly
                 className="!rounded-lg !text-warning"
                 aria-label="Edit invitation"
-                onPress={handleEdit}
+                onPress={() => setEditingMsg(inv.message || '')}
               >
                 <Edit size={14} />
               </Button>
@@ -329,14 +355,35 @@ const InvitationCard: React.FC<{
                       <CheckCircle size={13} /> Accept & sign
                     </Button>
                   )}
-                  <Button
-                    variant="danger-soft"
-                    size="sm"
-                    className="!rounded-lg"
-                    isPending={pending === 'decline'}
-                    onPress={handleDecline}
-                  >
-                    <XCircle size={13} /> Decline
+                  {confirm === 'decline' ? (
+                    <>
+                      <span className="text-muted text-xs">Decline this invitation?</span>
+                      <Button variant="danger" size="sm" className="!rounded-lg" isPending={pending === 'decline'} onPress={handleDecline}>
+                        Yes, decline
+                      </Button>
+                      <Button variant="ghost" size="sm" className="!rounded-lg" onPress={() => setConfirm(null)}>
+                        Keep
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      variant="danger-soft"
+                      size="sm"
+                      className="!rounded-lg"
+                      onPress={() => setConfirm('decline')}
+                    >
+                      <XCircle size={13} /> Decline
+                    </Button>
+                  )}
+                </>
+              ) : confirm === 'cancel' ? (
+                <>
+                  <span className="text-muted text-xs">Cancel this invitation?</span>
+                  <Button variant="danger" size="sm" className="!rounded-lg" isPending={pending === 'cancel'} onPress={handleCancel}>
+                    Yes, cancel it
+                  </Button>
+                  <Button variant="ghost" size="sm" className="!rounded-lg" onPress={() => setConfirm(null)}>
+                    Keep
                   </Button>
                 </>
               ) : (
@@ -344,8 +391,7 @@ const InvitationCard: React.FC<{
                   variant="outline"
                   size="sm"
                   className="!rounded-lg"
-                  isPending={pending === 'cancel'}
-                  onPress={handleCancel}
+                  onPress={() => setConfirm('cancel')}
                 >
                   Cancel invitation
                 </Button>
@@ -400,9 +446,19 @@ const Invitations: React.FC = () => {
     load();
   }, [load]);
 
+  const [approving, setApproving] = useState<string | null>(null);
+  const [approveError, setApproveError] = useState('');
   const handleApprovePayment = async (id: string) => {
-    await api.patch(`/invitations/${id}/approve-payment`);
-    load();
+    setApproving(id);
+    setApproveError('');
+    try {
+      await api.patch(`/invitations/${id}/approve-payment`);
+      load();
+    } catch (e: any) {
+      setApproveError(e?.response?.data?.message || 'Could not approve this payment.');
+    } finally {
+      setApproving(null);
+    }
   };
 
   const pending = useMemo(
@@ -414,9 +470,19 @@ const Invitations: React.FC = () => {
 
   return (
     <PageShell
-      title="Invitations"
-      description="Collaboration invitations with embedded contracts and payment terms."
+      hero
+      containerSize="wide"
+      title="Collaboration"
+      titleAccent="invitations"
+      description="Invitations travel with their contract and payment terms — accept, negotiate or decline in one place."
       icon={<Mail size={18} />}
+      stats={
+        <div className="grid grid-cols-3 gap-3">
+          <MetricCard label="Received" value={received.length} hint={`${pending} awaiting your reply`} icon={Mail} iconStatus={pending ? 'warning' : undefined} />
+          <MetricCard label="Sent" value={sent.length} hint={`${sent.filter((i) => i.status === 'pending').length} pending`} icon={Users} />
+          <MetricCard label="Accepted" value={[...received, ...sent].filter((i) => i.status === 'accepted').length} hint="collaborations started" icon={CheckCircle} iconStatus="success" />
+        </div>
+      }
     >
       {/* Brand-only: pending payment approvals */}
       {role === 'brand' && approvals.length > 0 && (
@@ -450,6 +516,8 @@ const Invitations: React.FC = () => {
                     variant="primary"
                     size="sm"
                     className="!rounded-lg"
+                    isPending={approving === inv.id}
+                    isDisabled={!!approving && approving !== inv.id}
                     onPress={() => handleApprovePayment(inv.id)}
                   >
                     Approve
@@ -457,6 +525,11 @@ const Invitations: React.FC = () => {
                 </li>
               ))}
             </ul>
+            {approveError && (
+              <p className="text-danger text-xs" role="alert">
+                {approveError}
+              </p>
+            )}
           </Card.Content>
         </Card>
       )}
@@ -483,28 +556,22 @@ const Invitations: React.FC = () => {
           <div className="w-10 h-10 border-4 border-border border-t-accent rounded-full animate-spin" />
         </div>
       ) : list.length === 0 ? (
-        <Card>
-          <Card.Content className="p-8">
-            <EmptyState>
-              <EmptyState.Media>
-                <Mail className="size-7" />
-              </EmptyState.Media>
-              <EmptyState.Title>No {tab} invitations yet</EmptyState.Title>
-              <EmptyState.Description>
-                {tab === 'received'
-                  ? 'New invitations will appear here.'
-                  : 'Send your first invitation from the Talent Network.'}
-              </EmptyState.Description>
-              {tab === 'sent' && (
-                <EmptyState.Content>
-                  <Link to="/talent">
-                    <Button variant="primary">Browse Talent Network</Button>
-                  </Link>
-                </EmptyState.Content>
-              )}
-            </EmptyState>
-          </Card.Content>
-        </Card>
+        <EmptyPanel
+          icon={<Mail size={22} />}
+          title={tab === 'received' ? 'No invitations received yet' : 'No invitations sent yet'}
+          description={
+            tab === 'received'
+              ? 'When a brand or manager invites you to collaborate, it lands here with the contract and payment terms.'
+              : 'Invite creators or managers straight from the talent directory — the contract and payment terms travel with the invite.'
+          }
+          actions={
+            tab === 'sent' ? (
+              <Link to="/dashboard/talent">
+                <Button variant="primary">Browse talent</Button>
+              </Link>
+            ) : undefined
+          }
+        />
       ) : (
         <div className="space-y-4">
           {list.map((inv) => (

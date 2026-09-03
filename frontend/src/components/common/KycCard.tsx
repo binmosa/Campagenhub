@@ -33,7 +33,7 @@ import api from '../../lib/api';
  */
 interface KycCardProps {
   user: {
-    kyc_required?: boolean;
+    role?: string; kyc_required?: boolean;
     kyc_status?: string;
     has_kyc_submission?: boolean;
   } | null;
@@ -71,54 +71,43 @@ export const KycCard: React.FC<KycCardProps> = ({
   // Hide entirely if not required and not approved (default state).
   if (!forceShow && !required && !approved) return null;
 
-  // ── Approved
+  // ── Approved — one quiet strip, not a card
   if (approved) {
     return (
-      <Card className="bg-success-soft border-success/40">
-        <Card.Content className="p-4 flex items-center gap-3">
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-success/20 text-success">
-            <ShieldCheck size={18} />
-          </span>
-          <div className="flex-1 min-w-0">
-            <div className="text-foreground text-sm font-semibold">
-              Identity verified
-            </div>
-            <div className="text-muted text-xs mt-0.5">
-              Your account is fully verified.
-            </div>
-          </div>
-          <Chip color="success" variant="soft" size="sm">
-            <CheckCircle2 size={11} />
-            <Chip.Label>Verified</Chip.Label>
-          </Chip>
-        </Card.Content>
-      </Card>
+      <div
+        className="rounded-xl px-4 py-2.5 flex items-center gap-3"
+        style={{ background: 'rgba(22,199,132,0.08)', border: '1px solid rgba(22,199,132,0.25)' }}
+      >
+        <ShieldCheck size={16} style={{ color: 'var(--color-signal-green)' }} className="shrink-0" />
+        <div className="flex-1 min-w-0 v-body" style={{ fontSize: 13 }}>
+          <span className="v-ink font-medium">Identity verified.</span>{' '}
+          <span className="v-muted">{user?.role === 'brand' ? 'Creators see a verified badge on your briefs.' : 'Brands see a verified badge on your profile.'}</span>
+        </div>
+        <Chip color="success" variant="soft" size="sm">
+          <CheckCircle2 size={11} />
+          <Chip.Label>Verified</Chip.Label>
+        </Chip>
+      </div>
     );
   }
 
   // ── Submitted, under review
   if (submitted) {
     return (
-      <Card className="bg-warning-soft border-warning/40">
-        <Card.Content className="p-4 flex items-center gap-3">
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-warning/20 text-warning">
-            <Clock size={18} />
-          </span>
-          <div className="flex-1 min-w-0">
-            <div className="text-foreground text-sm font-semibold">
-              Verification under review
-            </div>
-            <div className="text-muted text-xs mt-0.5">
-              Our team is reviewing your documents — you'll hear back within
-              1–2 business days.
-            </div>
-          </div>
-          <Chip color="warning" variant="soft" size="sm">
-            <Clock size={11} />
-            <Chip.Label>Pending</Chip.Label>
-          </Chip>
-        </Card.Content>
-      </Card>
+      <div
+        className="rounded-xl px-4 py-2.5 flex items-center gap-3"
+        style={{ background: 'rgba(255,181,71,0.12)', border: '1px solid rgba(255,181,71,0.35)' }}
+      >
+        <Clock size={16} style={{ color: '#b45309' }} className="shrink-0" />
+        <div className="flex-1 min-w-0 v-body" style={{ fontSize: 13 }}>
+          <span className="v-ink font-medium">Verification under review.</span>{' '}
+          <span className="v-muted">Our team is reviewing your documents — you'll hear back within 1–2 business days.</span>
+        </div>
+        <Chip color="warning" variant="soft" size="sm">
+          <Clock size={11} />
+          <Chip.Label>Pending</Chip.Label>
+        </Chip>
+      </div>
     );
   }
 

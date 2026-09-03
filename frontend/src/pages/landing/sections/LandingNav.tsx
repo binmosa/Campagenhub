@@ -168,21 +168,16 @@ export const LandingNav: React.FC = () => {
   /* ── Logged-in profile dropdown ─────────────────────────────────── */
   const ProfileDropdown: React.FC = () => (
     <Dropdown>
-      <Dropdown.Trigger>
-        <Button
-          isIconOnly
-          aria-label="Account menu"
-          variant="ghost"
-          size="sm"
-          className="!rounded-full !bg-white/10 hover:!bg-white/20"
-        >
+      <Dropdown.Trigger
+        aria-label="Account menu"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+      >
           <Avatar className="size-7">
             {profileImg && (
               <Avatar.Image alt={displayName} src={profileImg} />
             )}
             <Avatar.Fallback>{initials || 'U'}</Avatar.Fallback>
           </Avatar>
-        </Button>
       </Dropdown.Trigger>
       <Dropdown.Popover className="min-w-[240px]" placement="bottom end">
         <div className="px-3 py-3 flex items-center gap-3">

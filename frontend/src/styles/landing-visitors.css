@@ -711,6 +711,428 @@ a.v-social-chip:hover {
   animation: v-pulse 2s ease-in-out infinite;
 }
 
+/* ── Empty panel — the shared "nothing here yet" widget ─────────── */
+.landing-visitors .v-empty {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 44px 24px;
+  border-radius: 18px;
+  border: 1px dashed #d6dbe8;
+  background:
+    radial-gradient(60% 55% at 50% 0%, rgba(108, 99, 255, 0.10), transparent 70%),
+    radial-gradient(70% 60% at 100% 100%, rgba(0, 212, 199, 0.08), transparent 70%),
+    var(--color-paper);
+}
+.landing-visitors .v-empty[data-size="sm"] {
+  padding: 28px 20px;
+  border-radius: 14px;
+}
+.landing-visitors .v-empty[data-tone="error"] {
+  border-color: rgba(255, 90, 95, 0.35);
+  background:
+    radial-gradient(60% 55% at 50% 0%, rgba(255, 90, 95, 0.10), transparent 70%),
+    var(--color-paper);
+}
+.landing-visitors .v-empty[data-tone="success"] {
+  border-color: rgba(22, 199, 132, 0.35);
+  background:
+    radial-gradient(60% 55% at 50% 0%, rgba(22, 199, 132, 0.10), transparent 70%),
+    var(--color-paper);
+}
+.landing-visitors .v-empty-dot {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(22px);
+  opacity: 0.16;
+  pointer-events: none;
+}
+.landing-visitors .v-empty[data-tone="error"] .v-empty-dot,
+.landing-visitors .v-empty[data-tone="success"] .v-empty-dot {
+  opacity: 0.07;
+}
+.landing-visitors .v-empty-orb {
+  position: relative;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 9999px;
+  background: conic-gradient(from 210deg, #6c63ff, #4f7cff, #00d4c7, #7b61ff, #6c63ff);
+  box-shadow: rgba(108, 99, 255, 0.30) 0 14px 30px -12px;
+}
+.landing-visitors .v-empty[data-tone="error"] .v-empty-orb {
+  background: conic-gradient(from 210deg, #ff5a5f, #ff7a45, #ffb547, #ff5a5f);
+  box-shadow: rgba(255, 90, 95, 0.30) 0 14px 30px -12px;
+}
+.landing-visitors .v-empty[data-tone="success"] .v-empty-orb {
+  background: conic-gradient(from 210deg, #16c784, #00d4c7, #4f7cff, #16c784);
+  box-shadow: rgba(22, 199, 132, 0.30) 0 14px 30px -12px;
+}
+.landing-visitors .v-empty-orb > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 9999px;
+  background: var(--color-paper);
+  border: 3px solid #fff;
+  color: var(--color-campaign-purple);
+}
+.landing-visitors .v-empty[data-size="sm"] .v-empty-orb > span {
+  width: 46px;
+  height: 46px;
+}
+.landing-visitors .v-empty[data-tone="error"] .v-empty-orb > span { color: var(--color-error-coral); }
+.landing-visitors .v-empty[data-tone="success"] .v-empty-orb > span { color: var(--color-signal-green); }
+.landing-visitors .v-empty-title {
+  position: relative;
+  margin-top: 16px;
+  font-weight: 500;
+  font-size: 16px;
+  letter-spacing: -0.015em;
+  color: var(--color-deep-navy);
+}
+.landing-visitors .v-empty[data-size="sm"] .v-empty-title { font-size: 14.5px; margin-top: 12px; }
+.landing-visitors .v-empty-desc {
+  position: relative;
+  margin-top: 6px;
+  max-width: 440px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-graphite);
+}
+.landing-visitors .v-empty-actions {
+  position: relative;
+  margin-top: 18px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* ── Dashboard hero band (PageShell `hero` mode) ─────────────────── */
+.landing-visitors .v-hero-band {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid var(--color-cool-gray);
+  padding: 22px 22px 24px;
+  background:
+    radial-gradient(70% 90% at 0% 0%, rgba(108, 99, 255, 0.14), transparent 60%),
+    radial-gradient(60% 80% at 100% 100%, rgba(0, 212, 199, 0.12), transparent 60%),
+    linear-gradient(180deg, #fbfaff 0%, var(--color-paper) 100%);
+}
+@media (min-width: 640px) {
+  .landing-visitors .v-hero-band { padding: 26px 30px 28px; }
+}
+.landing-visitors .v-hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--gradient-signature);
+  color: #fff;
+  box-shadow: rgba(108, 99, 255, 0.35) 0 8px 18px -8px;
+  flex-shrink: 0;
+}
+
+/* ── Wizard / form surfaces ──────────────────────────────────────── */
+.landing-visitors .v-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-cool-gray);
+  background: var(--color-paper);
+  color: var(--color-ash);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background-color 200ms, color 200ms, border-color 200ms;
+}
+.landing-visitors .v-step[data-state="current"] {
+  border-color: transparent;
+  background: var(--gradient-signature);
+  color: #fff;
+  box-shadow: rgba(108, 99, 255, 0.35) 0 6px 14px -6px;
+}
+.landing-visitors .v-step[data-state="done"] {
+  border-color: rgba(22, 199, 132, 0.4);
+  background: rgba(22, 199, 132, 0.12);
+  color: #0b6e3e;
+}
+.landing-visitors .v-option-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--color-cool-gray);
+  background: var(--color-paper);
+  color: var(--color-deep-navy);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms, background-color 160ms, transform 160ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms;
+}
+.landing-visitors .v-option-tile:hover {
+  border-color: #d6dbe8;
+  transform: translateY(-1px);
+}
+.landing-visitors .v-option-tile[data-active] {
+  border-color: rgba(108, 99, 255, 0.45);
+  background: var(--color-soft-lavender);
+  box-shadow: rgba(108, 99, 255, 0.18) 0 8px 18px -10px;
+}
+
+/* ── Authenticated shell: sidebar + top bar ──────────────────────── */
+.landing-visitors .sidebar {
+  background: linear-gradient(180deg, #fbfaff 0%, #ffffff 60%, #f6fbfa 100%);
+  border-color: var(--color-cool-gray);
+  --sidebar-edge-outline: rgba(11, 23, 54, 0.06);
+}
+.landing-visitors .sidebar__group-label {
+  color: var(--color-ash);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.landing-visitors .sidebar__menu-item-content {
+  position: relative;
+  border-radius: 10px;
+  transition: background-color 160ms, color 160ms;
+}
+.landing-visitors .sidebar__menu-item:hover .sidebar__menu-item-content {
+  background-color: rgba(108, 99, 255, 0.06);
+}
+.landing-visitors .sidebar__menu-item[data-current="true"] .sidebar__menu-item-content {
+  background-color: var(--color-soft-lavender);
+}
+.landing-visitors .sidebar__menu-item[data-current="true"] .sidebar__menu-item-content::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 9999px;
+  background: var(--gradient-signature);
+}
+.landing-visitors .sidebar__menu-item[data-current="true"] .sidebar__menu-icon {
+  color: var(--color-campaign-purple);
+}
+.landing-visitors .sidebar__menu-item[data-current="true"] .sidebar__menu-label {
+  color: var(--color-deep-navy);
+}
+.landing-visitors .sidebar__footer {
+  padding: 10px;
+}
+/* Sidebar brand lockup: real logo + stacked wordmark / role chip. The
+   text column is min-width 0 so the name truncates instead of pushing past
+   the rail's padding; the collapsed rail hides the column entirely. */
+.landing-visitors .v-brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+  padding: 4px 6px;
+  border-radius: 12px;
+  transition: background-color 160ms;
+}
+.landing-visitors .v-brand-lockup:hover {
+  background-color: rgba(108, 99, 255, 0.05);
+}
+.landing-visitors .v-brand-lockup__text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.landing-visitors .sidebar[data-state="collapsed"] .v-brand-lockup {
+  justify-content: center;
+  padding: 4px 0;
+}
+.landing-visitors .sidebar[data-state="collapsed"] .v-brand-lockup__text {
+  display: none;
+}
+.landing-visitors .v-role-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  border: 1px solid rgba(108, 99, 255, 0.25);
+  background: var(--color-soft-lavender);
+  font-size: 10px;
+  line-height: 1.3;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  background-image: none;
+  color: var(--color-campaign-purple);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.landing-visitors .v-promo-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--gradient-signature);
+  box-shadow: rgba(108, 99, 255, 0.35) 0 10px 22px -10px;
+  color: #fff;
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms;
+}
+.landing-visitors .v-promo-tile:hover {
+  transform: translateY(-1px);
+  box-shadow: rgba(108, 99, 255, 0.45) 0 14px 26px -10px;
+}
+.landing-visitors .v-promo-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.18);
+  flex-shrink: 0;
+}
+/* Collapsed rail: keep only the icon of the promo tile */
+.landing-visitors .sidebar[data-state="collapsed"] .v-promo-tile,
+.landing-visitors .sidebar[data-state="collapsed"] .v-promo-tile {
+  padding: 8px;
+  justify-content: center;
+}
+
+.landing-visitors .navbar {
+  background: rgba(255, 255, 255, 0.86);
+  border-bottom: 1px solid var(--color-cool-gray);
+  backdrop-filter: saturate(160%) blur(10px);
+  -webkit-backdrop-filter: saturate(160%) blur(10px);
+}
+.landing-visitors .v-shell-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 11px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-cool-gray);
+  background: var(--color-paper);
+  color: var(--color-graphite);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: border-color 160ms, color 160ms, background-color 160ms;
+}
+.landing-visitors .v-shell-pill:hover {
+  border-color: #d6dbe8;
+  color: var(--color-deep-navy);
+  background: var(--color-soft-lavender);
+}
+.landing-visitors .v-shell-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-cool-gray);
+  background: var(--color-paper);
+  color: var(--color-graphite);
+  cursor: pointer;
+  transition: border-color 160ms, color 160ms, background-color 160ms;
+}
+.landing-visitors .v-shell-btn:hover,
+.landing-visitors .v-shell-btn[data-active] {
+  border-color: rgba(108, 99, 255, 0.45);
+  background: var(--color-soft-lavender);
+  color: var(--color-campaign-purple);
+}
+.landing-visitors .v-shell-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9999px;
+  background: var(--gradient-signature);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff;
+}
+.landing-visitors .v-shell-avatar {
+  display: inline-flex;
+  border-radius: 9999px;
+  outline: none;
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.landing-visitors .v-shell-avatar:hover {
+  transform: translateY(-1px);
+}
+.landing-visitors .v-shell-avatar:focus-visible {
+  outline: 2px solid var(--color-campaign-purple);
+  outline-offset: 2px;
+}
+
+/* ── Dialogs always scroll inside themselves ─────────────────────────
+   HeroUI's default modal body is `overflow: visible`, so a long form (the
+   campaign wizard, invitations) grew past the viewport. Cap every dialog
+   to the visual viewport and make the body the scroll container; header
+   and footer stay pinned. Applies to Modal, AlertDialog and Sheet. */
+.landing-visitors .modal__dialog,
+.landing-visitors .alert-dialog__dialog {
+  max-height: calc(var(--visual-viewport-height, 100dvh) - 5rem);
+  overflow: hidden;
+}
+@media (max-width: 640px) {
+  .landing-visitors .modal__dialog,
+  .landing-visitors .alert-dialog__dialog {
+    max-height: calc(var(--visual-viewport-height, 100dvh) - 2rem);
+  }
+}
+.landing-visitors .modal__header,
+.landing-visitors .modal__footer,
+.landing-visitors .alert-dialog__header,
+.landing-visitors .alert-dialog__footer {
+  flex-shrink: 0;
+}
+.landing-visitors .modal__body,
+.landing-visitors .alert-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
+/* Forms wrapping Modal.Body + Modal.Footer must not break the flex chain */
+.landing-visitors .modal__dialog > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
 /* HeroUI button micro-polish — smoother lift on press */
 .landing-visitors [data-slot="button"] {
   transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1),

@@ -724,9 +724,10 @@ const AdminSupport: React.FC = () => {
         isOpen={!!selectedTicket}
         onOpenChange={(open) => !open && setSelectedTicket(null)}
       >
-        <Modal.Backdrop>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
           <Modal.Container>
             <Modal.Dialog>
+              <Modal.CloseTrigger />
               <Modal.Header>
                 <div>
                   <Modal.Heading>Reply to ticket</Modal.Heading>
@@ -789,9 +790,10 @@ const AdminSupport: React.FC = () => {
         isOpen={showCreateReview}
         onOpenChange={(open) => !open && setShowCreateReview(false)}
       >
-        <Modal.Backdrop>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
           <Modal.Container>
             <Modal.Dialog>
+              <Modal.CloseTrigger />
               <Modal.Header>
                 <Modal.Heading>Create testimonial</Modal.Heading>
               </Modal.Header>
@@ -896,9 +898,10 @@ const AdminSupport: React.FC = () => {
         isOpen={!!kycModalUser}
         onOpenChange={(open) => !open && setKycModalUser(null)}
       >
-        <Modal.Backdrop>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
           <Modal.Container>
             <Modal.Dialog className="!max-w-3xl">
+              <Modal.CloseTrigger />
               <Modal.Header>
                 <div>
                   <Modal.Heading className="inline-flex items-center gap-2">

@@ -701,9 +701,10 @@ const AdminPayouts: React.FC = () => {
         isOpen={!!detailPayout}
         onOpenChange={(open) => !open && setDetailPayout(null)}
       >
-        <Modal.Backdrop>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
         <Modal.Container>
           <Modal.Dialog>
+            <Modal.CloseTrigger />
             <Modal.Header>
               <Modal.Heading>Payout details</Modal.Heading>
             </Modal.Header>
@@ -872,9 +873,10 @@ const AdminPayouts: React.FC = () => {
         isOpen={!!confirmPayoutId}
         onOpenChange={(open) => !open && setConfirmPayoutId(null)}
       >
-        <Modal.Backdrop>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
         <Modal.Container>
           <Modal.Dialog>
+            <Modal.CloseTrigger />
             <Modal.Header>
               <Modal.Heading className="inline-flex items-center gap-2">
                 <UserIcon className="size-4" />

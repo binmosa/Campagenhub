@@ -32,12 +32,16 @@ import { Button, Card, Chip, Separator } from '@heroui/react';
 import { EmptyState, KPI, Segment } from '@heroui-pro/react';
 import api from '../lib/api';
 import { SmartMatch, PerformancePredictor, DeepResearch } from './AiHub';
-import { PageShell } from '../components/ui';
+import { MetricCard, PageShell } from '../components/ui';
+import { EmptyPanel } from '../components/common/EmptyPanel';
+import { formatBudget } from '../lib/campaignFormat';
+import { Link } from 'react-router-dom';
 
 type TabKey = 'overview' | 'monitor' | 'match' | 'predict' | 'vision';
 
 const Analytics: React.FC = () => {
   const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [stats, setStats] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const role = localStorage.getItem('role') || 'creator';
@@ -46,8 +50,12 @@ const Analytics: React.FC = () => {
     const load = async () => {
       try {
         const endpoint = role === 'brand' ? '/campaigns/brand' : '/applications';
-        const res = await api.get(endpoint);
+        const [res, st] = await Promise.all([
+          api.get(endpoint),
+          role === 'brand' ? api.get('/campaigns/brand/stats').catch(() => ({ data: null })) : Promise.resolve({ data: null }),
+        ]);
         setCampaigns(res.data || []);
+        setStats(st.data);
       } catch (e) {
         console.error(e);
       } finally {
@@ -59,14 +67,12 @@ const Analytics: React.FC = () => {
 
   return (
     <PageShell
-      title="Analytics & insights"
-      description="Track campaign performance, monitor content, and use AI intelligence tools."
+      hero
+      containerSize="wide"
+      title="Analytics &"
+      titleAccent="insights"
+      description="Applicants over time, budget in USD, platform mix — plus content monitoring and AI matching tools."
       icon={<BarChart2 size={18} />}
-      eyebrow={
-        <span className="inline-flex items-center gap-1.5">
-          <BarChart2 size={11} /> Platform intelligence
-        </span>
-      }
     >
       {/* Tabs */}
       <Segment
@@ -98,7 +104,7 @@ const Analytics: React.FC = () => {
         </div>
       ) : (
         <>
-          {activeTab === 'overview' && <OverviewTab campaigns={campaigns} />}
+          {activeTab === 'overview' && <OverviewTab campaigns={campaigns} role={role} stats={stats} />}
           {activeTab === 'monitor' && <ContentMonitoringTab />}
           {activeTab === 'match' && (
             <Card>
@@ -128,207 +134,249 @@ const Analytics: React.FC = () => {
 };
 
 /* ── Overview tab ─────────────────────────────────────────────────── */
-const OverviewTab: React.FC<{ campaigns: any[] }> = ({ campaigns }) => {
-  const totalBudget = campaigns.reduce(
-    (sum: number, c: any) => sum + Number(c.budget || c.campaign?.budget || 0),
-    0
-  );
-  const activeCount = campaigns.filter((c) => c.status === 'active').length;
-  const avgBudget = Math.round(totalBudget / Math.max(1, campaigns.length));
+/* Chart palette — CSS tokens so charts follow the product theme (the old
+   oklch literals were light-mode-only and off-brand). */
+const CHART = {
+  purple: 'var(--chart-3, #6c63ff)',
+  teal: 'var(--chart-1, #00d4c7)',
+  blue: 'var(--chart-2, #4f7cff)',
+  violet: 'var(--chart-4, #7b61ff)',
+  deep: 'var(--chart-5, #00cfc8)',
+  grid: 'var(--color-cool-gray, #e9edf5)',
+  axis: 'var(--color-ash, #8a93a8)',
+};
+const PIE_COLORS = [CHART.purple, CHART.teal, CHART.blue, CHART.violet, CHART.deep];
+const TOOLTIP_STYLE = {
+  borderRadius: 12,
+  fontSize: 12,
+  background: 'var(--color-paper, #fff)',
+  border: '1px solid var(--color-cool-gray, #e9edf5)',
+  boxShadow: 'rgba(11,23,54,0.10) 0 8px 24px -8px',
+  color: 'var(--color-deep-navy, #0b1736)',
+};
 
-  const monthlyMap: Record<string, { budget: number; count: number }> = {};
-  campaigns.forEach((c) => {
-    const dateObj = new Date(
-      c.created_at || c.campaign?.created_at || Date.now()
+const weekLabel = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00`);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
+
+/**
+ * OverviewTab — brands read the server-aggregated stats (funnels, weekly
+ * series, USD budget); creators/managers see their own application funnel
+ * derived client-side. Empty → EmptyPanel instead of a blank chart.
+ */
+const OverviewTab: React.FC<{ campaigns: any[]; role: string; stats: any | null }> = ({ campaigns, role, stats }) => {
+  const isBrand = role === 'brand';
+
+  /* ── Brand: server stats ───────────────────────────────────────── */
+  if (isBrand) {
+    const total = stats?.campaigns?.total ?? campaigns.length;
+    if (!total) {
+      return (
+        <EmptyPanel
+          icon={<TrendingUp size={22} />}
+          title="No campaign data yet"
+          description="Post your first brief and this page fills with applicants over time, budget by week and your platform split."
+          actions={
+            <Link to="/dashboard/campaigns?new=1">
+              <Button variant="primary">Create a campaign</Button>
+            </Link>
+          }
+        />
+      );
+    }
+    const series = stats?.series || { weeks: [], campaigns: [], applications: [], accepted: [] };
+    const WEEKLY = (series.weeks || []).map((w: string, i: number) => ({
+      week: weekLabel(w),
+      applications: series.applications?.[i] ?? 0,
+      accepted: series.accepted?.[i] ?? 0,
+      campaigns: series.campaigns?.[i] ?? 0,
+    }));
+    const platformCounts: Record<string, number> = {};
+    for (const c of campaigns) {
+      for (const p of String(c.platform || 'Other').split(/[,|]+/)) {
+        const k = p.trim() || 'Other';
+        platformCounts[k] = (platformCounts[k] || 0) + 1;
+      }
+    }
+    const PLATFORM_DATA = Object.keys(platformCounts).map((k) => ({ name: k, value: platformCounts[k] }));
+    const apps = stats?.applications || {};
+    const acceptRate = apps.total ? Math.round((apps.accepted / apps.total) * 100) : 0;
+    const committed = Number(stats?.budget?.committed_usd || 0);
+
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <MetricCard label="Active campaigns" value={stats?.campaigns?.by_status?.active ?? 0} hint={`of ${total} total`} series={series.campaigns} icon={Target} />
+          <MetricCard label="Applicants" value={apps.total ?? 0} hint={`${apps.pending ?? 0} pending`} series={series.applications} chartColor={CHART.teal} icon={Users} />
+          <MetricCard label="Accept rate" value={`${acceptRate}%`} hint={`${apps.accepted ?? 0} accepted`} series={series.accepted} chartColor="var(--color-signal-green, #16c784)" icon={TrendingUp} iconStatus="success" />
+          <MetricCard label="Committed budget" value={formatBudget(committed, 'USD')} hint={`${formatBudget(Number(stats?.budget?.active_usd || 0), 'USD')} live`} icon={DollarSign} />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <Card className="lg:col-span-2">
+            <Card.Header>
+              <Card.Title className="text-base">Applicants per week</Card.Title>
+              <Card.Description>Last 12 weeks · applications vs. accepted</Card.Description>
+            </Card.Header>
+            <Separator />
+            <Card.Content className="p-5">
+              {WEEKLY.every((w: any) => !w.applications && !w.accepted) ? (
+                <EmptyPanel size="sm" icon={<Users size={18} />} title="No applicants in the last 12 weeks" description="Applicant activity shows up here the week it happens." />
+              ) : (
+                <ResponsiveContainer width="100%" height={280}>
+                  <AreaChart data={WEEKLY}>
+                    <defs>
+                      <linearGradient id="gradApps" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={CHART.purple} stopOpacity={0.35} />
+                        <stop offset="95%" stopColor={CHART.purple} stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="gradAcc" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={CHART.teal} stopOpacity={0.35} />
+                        <stop offset="95%" stopColor={CHART.teal} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} vertical={false} />
+                    <XAxis dataKey="week" tick={{ fontSize: 11, fill: CHART.axis }} stroke={CHART.grid} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: CHART.axis }} stroke={CHART.grid} tickLine={false} width={28} />
+                    <RechartsTooltip contentStyle={TOOLTIP_STYLE} />
+                    <Area type="monotone" dataKey="applications" name="Applications" stroke={CHART.purple} fill="url(#gradApps)" strokeWidth={2} />
+                    <Area type="monotone" dataKey="accepted" name="Accepted" stroke={CHART.teal} fill="url(#gradAcc)" strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </Card.Content>
+          </Card>
+
+          <Card>
+            <Card.Header>
+              <Card.Title className="text-base">Platform split</Card.Title>
+              <Card.Description>Campaigns by target platform</Card.Description>
+            </Card.Header>
+            <Separator />
+            <Card.Content className="p-5">
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={PLATFORM_DATA} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={4} dataKey="value" stroke="var(--color-paper, #fff)">
+                    {PLATFORM_DATA.map((_, i) => (
+                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip contentStyle={TOOLTIP_STYLE} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-2 mt-3">
+                {PLATFORM_DATA.map((p, i) => (
+                  <div key={p.name} className="flex items-center justify-between text-xs">
+                    <span className="inline-flex items-center gap-2 text-foreground font-medium">
+                      <span className="inline-block size-2 rounded-full" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                      {p.name}
+                    </span>
+                    <span className="text-muted tabular-nums">{p.value}</span>
+                  </div>
+                ))}
+              </div>
+            </Card.Content>
+          </Card>
+        </div>
+      </div>
     );
-    const m = dateObj.toLocaleString('default', { month: 'short' });
-    if (!monthlyMap[m]) monthlyMap[m] = { budget: 0, count: 0 };
-    monthlyMap[m].count += 1;
-    monthlyMap[m].budget += Number(c.budget || c.campaign?.budget || 0);
-  });
-
-  const MONTHLY_DATA = Object.keys(monthlyMap)
-    .map((m) => ({
-      month: m,
-      budget: monthlyMap[m].budget,
-      campaigns: monthlyMap[m].count,
-    }))
-    .reverse();
-
-  if (MONTHLY_DATA.length === 0) {
-    MONTHLY_DATA.push({ month: 'N/A', budget: 0, campaigns: 0 });
   }
 
-  const platformCounts: Record<string, number> = campaigns.reduce(
-    (acc: any, c: any) => {
-      const p = c.platform || c.campaign?.platform || 'Instagram';
-      acc[p] = (acc[p] || 0) + 1;
-      return acc;
-    },
-    {}
-  );
+  /* ── Creator / manager: my applications ───────────────────────── */
+  if (campaigns.length === 0) {
+    return (
+      <EmptyPanel
+        icon={<TrendingUp size={22} />}
+        title="No activity yet"
+        description="Apply to a brief and your funnel, budget exposure and platform mix appear here."
+        actions={
+          <Link to="/campaigns">
+            <Button variant="primary">Browse open briefs</Button>
+          </Link>
+        }
+      />
+    );
+  }
+  const accepted = campaigns.filter((a) => String(a.status).toLowerCase() === 'accepted').length;
+  const pending = campaigns.filter((a) => String(a.status).toLowerCase() === 'pending').length;
+  const exposure = campaigns.reduce((s, a) => s + Number(a.campaign?.budget_usd ?? (a.campaign?.currency === 'USD' ? a.campaign?.budget : 0) ?? 0), 0);
 
-  const PIE_COLORS = [
-    'oklch(0.62 0.18 271)',
-    'oklch(0.72 0.18 154)',
-    'oklch(0.75 0.18 84)',
-    'oklch(0.62 0.18 30)',
-    'oklch(0.68 0.18 210)',
-  ];
-  const PLATFORM_DATA = Object.keys(platformCounts).map((k) => ({
-    name: k,
-    value: platformCounts[k],
-  }));
+  const monthly = new Map<string, { label: string; count: number; accepted: number }>();
+  for (const a of campaigns) {
+    const d = new Date(a.created_at || Date.now());
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const row = monthly.get(key) || { label: d.toLocaleString(undefined, { month: 'short', year: '2-digit' }), count: 0, accepted: 0 };
+    row.count++;
+    if (String(a.status).toLowerCase() === 'accepted') row.accepted++;
+    monthly.set(key, row);
+  }
+  const MONTHLY = [...monthly.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
+  const platformCounts: Record<string, number> = {};
+  for (const a of campaigns) {
+    for (const p of String(a.campaign?.platform || 'Other').split(/[,|]+/)) {
+      const k = p.trim() || 'Other';
+      platformCounts[k] = (platformCounts[k] || 0) + 1;
+    }
+  }
+  const PLATFORM_DATA = Object.keys(platformCounts).map((k) => ({ name: k, value: platformCounts[k] }));
 
   return (
     <div className="space-y-4">
-      {/* KPIs */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Active campaigns</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={activeCount} maximumFractionDigits={0} />
-            <KPI.Trend trend={activeCount > 0 ? 'up' : 'neutral'}>
-              Live
-            </KPI.Trend>
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Total campaigns</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value
-              value={campaigns.length}
-              maximumFractionDigits={0}
-            />
-            <KPI.Trend trend="neutral">All time</KPI.Trend>
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Total budget</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value
-              value={totalBudget}
-              style="currency"
-              currency="USD"
-              notation="compact"
-              maximumFractionDigits={1}
-            />
-            <KPI.Trend trend={totalBudget > 0 ? 'up' : 'neutral'}>
-              Total
-            </KPI.Trend>
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Average budget</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value
-              value={avgBudget}
-              style="currency"
-              currency="USD"
-              notation="compact"
-              maximumFractionDigits={1}
-            />
-            <KPI.Trend trend="neutral">Per campaign</KPI.Trend>
-          </KPI.Content>
-        </KPI>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <MetricCard label="Applications" value={campaigns.length} hint="all time" icon={Target} />
+        <MetricCard label="Pending" value={pending} hint="awaiting review" icon={Users} iconStatus={pending ? 'warning' : undefined} />
+        <MetricCard label="Accepted" value={accepted} hint={`${campaigns.length ? Math.round((accepted / campaigns.length) * 100) : 0}% rate`} icon={TrendingUp} iconStatus="success" />
+        <MetricCard label="Budget exposure" value={formatBudget(exposure, 'USD')} hint="briefs applied to" icon={DollarSign} />
       </div>
-
-      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2">
           <Card.Header>
-            <Card.Title className="text-base">Performance overview</Card.Title>
-            <Card.Description>Budget trend by month</Card.Description>
+            <Card.Title className="text-base">Applications by month</Card.Title>
+            <Card.Description>Sent vs. accepted</Card.Description>
           </Card.Header>
           <Separator />
           <Card.Content className="p-5">
             <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={MONTHLY_DATA}>
+              <AreaChart data={MONTHLY}>
                 <defs>
-                  <linearGradient id="colorReach" x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="5%"
-                      stopColor="oklch(0.62 0.18 271)"
-                      stopOpacity={0.3}
-                    />
-                    <stop
-                      offset="95%"
-                      stopColor="oklch(0.62 0.18 271)"
-                      stopOpacity={0}
-                    />
+                  <linearGradient id="gradSent" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={CHART.purple} stopOpacity={0.35} />
+                    <stop offset="95%" stopColor={CHART.purple} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="oklch(0.92 0 0)"
-                />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fontSize: 12 }}
-                  stroke="oklch(0.5 0 0)"
-                />
-                <YAxis tick={{ fontSize: 12 }} stroke="oklch(0.5 0 0)" />
-                <RechartsTooltip
-                  contentStyle={{ borderRadius: '12px', fontSize: '12px' }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="budget"
-                  stroke="oklch(0.62 0.18 271)"
-                  fill="url(#colorReach)"
-                  strokeWidth={2}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: CHART.axis }} stroke={CHART.grid} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: CHART.axis }} stroke={CHART.grid} tickLine={false} width={28} />
+                <RechartsTooltip contentStyle={TOOLTIP_STYLE} />
+                <Area type="monotone" dataKey="count" name="Sent" stroke={CHART.purple} fill="url(#gradSent)" strokeWidth={2} />
+                <Area type="monotone" dataKey="accepted" name="Accepted" stroke={CHART.teal} fill="none" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           </Card.Content>
         </Card>
-
         <Card>
           <Card.Header>
             <Card.Title className="text-base">Platform split</Card.Title>
-            <Card.Description>Campaigns by platform</Card.Description>
+            <Card.Description>Briefs you applied to</Card.Description>
           </Card.Header>
           <Separator />
           <Card.Content className="p-5">
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
-                <Pie
-                  data={PLATFORM_DATA}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={4}
-                  dataKey="value"
-                >
+                <Pie data={PLATFORM_DATA} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={4} dataKey="value" stroke="var(--color-paper, #fff)">
                   {PLATFORM_DATA.map((_, i) => (
                     <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                   ))}
                 </Pie>
-                <RechartsTooltip
-                  contentStyle={{ borderRadius: '12px', fontSize: '12px' }}
-                />
+                <RechartsTooltip contentStyle={TOOLTIP_STYLE} />
               </PieChart>
             </ResponsiveContainer>
             <div className="space-y-2 mt-3">
               {PLATFORM_DATA.map((p, i) => (
-                <div
-                  key={p.name}
-                  className="flex items-center justify-between text-xs"
-                >
+                <div key={p.name} className="flex items-center justify-between text-xs">
                   <span className="inline-flex items-center gap-2 text-foreground font-medium">
-                    <span
-                      className="inline-block size-2 rounded-full"
-                      style={{ background: PIE_COLORS[i % PIE_COLORS.length] }}
-                    />
+                    <span className="inline-block size-2 rounded-full" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
                     {p.name}
                   </span>
                   <span className="text-muted tabular-nums">{p.value}</span>

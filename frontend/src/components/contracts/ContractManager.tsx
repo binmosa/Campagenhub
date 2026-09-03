@@ -1,207 +1,246 @@
-import React, { useState, useEffect } from 'react';
-import { X, CheckCircle, FileText, AlertCircle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Check, FileText, Sparkles, XCircle } from 'lucide-react';
+import { Button, Chip, Modal } from '@heroui/react';
+import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
+import { formatBudget } from '../../lib/campaignFormat';
+import { fieldClass } from '../../pages/talent/shared';
+import { Notice } from '../common/Notice';
 
+/**
+ * ContractManager — the per-application contract, as a HeroUI modal.
+ *
+ * Wired to the application it belongs to: when no contract exists yet the
+ * terms prefill from the campaign's contract template and the amount from
+ * the agreed payment terms (or the campaign budget), in the campaign's
+ * currency. Brands propose / update until the creator signs; creators
+ * sign or decline while it is awaiting signature.
+ */
 interface Contract {
   id: string;
   status: string;
   terms: string;
-  payment_amount: number;
-  contract_length: string;
+  payment_amount: number | string | null;
+  contract_length: string | null;
 }
 
 interface ContractManagerProps {
   applicationId: string;
   isBrand: boolean;
   onClose: () => void;
+  /** The application row (with campaign + payment terms) for prefill. */
+  application?: any;
 }
 
-export function ContractManager({ applicationId, isBrand, onClose }: ContractManagerProps) {
+const STATUS_COLOR: Record<string, 'success' | 'warning' | 'danger' | 'default'> = {
+  active: 'success',
+  approved: 'success',
+  pending_signature: 'warning',
+  rejected: 'danger',
+  ended: 'default',
+  draft: 'default',
+};
+
+export function ContractManager({ applicationId, isBrand, onClose, application }: ContractManagerProps) {
+  const { t } = useTranslation();
   const [contract, setContract] = useState<Contract | null>(null);
   const [loading, setLoading] = useState(true);
   const [terms, setTerms] = useState('');
-  const [paymentAmount, setPaymentAmount] = useState<number | ''>('');
-  const [contractLength, setContractLength] = useState('');
+  const [amount, setAmount] = useState('');
+  const [length, setLength] = useState('');
+  const [busy, setBusy] = useState<'save' | 'approved' | 'rejected' | null>(null);
   const [error, setError] = useState('');
+  const [done, setDone] = useState('');
+
+  const currency: string = application?.currency || application?.campaign?.currency || 'USD';
+  const campaignTitle: string = application?.campaign?.title || '';
+  const counterparty: string =
+    application?.creator?.creatorProfile?.full_name ||
+    application?.creator?.email?.split('@')[0] ||
+    application?.campaign?.brand?.brandProfile?.company_name ||
+    '';
 
   useEffect(() => {
-    fetchContract();
-  }, [applicationId]);
+    let cancelled = false;
+    setLoading(true);
+    api
+      .get(`/contracts/application/${applicationId}`)
+      .then((res) => {
+        if (cancelled) return;
+        const c: Contract | null = res.data || null;
+        setContract(c);
+        // Prefill from the brief + agreed terms when nothing was proposed yet.
+        setTerms(c?.terms || application?.campaign?.contract_template || '');
+        const amt = c?.payment_amount ?? application?.payment_amount ?? application?.campaign?.budget ?? '';
+        setAmount(amt === '' || amt == null ? '' : String(Number(amt)));
+        setLength(c?.contract_length || '');
+      })
+      .catch(() => {
+        if (!cancelled) setError(t('contract.errLoad'));
+      })
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId, application, t]);
 
-  const fetchContract = async () => {
+  const status = contract?.status || 'draft';
+  const locked = ['approved', 'active', 'ended'].includes(status);
+  const canEdit = isBrand && !locked;
+
+  const save = async () => {
+    const n = Number(amount);
+    if (!terms.trim()) return setError(t('contract.errTerms'));
+    if (!amount || !Number.isFinite(n) || n <= 0) return setError(t('contract.errAmount'));
+    setBusy('save');
+    setError('');
     try {
+      await api.post(`/contracts/application/${applicationId}`, { terms, paymentAmount: n, contractLength: length });
       const res = await api.get(`/contracts/application/${applicationId}`);
-      if (res.data) {
-        setContract(res.data);
-        setTerms(res.data.terms || '');
-        setPaymentAmount(res.data.payment_amount || '');
-        setContractLength(res.data.contract_length || '');
-      }
-    } catch (err) {
-      console.error('Failed to fetch contract', err);
+      setContract(res.data || null);
+      setDone(t('contract.saved'));
+    } catch (e: any) {
+      setError(e?.response?.data?.message || t('contract.errSave'));
     } finally {
-      setLoading(false);
+      setBusy(null);
     }
   };
 
-  const handleSaveDraft = async () => {
+  const respond = async (next: 'approved' | 'rejected') => {
+    setBusy(next);
+    setError('');
     try {
-      setError('');
-      await api.post(`/contracts/application/${applicationId}`, {
-        terms,
-        paymentAmount: Number(paymentAmount),
-        contractLength,
-      });
-      await fetchContract();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save contract');
+      await api.put(`/contracts/application/${applicationId}/respond`, { status: next });
+      const res = await api.get(`/contracts/application/${applicationId}`);
+      setContract(res.data || null);
+      setDone(next === 'approved' ? t('contract.signed') : t('contract.declined'));
+    } catch (e: any) {
+      setError(e?.response?.data?.message || t('contract.errRespond'));
+    } finally {
+      setBusy(null);
     }
   };
-
-  const handleRespond = async (status: 'approved' | 'rejected') => {
-    try {
-      setError('');
-      await api.put(`/contracts/application/${applicationId}/respond`, { status });
-      await fetchContract();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to respond to contract');
-    }
-  };
-
-  if (loading) {
-    return null; // Or a spinner
-  }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        
-        {/* Header */}
-        <div className="bg-white/10 border-b border-white/10 p-5 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-500/20 rounded-lg">
-              <FileText className="w-5 h-5 text-blue-400" />
-            </div>
-            <h2 className="text-xl font-bold text-white">Deal Contract</h2>
-          </div>
-          <button onClick={onClose} className="text-white/70 hover:text-white transition-colors">
-            <X className="w-6 h-6" />
-          </button>
-        </div>
+    <Modal isOpen onOpenChange={(open) => !open && !busy && onClose()}>
+      <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
+        <Modal.Container>
+          <Modal.Dialog className="!max-w-2xl">
+            <Modal.CloseTrigger />
+            <Modal.Header>
+              <Modal.Heading className="flex items-center gap-2 flex-wrap">
+                <span className="v-hero-icon" style={{ width: 32, height: 32, borderRadius: 10 }}>
+                  <FileText size={15} />
+                </span>
+                {t('contract.title')}
+                {!loading && (
+                  <Chip color={STATUS_COLOR[status] || 'default'} variant="soft" size="sm">
+                    <Chip.Label>{t(`contractStatus.${status}`, { defaultValue: status.replace('_', ' ') })}</Chip.Label>
+                  </Chip>
+                )}
+              </Modal.Heading>
+            </Modal.Header>
 
-        {/* Content */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1">
-          {error && (
-            <div className="bg-red-500/20 border border-red-500/50 text-red-200 p-3 rounded-lg flex items-center gap-2">
-              <AlertCircle className="w-5 h-5" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {contract?.status && (
-            <div className="flex items-center gap-2">
-              <span className="text-white/60 text-sm">Target Status:</span>
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                ['approved', 'active'].includes(contract.status) ? 'bg-green-500/20 text-green-300 border border-green-500/30' :
-                contract.status === 'pending_signature' ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' :
-                'bg-white/10 text-white/70 border border-white/20'
-              }`}>
-                {contract.status.replace('_', ' ').toUpperCase()}
-              </span>
-            </div>
-          )}
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-white/80 mb-2">Deliverables & Terms</label>
-              {isBrand && !['approved', 'active'].includes(contract?.status ?? '') ? (
-                <textarea
-                  value={terms}
-                  onChange={(e) => setTerms(e.target.value)}
-                  className="w-full bg-black/20 border border-white/10 rounded-xl p-4 text-white placeholder-white/40 focus:outline-none focus:border-blue-500/50 min-h-[150px]"
-                  placeholder="Specify what the creator needs to do..."
-                />
+            <Modal.Body>
+              {loading ? (
+                <div className="space-y-3" aria-hidden>
+                  <div className="v-skel h-4 w-1/3" />
+                  <div className="v-skel h-40 w-full" />
+                  <div className="v-skel h-10 w-1/2" />
+                </div>
               ) : (
-                <div className="w-full bg-black/20 border border-white/5 rounded-xl p-4 text-white/90 min-h-[150px] whitespace-pre-wrap">
-                  {terms || 'No terms specified yet.'}
+                <div className="space-y-5">
+                  {(campaignTitle || counterparty) && (
+                    <p className="v-body v-muted" style={{ fontSize: 13 }}>
+                      {t('contract.between', { campaign: campaignTitle || '—', name: counterparty || '—' })}
+                    </p>
+                  )}
+                  {error && <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice>}
+                  {done && <Notice tone="success" onDismiss={() => setDone('')}>{done}</Notice>}
+                  {!contract && canEdit && terms && (
+                    <Notice tone="info">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Sparkles size={13} /> {t('contract.prefilled')}
+                      </span>
+                    </Notice>
+                  )}
+                  {!isBrand && status === 'pending_signature' && <Notice tone="info">{t('contract.creatorNote')}</Notice>}
+
+                  <div>
+                    <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('contract.terms')}</label>
+                    {canEdit ? (
+                      <textarea
+                        className={`${fieldClass} resize-y min-h-[180px] font-mono`}
+                        style={{ fontSize: 12.5, lineHeight: 1.55 }}
+                        value={terms}
+                        onChange={(e) => setTerms(e.target.value)}
+                        placeholder={t('contract.termsPh')}
+                        rows={8}
+                      />
+                    ) : (
+                      <div
+                        className="rounded-xl p-4 v-body v-ink whitespace-pre-wrap"
+                        style={{ background: 'rgba(244,242,255,0.5)', border: '1px solid var(--color-cool-gray)', fontSize: 13, lineHeight: 1.6, maxHeight: 320, overflow: 'auto' }}
+                      >
+                        {terms || t('contract.noTerms')}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>
+                        {t('contract.amount')} ({currency})
+                      </label>
+                      {canEdit ? (
+                        <input type="number" min={0} step="0.01" className={fieldClass} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="500" />
+                      ) : (
+                        <div className="font-semibold tabular-nums" style={{ fontSize: 20, color: '#0b6e3e', letterSpacing: '-0.018em' }}>
+                          {amount ? formatBudget(Number(amount), currency) : '—'}
+                          {application?.payment_frequency && (
+                            <span className="v-caption v-quiet font-normal" style={{ fontSize: 12 }}> / {t(`apps.freq.${application.payment_frequency}`, { defaultValue: application.payment_frequency })}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('contract.length')}</label>
+                      {canEdit ? (
+                        <input className={fieldClass} value={length} onChange={(e) => setLength(e.target.value)} placeholder={t('contract.lengthPh')} />
+                      ) : (
+                        <div className="v-ink font-medium" style={{ fontSize: 14 }}>{length || '—'}</div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
-            </div>
+            </Modal.Body>
 
-            <div>
-              <label className="block text-sm font-medium text-white/80 mb-2">Payment Amount ($)</label>
-              {isBrand && !['approved', 'active'].includes(contract?.status ?? '') ? (
-                <input
-                  type="number"
-                  value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full bg-black/20 border border-white/10 rounded-xl p-4 text-white focus:outline-none focus:border-blue-500/50"
-                  placeholder="e.g. 500"
-                />
-              ) : (
-                <div className="w-full bg-black/20 border border-white/5 rounded-xl p-4 text-white/90 font-mono text-lg">
-                  ${paymentAmount || '0.00'}
-                </div>
+            <Modal.Footer>
+              <Button variant="ghost" onPress={onClose} isDisabled={!!busy}>
+                {t('common.close')}
+              </Button>
+              {canEdit && (
+                <Button variant="primary" onPress={save} isPending={busy === 'save'}>
+                  <Check size={13} /> {contract ? t('contract.update') : t('contract.propose')}
+                </Button>
               )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-white/80 mb-2">Contract Length</label>
-              {isBrand && !['approved', 'active'].includes(contract?.status ?? '') ? (
-                <input
-                  type="text"
-                  value={contractLength}
-                  onChange={(e) => setContractLength(e.target.value)}
-                  className="w-full bg-black/20 border border-white/10 rounded-xl p-4 text-white focus:outline-none focus:border-blue-500/50"
-                  placeholder="e.g. 3 Months, 1 Year..."
-                />
-              ) : (
-                <div className="w-full bg-black/20 border border-white/5 rounded-xl p-4 text-white/90 font-mono text-lg">
-                  {contractLength || 'N/A'}
-                </div>
+              {!isBrand && status === 'pending_signature' && (
+                <>
+                  <Button variant="ghost" className="!text-danger" onPress={() => respond('rejected')} isPending={busy === 'rejected'} isDisabled={busy === 'approved'}>
+                    <XCircle size={13} /> {t('contract.decline')}
+                  </Button>
+                  <Button variant="primary" onPress={() => respond('approved')} isPending={busy === 'approved'} isDisabled={busy === 'rejected'}>
+                    <Check size={13} /> {t('contract.sign')}
+                  </Button>
+                </>
               )}
-            </div>
-          </div>
-        </div>
-
-        {/* Footer Actions */}
-        <div className="p-5 border-t border-white/10 bg-black/20 flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="px-5 py-2.5 rounded-xl text-white font-medium hover:bg-white/5 transition-colors border border-white/10"
-          >
-            Close
-          </button>
-
-          {isBrand && !['approved', 'active'].includes(contract?.status ?? '') && (
-            <button
-              onClick={handleSaveDraft}
-              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors flex items-center gap-2 shadow-lg shadow-blue-500/20"
-            >
-              <CheckCircle className="w-4 h-4" />
-              Propose Contract
-            </button>
-          )}
-
-          {!isBrand && contract?.status === 'pending_signature' && (
-            <>
-              <button
-                onClick={() => handleRespond('rejected')}
-                className="px-5 py-2.5 rounded-xl bg-red-500/20 text-red-300 font-medium hover:bg-red-500/30 transition-colors border border-red-500/30"
-              >
-                Decline
-              </button>
-              <button
-                onClick={() => handleRespond('approved')}
-                className="px-5 py-2.5 rounded-xl bg-green-500 hover:bg-green-600 text-white font-medium transition-colors flex items-center gap-2 shadow-lg shadow-green-500/20"
-              >
-                <CheckCircle className="w-4 h-4" />
-                Sign & Accept
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
   );
 }
+
+export default ContractManager;

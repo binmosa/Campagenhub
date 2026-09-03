@@ -28,6 +28,7 @@ import AdminPayouts from './pages/admin/Payouts';
 import AdminProfile from './pages/admin/Profile';
 import SiteSettings from './pages/admin/SiteSettings';
 import AdminSupport from './pages/admin/Support';
+import AdminFollowerClaims from './pages/admin/FollowerClaims';
 import TelegramStudio from './pages/admin/TelegramStudio';
 
 import BrandCampaigns from './pages/brand/Campaigns';
@@ -126,6 +127,7 @@ function App() {
           <Route path="payouts" element={<PayoutsRouter />} />
           <Route path="site-control" element={<SiteControlRouter />} />
           <Route path="support" element={<SupportRouter />} />
+          <Route path="follower-claims" element={<FollowerClaimsRouter />} />
           <Route path="invitations" element={<Invitations />} />
           <Route path="my-team" element={<MyTeam />} />
           <Route path="contracts" element={<ContractsPage />} />
@@ -173,6 +175,12 @@ const ProfileRouter = () => {
   if (role === 'manager') return <ManagerProfile />;
   if (role === 'admin' || role === 'support' || role === 'finance') return <AdminProfile />;
   return <CreatorProfile />;
+};
+
+const FollowerClaimsRouter = () => {
+  const role = (localStorage.getItem('role') || 'creator').toLowerCase().trim();
+  if (role === 'admin' || role === 'support') return <AdminFollowerClaims />;
+  return <div className="text-center p-10 text-slate-500">Not available for this role.</div>;
 };
 
 const UsersRouter = () => {

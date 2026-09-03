@@ -1,839 +1,677 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
-  Activity,
-  AlertCircle,
-  Calendar,
-  CheckCircle,
-  ChevronDown,
-  ChevronUp,
+  AlertTriangle,
+  Briefcase,
+  Check,
+  CheckCircle2,
   Clock,
-  CreditCard,
   DollarSign,
-  Eye,
   FileText,
+  Inbox,
+  Layers,
   MessageSquare,
+  RotateCcw,
+  SearchX,
+  Star,
   Users,
-  X,
+  Video,
+  XCircle,
 } from 'lucide-react';
-import {
-  Avatar,
-  Button,
-  Card,
-  Chip,
-  Label,
-  Modal,
-  Separator,
-  TextField,
-  TextArea,
-} from '@heroui/react';
-import { EmptyState, KPI, RadioButtonGroup, Segment } from '@heroui-pro/react';
-import { Input } from 'react-aria-components';
+import { Button, Chip, Modal } from '@heroui/react';
+import { Segment } from '@heroui-pro/react';
+import { useTranslation } from 'react-i18next';
 import api, { serverOrigin } from '../../lib/api';
+import { formatBudget, postedLabel } from '../../lib/campaignFormat';
+import {
+  APPLICATION_STATUSES,
+  APPLICATION_STATUS_COLOR,
+  CURRENCIES,
+  PAYMENT_FREQUENCIES,
+  hasPaymentDay,
+  normalizeApplicationStatus,
+  type ApplicationStatus,
+} from '../../lib/catalog';
 import { ChatWindow } from '../../components/chat/ChatWindow';
 import { ContractManager } from '../../components/contracts/ContractManager';
-import { PageShell } from '../../components/ui';
+import { MetricCard, PageShell } from '../../components/ui';
+import { EmptyPanel } from '../../components/common/EmptyPanel';
+import { BriefDetails } from '../../components/common/BriefDetails';
+import FacetPopover from '../../components/common/FacetPopover';
+import { Notice } from '../../components/common/Notice';
+import SearchSelect from '../../components/common/SearchSelect';
+import { TalentCard, TalentCardSkeleton } from '../../components/common/TalentCard';
+import { ActiveFilterChips, DirectoryToolbar, type ActiveChip } from '../../components/common/filters';
+import { fieldClass, type Talent } from '../talent/shared';
 
-const CURRENCIES = ['NGN', 'USD', 'KES', 'GHS', 'ZAR', 'UGX', 'EUR', 'GBP'];
-const FREQUENCIES = ['monthly', 'quarterly', 'yearly'];
+/**
+ * BrandApplications — the applicant inbox. Every applicant is rendered
+ * with the same TalentCard as the directory (story ring, platform rail,
+ * real follower counts) plus their pitch; review happens in one modal
+ * with the pipeline actions: shortlist → accept (with payment terms) or
+ * decline, and message / contract once accepted.
+ */
+type SortKey = 'newest' | 'name';
+type StatusFilter = 'all' | ApplicationStatus;
 
-const fieldClass =
-  'w-full px-3.5 py-2.5 rounded-lg bg-surface text-foreground text-sm placeholder:text-muted border border-border focus:outline-none focus:border-field-border-focus';
+const GRID = 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4';
 
-const STATUS_COLOR: Record<string, 'success' | 'warning' | 'danger' | 'default'> = {
-  accepted: 'success',
-  pending: 'warning',
-  rejected: 'danger',
-  refunded: 'warning',
+const toTalent = (app: any): Talent => {
+  const cp = app.creator?.creatorProfile || {};
+  return {
+    id: app.creator?.id || app.id,
+    _type: 'creator',
+    full_name: cp.full_name || [cp.first_name, cp.last_name].filter(Boolean).join(' ') || app.creator?.email?.split('@')[0],
+    username: cp.username,
+    avatar_url: cp.avatar_url,
+    category: cp.category,
+    location: cp.location,
+    bio: cp.bio,
+    social_links: cp.social_links,
+    follower_range: cp.follower_range,
+    user: { id: app.creator?.id },
+  };
 };
 
-/* ── Payment Schedule Modal ────────────────────────────────────── */
+const videoSrc = (url?: string | null): string | null => {
+  if (!url) return null;
+  return url.startsWith('/') ? `${serverOrigin}${url}` : url;
+};
+
+const creatorName = (app: any) => toTalent(app).full_name || app.creator?.email || 'Creator';
+
+/* ── Payment terms (accept + schedule) ───────────────────────────── */
 const PaymentScheduleModal: React.FC<{
-  app: any;
-  isOpen: boolean;
+  app: any | null;
   onClose: () => void;
   onSaved: () => void;
-}> = ({ app, isOpen, onClose, onSaved }) => {
+}> = ({ app, onClose, onSaved }) => {
+  const { t } = useTranslation();
   const [amount, setAmount] = useState('');
-  const [currency, setCurrency] = useState('NGN');
-  const [frequency, setFrequency] = useState('monthly');
-  const [paymentDay, setPaymentDay] = useState('1');
+  const [currency, setCurrency] = useState('USD');
+  const [frequency, setFrequency] = useState<string>('monthly');
+  const [day, setDay] = useState('1');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(
-    null
-  );
+  const [error, setError] = useState('');
 
-  const handleSave = async () => {
-    if (!amount || Number(amount) <= 0) {
-      setMsg({ type: 'error', text: 'Enter a valid payment amount' });
+  useEffect(() => {
+    if (!app) return;
+    setAmount(app.payment_amount != null ? String(Number(app.payment_amount)) : app.campaign?.budget != null ? String(Number(app.campaign.budget)) : '');
+    setCurrency(app.currency || app.campaign?.currency || 'USD');
+    setFrequency(app.payment_frequency || 'monthly');
+    setDay(String(app.payment_day || 1));
+    setNotes(app.notes || '');
+    setError('');
+  }, [app]);
+
+  const save = async () => {
+    const n = Number(amount);
+    if (!amount || !Number.isFinite(n) || n <= 0) {
+      setError(t('apps.errAmount'));
       return;
     }
     setSaving(true);
-    setMsg(null);
+    setError('');
     try {
-      await api.patch(`/applications/${app.id}/status`, { status: 'accepted' });
+      if (normalizeApplicationStatus(app.status) !== 'accepted') {
+        await api.patch(`/applications/${app.id}/status`, { status: 'accepted' });
+      }
       await api.patch(`/applications/${app.id}/payment-schedule`, {
-        payment_amount: Number(amount),
+        payment_amount: n,
         currency,
         payment_frequency: frequency,
-        payment_day: Number(paymentDay),
+        payment_day: hasPaymentDay(frequency) ? Number(day) : 1,
         notes,
       });
-      setMsg({
-        type: 'success',
-        text: 'Agreement created. Payment schedule saved.',
-      });
-      setTimeout(() => {
-        onSaved();
-        onClose();
-      }, 1200);
-    } catch {
-      setMsg({
-        type: 'error',
-        text: 'Could not save agreement. Try again.',
-      });
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || t('apps.errSave'));
     } finally {
       setSaving(false);
     }
   };
 
-  const creatorName =
-    app.creator?.creatorProfile?.full_name ||
-    app.creator?.email?.split('@')[0] ||
-    'Creator';
-
   return (
-    <Modal isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <Modal.Backdrop>
-      <Modal.Container>
-        <Modal.Dialog>
-          <Modal.Header>
-            <Modal.Heading className="inline-flex items-center gap-2">
-              <CheckCircle size={16} className="text-accent" /> Set payment
-              schedule
-            </Modal.Heading>
-          </Modal.Header>
-          <Modal.Body>
-            <p className="text-muted text-sm mb-4">
-              With{' '}
-              <span className="text-foreground font-semibold">
-                {creatorName}
-              </span>
-            </p>
-
-            <Card className="bg-success-soft border-success/40 mb-4">
-              <Card.Content className="p-3 flex items-start gap-2 text-xs font-medium text-success-soft-foreground">
-                <CheckCircle size={13} className="mt-0.5 shrink-0" />
-                <p>
-                  Accepting creates a digital agreement. No immediate payment is
-                  charged — manage payments from{' '}
-                  <strong>My Team</strong> any time.
+    <Modal isOpen={!!app} onOpenChange={(open) => !open && !saving && onClose()}>
+      <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
+        <Modal.Container>
+          <Modal.Dialog>
+            <Modal.CloseTrigger />
+            <Modal.Header>
+              <Modal.Heading className="flex items-center gap-2">
+                <DollarSign size={17} style={{ color: 'var(--color-campaign-purple)' }} />
+                {normalizeApplicationStatus(app?.status) === 'accepted' ? t('apps.editTerms') : t('apps.acceptTitle')}
+              </Modal.Heading>
+            </Modal.Header>
+            <Modal.Body>
+              <div className="space-y-4">
+                <p className="v-body v-muted">
+                  {t('apps.acceptIntro', { name: app ? creatorName(app) : '', title: app?.campaign?.title || '' })}
                 </p>
-              </Card.Content>
-            </Card>
-
-            <div className="space-y-4">
-              {/* Amount + Currency */}
-              <div>
-                <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                  Payment amount
-                </Label>
-                <div className="flex gap-2">
-                  <select
-                    value={currency}
-                    onChange={(e) => setCurrency(e.target.value)}
-                    className={`${fieldClass} w-24`}
-                  >
-                    {CURRENCIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                  <TextField
-                    value={amount}
-                    onChange={setAmount}
-                    className="flex-1"
-                    aria-label="Amount"
-                  >
-                    <Input
-                      className={fieldClass}
-                      type="number"
-                      placeholder="e.g. 150000"
-                    />
-                  </TextField>
+                {error && <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice>}
+                <div className="grid grid-cols-[120px_1fr] gap-3">
+                  <div>
+                    <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('wizard.currency')}</label>
+                    <select className={fieldClass} value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                      {CURRENCIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.amount')}</label>
+                    <input type="number" min={0} step="0.01" className={fieldClass} value={amount} onChange={(e) => setAmount(e.target.value)} />
+                  </div>
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.frequency')}</label>
+                    <select className={fieldClass} value={frequency} onChange={(e) => setFrequency(e.target.value)}>
+                      {PAYMENT_FREQUENCIES.map((f) => (
+                        <option key={f} value={f}>{t(`apps.freq.${f}`)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={hasPaymentDay(frequency) ? undefined : { opacity: 0.45, pointerEvents: 'none' }}>
+                    <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.paymentDay')}</label>
+                    <select className={fieldClass} value={day} onChange={(e) => setDay(e.target.value)} disabled={!hasPaymentDay(frequency)}>
+                      {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.notes')}</label>
+                  <textarea className={`${fieldClass} resize-none`} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t('apps.notesPh')} />
+                </div>
+                <p className="v-caption v-quiet" style={{ fontSize: 11.5 }}>{t('apps.termsNote')}</p>
               </div>
-
-              {/* Frequency */}
-              <div>
-                <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                  Payment frequency
-                </Label>
-                <RadioButtonGroup
-                  aria-label="Frequency"
-                  value={frequency}
-                  onChange={(v) => setFrequency(v as string)}
-                  layout="flex"
-                >
-                  {FREQUENCIES.map((f) => (
-                    <RadioButtonGroup.Item key={f} value={f}>
-                      <RadioButtonGroup.ItemContent>
-                        <span className="capitalize">{f}</span>
-                      </RadioButtonGroup.ItemContent>
-                      <RadioButtonGroup.Indicator />
-                    </RadioButtonGroup.Item>
-                  ))}
-                </RadioButtonGroup>
-              </div>
-
-              {/* Payment Day */}
-              <div>
-                <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5 inline-flex items-center gap-1.5">
-                  <Calendar size={11} /> Payment day (of{' '}
-                  {frequency === 'yearly'
-                    ? 'year'
-                    : frequency === 'quarterly'
-                    ? 'quarter'
-                    : 'month'}
-                  )
-                </Label>
-                <select
-                  value={paymentDay}
-                  onChange={(e) => setPaymentDay(e.target.value)}
-                  className={fieldClass}
-                >
-                  {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
-                    <option key={d} value={d}>
-                      Day {d}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Notes */}
-              <div>
-                <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                  Agreement notes (optional)
-                </Label>
-                <TextArea
-                  value={notes}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                    setNotes(e.target.value)
-                  }
-                  placeholder="Deliverables, milestones, or other terms…"
-                  rows={3}
-                  className={`${fieldClass} resize-none`}
-                />
-              </div>
-
-              {msg && (
-                <Card
-                  className={
-                    msg.type === 'success'
-                      ? 'bg-success-soft border-success/40'
-                      : 'bg-danger-soft border-danger/40'
-                  }
-                >
-                  <Card.Content className="p-3 flex items-center gap-2 text-sm font-medium">
-                    {msg.type === 'success' ? (
-                      <CheckCircle size={13} />
-                    ) : (
-                      <AlertCircle size={13} />
-                    )}{' '}
-                    {msg.text}
-                  </Card.Content>
-                </Card>
-              )}
-            </div>
-          </Modal.Body>
-          <Modal.Footer>
-            <Button variant="ghost" onPress={onClose}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              isPending={saving}
-              onPress={handleSave}
-            >
-              <CheckCircle size={13} /> Accept & create agreement
-            </Button>
-          </Modal.Footer>
-        </Modal.Dialog>
-      </Modal.Container>
+            </Modal.Body>
+            <Modal.Footer>
+              <Button variant="ghost" onPress={onClose} isDisabled={saving}>{t('common.cancel')}</Button>
+              <Button variant="primary" onPress={save} isPending={saving}>
+                <Check size={13} /> {normalizeApplicationStatus(app?.status) === 'accepted' ? t('apps.saveTerms') : t('apps.acceptBtn')}
+              </Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
       </Modal.Backdrop>
     </Modal>
   );
 };
 
-/* ── Review deliverables modal ─────────────────────────────────── */
-const ReviewModal: React.FC<{
-  app: any;
-  submissions: any[];
-  isOpen: boolean;
-  onClose: () => void;
-}> = ({ app, submissions, isOpen, onClose }) => (
-  <Modal isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
-    <Modal.Backdrop>
-    <Modal.Container>
-      <Modal.Dialog>
-        <Modal.Header>
-          <Modal.Heading>Review deliverables</Modal.Heading>
-        </Modal.Header>
-        <Modal.Body>
-          <p className="text-muted text-sm mb-4">
-            Content submitted by{' '}
-            {app.creator?.creatorProfile?.full_name || 'the creator'}.
-          </p>
-          {submissions.length === 0 ? (
-            <Card className="bg-surface-secondary">
-              <Card.Content className="p-6">
-                <EmptyState>
-                  <EmptyState.Media>
-                    <Clock className="size-7" />
-                  </EmptyState.Media>
-                  <EmptyState.Title>No deliverables yet</EmptyState.Title>
-                  <EmptyState.Description>
-                    Nothing has been submitted for review.
-                  </EmptyState.Description>
-                </EmptyState>
-              </Card.Content>
-            </Card>
-          ) : (
-            <div className="space-y-3 max-h-72 overflow-y-auto">
-              {submissions.map((sub: any) => (
-                <Card key={sub.id}>
-                  <Card.Content className="p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-muted text-xs font-medium uppercase">
-                        Submitted link
-                      </span>
-                      <Chip
-                        color={
-                          sub.ai_verification_status === 'verified'
-                            ? 'success'
-                            : 'warning'
-                        }
-                        variant="soft"
-                        size="sm"
-                      >
-                        <Chip.Label>
-                          AI {sub.ai_verification_status}
-                        </Chip.Label>
-                      </Chip>
-                    </div>
-                    <a
-                      href={sub.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-accent text-sm hover:underline break-all"
-                    >
-                      {sub.url}
-                    </a>
-                  </Card.Content>
-                </Card>
-              ))}
-            </div>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="ghost" onPress={onClose}>
-            Close
-          </Button>
-          <Button
-            variant="primary"
-            onPress={() => {
-              alert('Content approved!');
-              onClose();
-            }}
-          >
-            <CheckCircle size={13} /> Approve content
-          </Button>
-        </Modal.Footer>
-      </Modal.Dialog>
-    </Modal.Container>
-    </Modal.Backdrop>
-  </Modal>
-);
-
-/* ── Application card ─────────────────────────────────────────── */
-type Application = {
-  id: string;
-  status: string;
-  pitch?: string;
-  video_pitch_url?: string;
-  payment_amount?: number | string;
-  payment_frequency?: string;
-  payment_day?: number;
-  currency?: string;
-  creator?: {
-    email?: string;
-    creatorProfile?: {
-      full_name?: string;
-      avatar_url?: string;
-      follower_range?: string;
-    };
-  };
-  campaign?: { title?: string; budget?: number | string };
-};
-
-const getStats = (user: any) => {
-  const fr: string = user?.creatorProfile?.follower_range || '';
-  if (fr.includes('500k') || fr.includes('500K'))
-    return { followers: '500K+', eng: '4.2%' };
-  if (fr.includes('100k') || fr.includes('100K'))
-    return { followers: '100K–500K', eng: '3.8%' };
-  if (fr.includes('50k') || fr.includes('50K'))
-    return { followers: '50K–100K', eng: '5.1%' };
-  if (fr.includes('10k') || fr.includes('10K'))
-    return { followers: '10K–50K', eng: '6.2%' };
-  return { followers: '1K–10K', eng: '7.5%' };
-};
-
-const AppCard: React.FC<{
-  app: Application;
-  expanded: boolean;
-  onToggle: () => void;
-  onMessage: () => void;
-  onAccept: () => void;
-  onReject: () => void;
-  onContract: () => void;
-  onEditPayment: () => void;
-  onReview: () => void;
-}> = ({
-  app,
-  expanded,
-  onToggle,
-  onMessage,
-  onAccept,
-  onReject,
-  onContract,
-  onEditPayment,
-  onReview,
-}) => {
-  const stats = getStats(app.creator);
-  const initial = (app.creator?.email || 'C')[0].toUpperCase();
-  const name =
-    app.creator?.creatorProfile?.full_name || app.creator?.email || 'Creator';
-
-  return (
-    <Card>
-      <Card.Content className="p-4 space-y-3">
-        <div className="flex items-center gap-3">
-          <Avatar size="md">
-            {app.creator?.creatorProfile?.avatar_url && (
-              <Avatar.Image
-                src={app.creator.creatorProfile.avatar_url}
-                alt={name}
-              />
-            )}
-            <Avatar.Fallback>{initial}</Avatar.Fallback>
-          </Avatar>
-          <div className="min-w-0 flex-1">
-            <div className="text-foreground text-sm font-semibold truncate">
-              {name}
-            </div>
-            <div className="text-muted text-xs truncate">
-              {app.campaign?.title || 'Campaign'}
-            </div>
-          </div>
-
-          <div className="hidden md:flex items-center gap-4 text-center">
-            <div>
-              <div className="text-foreground text-sm font-semibold tabular-nums">
-                {stats.followers}
-              </div>
-              <div className="text-muted text-[10px] uppercase tracking-wider">
-                Followers
-              </div>
-            </div>
-            <div>
-              <div className="text-success text-sm font-semibold tabular-nums">
-                {stats.eng}
-              </div>
-              <div className="text-muted text-[10px] uppercase tracking-wider">
-                Eng. rate
-              </div>
-            </div>
-          </div>
-
-          <Chip
-            color={STATUS_COLOR[app.status] || 'default'}
-            variant="soft"
-            size="sm"
-          >
-            <Chip.Label className="capitalize">{app.status}</Chip.Label>
-          </Chip>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            isIconOnly
-            aria-label={expanded ? 'Collapse' : 'Expand'}
-            onPress={onToggle}
-          >
-            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          </Button>
-        </div>
-
-        {expanded && (
-          <>
-            <Separator />
-            <div className="space-y-3">
-              {/* Pitch */}
-              <Card className="bg-surface-secondary">
-                <Card.Content className="p-3 text-sm text-foreground leading-relaxed">
-                  <p className="text-muted text-[10px] font-medium uppercase tracking-wider mb-1.5 inline-flex items-center gap-1.5">
-                    <MessageSquare size={11} /> Creator pitch
-                  </p>
-                  {app.pitch || (
-                    <span className="italic text-muted">
-                      No written pitch provided.
-                    </span>
-                  )}
-                </Card.Content>
-              </Card>
-
-              {/* Video pitch */}
-              {app.video_pitch_url && (
-                <div className="space-y-2">
-                  <p className="text-muted text-[10px] font-medium uppercase tracking-wider inline-flex items-center gap-1.5">
-                    <Activity size={11} className="text-accent" /> Video
-                    introduction
-                  </p>
-                  <div className="aspect-video bg-overlay rounded-xl overflow-hidden border border-border max-w-sm">
-                    <video
-                      src={
-                        app.video_pitch_url.startsWith('http')
-                          ? app.video_pitch_url
-                          : `${serverOrigin}${app.video_pitch_url}`
-                      }
-                      controls
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Budget */}
-              {app.campaign?.budget && (
-                <div className="flex items-center gap-2 text-sm">
-                  <DollarSign size={13} className="text-success" />
-                  <span className="text-foreground font-medium">
-                    Campaign budget: $
-                    {Number(app.campaign.budget).toLocaleString()}
-                  </span>
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="tertiary"
-                  size="sm"
-                  onPress={onMessage}
-                >
-                  <MessageSquare size={12} /> Message
-                </Button>
-                {app.status === 'pending' && (
-                  <>
-                    <Button variant="primary" size="sm" onPress={onAccept}>
-                      <CheckCircle size={12} /> Accept & set agreement
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="!text-danger"
-                      onPress={onReject}
-                    >
-                      <X size={12} /> Decline
-                    </Button>
-                  </>
-                )}
-                {app.status === 'accepted' && (
-                  <>
-                    <Button
-                      variant="tertiary"
-                      size="sm"
-                      onPress={onContract}
-                    >
-                      <FileText size={12} /> View contract
-                    </Button>
-                    <Button
-                      variant="tertiary"
-                      size="sm"
-                      onPress={onEditPayment}
-                    >
-                      <CreditCard size={12} /> Edit payment
-                    </Button>
-                    <Button
-                      variant="tertiary"
-                      size="sm"
-                      onPress={onReview}
-                    >
-                      <Eye size={12} /> Review deliverables
-                    </Button>
-                  </>
-                )}
-              </div>
-
-              {app.status === 'accepted' && app.payment_amount && (
-                <Card className="bg-success-soft border-success/40">
-                  <Card.Content className="p-3 flex items-center gap-2 text-xs text-success-soft-foreground">
-                    <Clock size={12} />
-                    <span>
-                      Paying{' '}
-                      <strong>
-                        {app.currency || 'USD'}{' '}
-                        {Number(app.payment_amount).toLocaleString()}
-                      </strong>{' '}
-                      every{' '}
-                      <strong>{app.payment_frequency || 'month'}</strong> on day{' '}
-                      <strong>{app.payment_day || 1}</strong>
-                    </span>
-                  </Card.Content>
-                </Card>
-              )}
-            </div>
-          </>
-        )}
-      </Card.Content>
-    </Card>
-  );
-};
-
-/* ── Main page ────────────────────────────────────────────────── */
+/* ── Page ────────────────────────────────────────────────────────── */
 const BrandApplications: React.FC = () => {
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [reviewingApp, setReviewingApp] = useState<Application | null>(null);
-  const [appSubmissions, setAppSubmissions] = useState<any[]>([]);
-  const [chatApp, setChatApp] = useState<Application | null>(null);
-  const [contractApp, setContractApp] = useState<Application | null>(null);
-  const [paymentApp, setPaymentApp] = useState<Application | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string>('');
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<
-    'all' | 'pending' | 'accepted' | 'others'
-  >('all');
+  const { t } = useTranslation();
+  const [params, setParams] = useSearchParams();
 
-  const fetchData = async () => {
+  const [apps, setApps] = useState<any[]>([]);
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [currentUserId, setCurrentUserId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<StatusFilter>(() => {
+    const s = params.get('status');
+    return s && (APPLICATION_STATUSES as readonly string[]).includes(s) ? (s as ApplicationStatus) : 'all';
+  });
+  const [campaignId, setCampaignId] = useState(params.get('campaign') || '');
+  const [sort, setSort] = useState<SortKey>('newest');
+
+  const [reviewing, setReviewing] = useState<any | null>(null);
+  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [paymentApp, setPaymentApp] = useState<any | null>(null);
+  const [chatApp, setChatApp] = useState<any | null>(null);
+  const [contractApp, setContractApp] = useState<any | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setError(false);
     try {
-      const res = await api.get('/applications');
-      setApplications(res.data || []);
-    } catch (e) {
-      console.error(e);
+      const [a, c] = await Promise.all([
+        api.get('/applications'),
+        api.get('/campaigns/mine').catch(() => ({ data: [] })),
+      ]);
+      setApps(Array.isArray(a.data) ? a.data : []);
+      setCampaigns(Array.isArray(c.data) ? c.data : []);
+    } catch {
+      setError(true);
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    api
-      .get('/auth/me')
-      .then((res) => setCurrentUserId(res.data.userId))
-      .catch(() => {});
-    fetchData();
   }, []);
 
-  const handleReject = async (appId: string) => {
+  useEffect(() => {
+    load();
+    api.get('/auth/me').then((r) => setCurrentUserId(r.data?.userId || r.data?.id || '')).catch(() => {});
+  }, [load]);
+
+  /* Keep the URL in sync so campaign cards can deep-link here */
+  useEffect(() => {
+    const next = new URLSearchParams(params);
+    if (campaignId) next.set('campaign', campaignId);
+    else next.delete('campaign');
+    if (status !== 'all') next.set('status', status);
+    else next.delete('status');
+    if (next.toString() !== params.toString()) setParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignId, status]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 4500);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  const counts = useMemo(() => {
+    const c: Record<StatusFilter, number> = { all: apps.length, pending: 0, shortlisted: 0, accepted: 0, rejected: 0, refunded: 0 };
+    for (const a of apps) c[normalizeApplicationStatus(a.status)]++;
+    return c;
+  }, [apps]);
+
+  const campaignOptions = useMemo(() => {
+    const perCampaign = new Map<string, number>();
+    for (const a of apps) if (a.campaign?.id) perCampaign.set(a.campaign.id, (perCampaign.get(a.campaign.id) || 0) + 1);
+    const seen = new Set<string>();
+    const opts = campaigns.map((c) => {
+      seen.add(c.id);
+      return { value: c.id, label: c.title, hint: String(perCampaign.get(c.id) || 0) };
+    });
+    for (const a of apps) {
+      if (a.campaign?.id && !seen.has(a.campaign.id)) {
+        seen.add(a.campaign.id);
+        opts.push({ value: a.campaign.id, label: a.campaign.title, hint: String(perCampaign.get(a.campaign.id) || 0) });
+      }
+    }
+    return opts;
+  }, [apps, campaigns]);
+  const campaignTitle = (id: string) => campaignOptions.find((o) => o.value === id)?.label || '';
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = apps.filter((a) => {
+      if (status !== 'all' && normalizeApplicationStatus(a.status) !== status) return false;
+      if (campaignId && a.campaign?.id !== campaignId) return false;
+      if (q) {
+        const talent = toTalent(a);
+        const hay = `${talent.full_name || ''} ${talent.username || ''} ${a.creator?.email || ''} ${a.pitch || ''} ${a.campaign?.title || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    list.sort((a, b) =>
+      sort === 'name'
+        ? (toTalent(a).full_name || '').localeCompare(toTalent(b).full_name || '')
+        : new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+    return list;
+  }, [apps, search, status, campaignId, sort]);
+
+  const activeChips = useMemo(() => {
+    const chips: ActiveChip[] = [];
+    if (search) chips.push({ key: 'search', label: t('talent.searchChip', { q: search }), onClear: () => setSearch('') });
+    if (status !== 'all') chips.push({ key: 'status', label: t(`appStatus.${status}`), onClear: () => setStatus('all') });
+    if (campaignId) chips.push({ key: 'campaign', label: campaignTitle(campaignId) || t('dash.campaign'), onClear: () => setCampaignId('') });
+    return chips;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, status, campaignId, campaignOptions, t]);
+  const resetFilters = () => {
+    setSearch('');
+    setStatus('all');
+    setCampaignId('');
+  };
+
+  /* ── Actions ───────────────────────────────────────────────────── */
+  const openReview = (app: any) => {
+    setReviewing(app);
+    setSubmissions([]);
+    api
+      .get(`/tracking/application/${app.id}/submissions`)
+      .then((r) => setSubmissions(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setSubmissions([]));
+  };
+
+  const setStatusOf = async (app: any, next: ApplicationStatus) => {
+    setBusy(true);
     try {
-      await api.patch(`/applications/${appId}/status`, { status: 'rejected' });
-      fetchData();
-    } catch {
-      alert('Failed to reject.');
+      await api.patch(`/applications/${app.id}/status`, { status: next });
+      setNotice({ tone: 'success', text: t(`apps.statusChanged.${next}`, { name: creatorName(app) }) });
+      setReviewing(null);
+      await load();
+    } catch (e: any) {
+      setNotice({ tone: 'error', text: e?.response?.data?.message || t('apps.errSave') });
+    } finally {
+      setBusy(false);
     }
   };
 
-  const counts = useMemo(
-    () => ({
-      all: applications.length,
-      pending: applications.filter((a) => a.status === 'pending').length,
-      accepted: applications.filter((a) => a.status === 'accepted').length,
-      others: applications.filter(
-        (a) => a.status !== 'pending' && a.status !== 'accepted'
-      ).length,
-    }),
-    [applications]
+  /* ── Render ────────────────────────────────────────────────────── */
+  const kpis = (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <MetricCard label={t('appStatus.pending')} value={counts.pending} hint={t('apps.kpiPendingHint')} icon={Clock} iconStatus={counts.pending ? 'warning' : undefined} />
+      <MetricCard label={t('appStatus.shortlisted')} value={counts.shortlisted} hint={t('apps.kpiShortHint')} icon={Star} />
+      <MetricCard label={t('appStatus.accepted')} value={counts.accepted} hint={t('apps.kpiAcceptedHint')} icon={CheckCircle2} iconStatus="success" />
+      <MetricCard label={t('appStatus.rejected')} value={counts.rejected + counts.refunded} hint={t('apps.kpiRejectedHint')} icon={XCircle} />
+    </div>
   );
 
-  const filtered = useMemo(() => {
-    if (statusFilter === 'all') return applications;
-    if (statusFilter === 'others')
-      return applications.filter(
-        (a) => a.status !== 'pending' && a.status !== 'accepted'
-      );
-    return applications.filter((a) => a.status === statusFilter);
-  }, [applications, statusFilter]);
+  const reviewStatus = reviewing ? normalizeApplicationStatus(reviewing.status) : 'pending';
+  const reviewVideo = videoSrc(reviewing?.video_pitch_url);
 
   return (
     <PageShell
-      title="Applications inbox"
-      description="Review creator applications and create payment agreements — no upfront payments required."
+      hero
+      containerSize="wide"
+      title={t('apps.title')}
+      titleAccent={t('apps.titleAccent')}
+      description={t('apps.desc')}
       icon={<Users size={18} />}
+      stats={kpis}
     >
-      {/* KPIs */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Pending review</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={counts.pending} maximumFractionDigits={0} />
-            <KPI.Trend trend={counts.pending > 0 ? 'neutral' : 'up'}>
-              Awaiting decision
-            </KPI.Trend>
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Accepted & active</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={counts.accepted} maximumFractionDigits={0} />
-            <KPI.Trend trend={counts.accepted > 0 ? 'up' : 'neutral'}>
-              Currently working
-            </KPI.Trend>
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Declined / other</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={counts.others} maximumFractionDigits={0} />
-          </KPI.Content>
-        </KPI>
-      </div>
+      {notice && (
+        <Notice tone={notice.tone} onDismiss={() => setNotice(null)}>{notice.text}</Notice>
+      )}
 
-      {/* Info banner */}
-      <Card className="bg-accent-soft border-accent/30">
-        <Card.Content className="p-4 flex items-start gap-3">
-          <AlertCircle size={15} className="text-accent shrink-0 mt-0.5" />
-          <div>
-            <p className="text-foreground text-sm font-semibold">
-              Accept first, pay on schedule
-            </p>
-            <p className="text-muted text-xs mt-0.5">
-              Accepting a creator no longer triggers immediate payment. Instead,
-              you agree on a payment schedule. Adjust or cancel anytime from{' '}
-              <strong>My Team</strong>.
-            </p>
-          </div>
-        </Card.Content>
-      </Card>
-
-      {/* Filter toolbar */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <Segment
-          selectedKey={statusFilter}
-          onSelectionChange={(k) => setStatusFilter(k as typeof statusFilter)}
+      <div>
+        <DirectoryToolbar
+          leading={
+            <Segment size="sm" selectedKey={status} onSelectionChange={(k) => setStatus(k as StatusFilter)} aria-label="Status">
+              <Segment.Item id="all">{t('dash.all')} · {counts.all}</Segment.Item>
+              <Segment.Item id="pending">{t('appStatus.pending')} · {counts.pending}</Segment.Item>
+              <Segment.Item id="shortlisted">{t('appStatus.shortlisted')} · {counts.shortlisted}</Segment.Item>
+              <Segment.Item id="accepted">{t('appStatus.accepted')} · {counts.accepted}</Segment.Item>
+              <Segment.Item id="rejected">{t('appStatus.rejected')} · {counts.rejected}</Segment.Item>
+            </Segment>
+          }
+          search={{ value: search, onChange: setSearch, placeholder: t('apps.searchPh'), widthClass: 'w-full sm:w-[240px]' }}
+          count={loading ? t('common.searching') : t('board.count', { shown: visible.length, total: apps.length })}
         >
-          <Segment.Item id="all">All · {counts.all}</Segment.Item>
-          <Segment.Item id="pending">Pending · {counts.pending}</Segment.Item>
-          <Segment.Item id="accepted">Accepted · {counts.accepted}</Segment.Item>
-          <Segment.Item id="others">Others · {counts.others}</Segment.Item>
-        </Segment>
+          <FacetPopover label={t('dash.campaign')} width={300} badge={campaignId ? campaignTitle(campaignId) : undefined}>
+            <SearchSelect
+              aria-label="Campaign"
+              placeholder={campaignOptions.length ? t('apps.pickCampaign') : t('dash.noCampaignsTitle')}
+              disabled={campaignOptions.length === 0}
+              options={campaignOptions}
+              value={campaignId}
+              onChange={setCampaignId}
+            />
+          </FacetPopover>
+          <Segment size="sm" selectedKey={sort} onSelectionChange={(k) => setSort(k as SortKey)} aria-label="Sort">
+            <Segment.Item id="newest">{t('board.sortNewest')}</Segment.Item>
+            <Segment.Item id="name">{t('talent.sortAZ')}</Segment.Item>
+          </Segment>
+        </DirectoryToolbar>
+        <ActiveFilterChips chips={activeChips} onClearAll={resetFilters} />
       </div>
 
-      {/* Applications */}
       {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-10 h-10 border-4 border-border border-t-accent rounded-full animate-spin" />
-        </div>
-      ) : applications.length === 0 ? (
-        <Card>
-          <Card.Content className="p-8">
-            <EmptyState>
-              <EmptyState.Media>
-                <Users className="size-7" />
-              </EmptyState.Media>
-              <EmptyState.Title>Inbox zero</EmptyState.Title>
-              <EmptyState.Description>
-                No applications yet. Launch a campaign to start receiving
-                creators.
-              </EmptyState.Description>
-            </EmptyState>
-          </Card.Content>
-        </Card>
-      ) : filtered.length === 0 ? (
-        <Card>
-          <Card.Content className="p-8">
-            <EmptyState>
-              <EmptyState.Media>
-                <FileText className="size-7" />
-              </EmptyState.Media>
-              <EmptyState.Title>No matches</EmptyState.Title>
-              <EmptyState.Description>
-                Try selecting a different status above.
-              </EmptyState.Description>
-            </EmptyState>
-          </Card.Content>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {filtered.map((app) => (
-            <AppCard
-              key={app.id}
-              app={app}
-              expanded={expanded === app.id}
-              onToggle={() => setExpanded(expanded === app.id ? null : app.id)}
-              onMessage={() => setChatApp(app)}
-              onAccept={() => setPaymentApp(app)}
-              onReject={() => handleReject(app.id)}
-              onContract={() => setContractApp(app)}
-              onEditPayment={() => setPaymentApp(app)}
-              onReview={async () => {
-                setReviewingApp(app);
-                try {
-                  const res = await api.get(
-                    `/tracking/application/${app.id}/submissions`
-                  );
-                  setAppSubmissions(res.data || []);
-                } catch {
-                  setAppSubmissions([]);
-                }
-              }}
-            />
+        <div className={GRID} aria-label="Loading applicants">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <TalentCardSkeleton key={i} />
           ))}
         </div>
+      ) : error ? (
+        <EmptyPanel
+          tone="error"
+          icon={<AlertTriangle size={22} />}
+          title={t('board.errTitle')}
+          description={t('board.errDesc')}
+          actions={<Button variant="primary" onPress={() => { setLoading(true); load(); }}>{t('common.tryAgain')}</Button>}
+        />
+      ) : apps.length === 0 ? (
+        <EmptyPanel
+          icon={<Inbox size={22} />}
+          title={t('apps.emptyTitle')}
+          description={t('apps.emptyDesc')}
+          actions={
+            <>
+              <Link to="/dashboard/campaigns?new=1">
+                <Button variant="primary">
+                  <Briefcase size={13} /> {t('dash.newCampaign')}
+                </Button>
+              </Link>
+              <Link to="/dashboard/talent">
+                <Button variant="tertiary">{t('dash.browseTalent')}</Button>
+              </Link>
+            </>
+          }
+        />
+      ) : visible.length === 0 ? (
+        <EmptyPanel
+          size="sm"
+          icon={<SearchX size={20} />}
+          title={t('board.emptyTitle')}
+          description={t('board.emptyStatus')}
+          actions={<Button variant="primary" size="sm" onPress={resetFilters}>{t('board.resetFilters')}</Button>}
+        />
+      ) : (
+        <div className={GRID}>
+          {visible.map((app, i) => {
+            const s = normalizeApplicationStatus(app.status);
+            const when = postedLabel(app.created_at);
+            return (
+              <TalentCard
+                key={app.id}
+                talent={toTalent(app)}
+                index={i}
+                canInvite={false}
+                loggedIn
+                viewerIsCreator={false}
+                onInvite={() => {}}
+                badge={
+                  <Chip color={APPLICATION_STATUS_COLOR[s]} variant="soft" size="sm" className="shrink-0">
+                    <Chip.Label>{t(`appStatus.${s}`)}</Chip.Label>
+                  </Chip>
+                }
+                extra={
+                  <div className="mt-3 rounded-xl p-3" style={{ background: 'rgba(244,242,255,0.55)', border: '1px solid var(--color-cool-gray)' }}>
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <span className="v-caption v-quiet font-medium uppercase tracking-wider inline-flex items-center gap-1" style={{ fontSize: 10 }}>
+                        <Layers size={10} /> {t('apps.pitch')}
+                      </span>
+                      <span className="v-caption v-quiet inline-flex items-center gap-2" style={{ fontSize: 10.5 }}>
+                        {app.video_pitch_url && (
+                          <span className="inline-flex items-center gap-0.5" style={{ color: 'var(--color-campaign-purple)' }}>
+                            <Video size={10} /> {t('apps.video')}
+                          </span>
+                        )}
+                        {when}
+                      </span>
+                    </div>
+                    <p className="v-body v-ink line-clamp-3" style={{ fontSize: 12.5, minHeight: 54 }}>
+                      {app.pitch || t('apps.noPitch')}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setCampaignId(app.campaign?.id || '')}
+                      className="mt-2 v-caption inline-flex items-center gap-1 hover:underline truncate max-w-full"
+                      style={{ fontSize: 11, color: 'var(--color-campaign-purple)' }}
+                      title={app.campaign?.title}
+                    >
+                      <Briefcase size={10} className="shrink-0" /> <span className="truncate">{app.campaign?.title}</span>
+                    </button>
+                  </div>
+                }
+                actions={
+                  <Button variant={s === 'pending' ? 'primary' : 'tertiary'} size="sm" onPress={() => openReview(app)}>
+                    {s === 'pending' ? t('apps.review') : t('apps.open')}
+                  </Button>
+                }
+              />
+            );
+          })}
+        </div>
       )}
 
-      {/* Modals */}
-      {paymentApp && (
-        <PaymentScheduleModal
-          app={paymentApp}
-          isOpen={!!paymentApp}
-          onClose={() => setPaymentApp(null)}
-          onSaved={fetchData}
-        />
-      )}
+      {/* ── Review modal ───────────────────────────────────────────── */}
+      <Modal isOpen={!!reviewing} onOpenChange={(open) => !open && !busy && setReviewing(null)}>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
+          <Modal.Container>
+            <Modal.Dialog className="!max-w-2xl">
+              <Modal.CloseTrigger />
+              {reviewing && (
+                <>
+                  <Modal.Header>
+                    <Modal.Heading className="flex items-center gap-2 flex-wrap">
+                      {creatorName(reviewing)}
+                      <Chip color={APPLICATION_STATUS_COLOR[reviewStatus]} variant="soft" size="sm">
+                        <Chip.Label>{t(`appStatus.${reviewStatus}`)}</Chip.Label>
+                      </Chip>
+                    </Modal.Heading>
+                  </Modal.Header>
+                  <Modal.Body>
+                    <div className="space-y-5">
+                      <div className="flex items-center justify-between gap-3 flex-wrap v-caption" style={{ fontSize: 12.5 }}>
+                        <span className="inline-flex items-center gap-1.5 v-muted">
+                          <Briefcase size={12} /> {reviewing.campaign?.title}
+                        </span>
+                        {reviewing.campaign?.budget != null && (
+                          <span className="v-ink font-medium tabular-nums inline-flex items-center gap-1">
+                            <DollarSign size={12} style={{ color: '#0b6e3e' }} />
+                            {formatBudget(reviewing.campaign.budget, reviewing.campaign.currency || 'USD')} · {t('card.budget')}
+                          </span>
+                        )}
+                      </div>
 
-      {reviewingApp && (
-        <ReviewModal
-          app={reviewingApp}
-          submissions={appSubmissions}
-          isOpen={!!reviewingApp}
-          onClose={() => setReviewingApp(null)}
-        />
-      )}
+                      <BriefDetails campaign={reviewing.campaign} compact />
+
+                      {reviewVideo && (
+                        <div>
+                          <div className="v-caption v-quiet font-medium uppercase tracking-wider mb-2 inline-flex items-center gap-1.5" style={{ fontSize: 10.5 }}>
+                            <Video size={11} style={{ color: 'var(--color-campaign-purple)' }} /> {t('board.videoPitch')}
+                          </div>
+                          <video src={reviewVideo} controls preload="metadata" className="w-full rounded-xl v-hairline" style={{ maxHeight: 320, background: '#0b1736' }} />
+                        </div>
+                      )}
+
+                      <div>
+                        <div className="v-caption v-quiet font-medium uppercase tracking-wider mb-2 inline-flex items-center gap-1.5" style={{ fontSize: 10.5 }}>
+                          <Layers size={11} /> {t('board.writtenPitch')}
+                        </div>
+                        <div className="rounded-xl p-4 v-body v-ink whitespace-pre-wrap" style={{ background: 'rgba(244,242,255,0.5)', border: '1px solid var(--color-cool-gray)', fontSize: 13.5, lineHeight: 1.6 }}>
+                          {reviewing.pitch || t('apps.noPitch')}
+                        </div>
+                      </div>
+
+                      {reviewStatus === 'accepted' && (
+                        <div className="rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap" style={{ background: 'linear-gradient(135deg, rgba(22,199,132,0.10) 0%, rgba(0,212,199,0.12) 100%)', border: '1px solid rgba(22,199,132,0.20)' }}>
+                          <div>
+                            <div className="v-caption font-medium" style={{ color: '#0b6e3e', fontSize: 11.5 }}>{t('apps.termsTitle')}</div>
+                            <div className="font-semibold tabular-nums" style={{ color: '#0b6e3e', fontSize: 20 }}>
+                              {reviewing.payment_amount ? formatBudget(reviewing.payment_amount, reviewing.currency || 'USD') : '—'}
+                              {reviewing.payment_frequency && (
+                                <span className="v-caption font-normal" style={{ fontSize: 12, opacity: 0.8 }}> / {t(`apps.freq.${reviewing.payment_frequency}`, { defaultValue: reviewing.payment_frequency })}</span>
+                              )}
+                            </div>
+                          </div>
+                          {hasPaymentDay(reviewing.payment_frequency) && (
+                            <span className="v-caption" style={{ color: '#0b6e3e', fontSize: 11.5 }}>
+                              {t('apps.dayN', { n: reviewing.payment_day || 1 })}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      <div>
+                        <div className="v-caption v-quiet font-medium uppercase tracking-wider mb-2 inline-flex items-center gap-1.5" style={{ fontSize: 10.5 }}>
+                          <FileText size={11} /> {t('apps.deliverables')}
+                        </div>
+                        {submissions.length === 0 ? (
+                          <p className="v-caption v-quiet" style={{ fontSize: 12 }}>{t('apps.noDeliverables')}</p>
+                        ) : (
+                          <ul className="space-y-2 max-h-56 overflow-y-auto">
+                            {submissions.map((sub: any) => (
+                              <li key={sub.id} className="rounded-lg p-3 v-hairline flex items-center justify-between gap-3">
+                                <a href={sub.url} target="_blank" rel="noopener noreferrer" className="v-body truncate hover:underline" style={{ color: 'var(--color-campaign-purple)', fontSize: 12.5 }}>
+                                  {sub.url}
+                                </a>
+                                <Chip color={sub.ai_verification_status === 'verified' ? 'success' : 'warning'} variant="soft" size="sm">
+                                  <Chip.Label>{sub.ai_verification_status || 'pending'}</Chip.Label>
+                                </Chip>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  </Modal.Body>
+                  <Modal.Footer>
+                    <div className="flex items-center justify-between w-full gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        {(reviewStatus === 'pending' || reviewStatus === 'shortlisted') && (
+                          <Button variant="ghost" className="!text-danger" onPress={() => setStatusOf(reviewing, 'rejected')} isDisabled={busy}>
+                            <XCircle size={13} /> {t('apps.decline')}
+                          </Button>
+                        )}
+                        {(reviewStatus === 'rejected' || reviewStatus === 'refunded') && (
+                          <Button variant="ghost" onPress={() => setStatusOf(reviewing, 'pending')} isDisabled={busy}>
+                            <RotateCcw size={13} /> {t('apps.reconsider')}
+                          </Button>
+                        )}
+                        {reviewStatus === 'accepted' && (
+                          <>
+                            <Button variant="tertiary" onPress={() => setChatApp(reviewing)}>
+                              <MessageSquare size={13} /> {t('apps.message')}
+                            </Button>
+                            <Button variant="tertiary" onPress={() => setContractApp(reviewing)}>
+                              <FileText size={13} /> {t('apps.contract')}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {reviewStatus === 'pending' && (
+                          <Button variant="tertiary" onPress={() => setStatusOf(reviewing, 'shortlisted')} isDisabled={busy}>
+                            <Star size={13} /> {t('apps.shortlist')}
+                          </Button>
+                        )}
+                        {(reviewStatus === 'pending' || reviewStatus === 'shortlisted') && (
+                          <Button variant="primary" onPress={() => setPaymentApp(reviewing)} isDisabled={busy}>
+                            <Check size={13} /> {t('apps.accept')}
+                          </Button>
+                        )}
+                        {reviewStatus === 'accepted' && (
+                          <Button variant="primary" onPress={() => setPaymentApp(reviewing)}>
+                            <DollarSign size={13} /> {t('apps.editTerms')}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </Modal.Footer>
+                </>
+              )}
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+
+      <PaymentScheduleModal
+        app={paymentApp}
+        onClose={() => setPaymentApp(null)}
+        onSaved={() => {
+          setNotice({ tone: 'success', text: t('apps.statusChanged.accepted', { name: paymentApp ? creatorName(paymentApp) : '' }) });
+          setReviewing(null);
+          load();
+        }}
+      />
 
       {chatApp && (
         <ChatWindow
           applicationId={chatApp.id}
           currentUserId={currentUserId}
           onClose={() => setChatApp(null)}
-          creatorName={
-            chatApp.creator?.creatorProfile?.full_name || chatApp.creator?.email
-          }
+          creatorName={creatorName(chatApp)}
+          avatarUrl={toTalent(chatApp).avatar_url}
+          subtitle={chatApp.campaign?.title}
         />
       )}
       {contractApp && (
-        <ContractManager
-          applicationId={contractApp.id}
-          isBrand={true}
-          onClose={() => setContractApp(null)}
-        />
+        <ContractManager applicationId={contractApp.id} isBrand application={contractApp} onClose={() => setContractApp(null)} />
       )}
     </PageShell>
   );

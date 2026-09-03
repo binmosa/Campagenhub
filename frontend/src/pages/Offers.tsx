@@ -31,7 +31,10 @@ import {
 } from '@heroui-pro/react';
 import api from '../lib/api';
 import { PitchModal } from '../components/common/PitchModal';
-import { PageShell } from '../components/ui';
+import { MetricCard, PageShell } from '../components/ui';
+import { EmptyPanel } from '../components/common/EmptyPanel';
+import { toast } from '../lib/toast';
+import { Sparkles as ActiveIcon, Tag as TypeIcon } from 'lucide-react';
 
 type Offer = {
   id: string;
@@ -124,7 +127,7 @@ const OfferModal: React.FC<{
       onSaved();
       onClose();
     } catch (e: any) {
-      alert(e?.response?.data?.message || 'Failed to save offer');
+      toast.error(e?.response?.data?.message || 'Failed to save offer');
     } finally {
       setSaving(false);
     }
@@ -133,9 +136,10 @@ const OfferModal: React.FC<{
   return (
     <>
       <Modal isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
-        <Modal.Backdrop>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
         <Modal.Container>
           <Modal.Dialog>
+            <Modal.CloseTrigger />
             <Modal.Header>
               <Modal.Heading>{offer ? 'Edit offer' : 'New offer'}</Modal.Heading>
             </Modal.Header>
@@ -315,9 +319,10 @@ const OfferInviteModal: React.FC<{
   return (
     <>
       <Modal isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
-        <Modal.Backdrop>
+        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
         <Modal.Container>
           <Modal.Dialog>
+            <Modal.CloseTrigger />
             <Modal.Header>
               <Modal.Heading>Book service</Modal.Heading>
             </Modal.Header>
@@ -464,7 +469,27 @@ const OffersPage: React.FC = () => {
 
   return (
     <PageShell
-      title={isBrandOrAdmin ? 'Marketplace' : 'My offers'}
+      hero
+      containerSize="wide"
+      title={isBrandOrAdmin ? 'Creator' : 'My'}
+      titleAccent={isBrandOrAdmin ? 'marketplace' : 'offers'}
+      stats={
+        <div className="grid grid-cols-3 gap-3">
+          {isCreatorOrManager ? (
+            <>
+              <MetricCard label="My offers" value={myOffers.length} icon={ShoppingBag} />
+              <MetricCard label="Live" value={myOffers.filter((o) => o.is_active).length} hint={`${myOffers.filter((o) => !o.is_active).length} paused`} icon={ActiveIcon} iconStatus="success" />
+              <MetricCard label="On the marketplace" value={allOffers.length} hint="all creators & managers" icon={TypeIcon} />
+            </>
+          ) : (
+            <>
+              <MetricCard label="Offers" value={allOffers.length} hint="from creators & managers" icon={ShoppingBag} />
+              <MetricCard label="Formats" value={new Set(allOffers.map((o) => o.content_type).filter(Boolean)).size} hint="content types on offer" icon={TypeIcon} />
+              <MetricCard label="Matching" value={filtered.length} hint="with current filters" icon={ActiveIcon} />
+            </>
+          )}
+        </div>
+      }
       description={
         isBrandOrAdmin
           ? 'Browse service offerings from verified creators and managers.'
@@ -527,14 +552,9 @@ const OffersPage: React.FC = () => {
               key={t}
               type="button"
               onClick={() => setFilterType(t)}
-              className="shrink-0 px-3.5 py-1.5 rounded-full text-xs font-medium"
-              style={{
-                background: active ? 'var(--accent)' : 'var(--surface)',
-                color: active ? 'var(--accent-foreground)' : 'var(--foreground)',
-                border: active
-                  ? '1px solid var(--accent)'
-                  : '1px solid var(--border)',
-              }}
+              className="v-niche-chip shrink-0"
+              data-active={active || undefined}
+              aria-pressed={active}
             >
               {t}
             </button>
@@ -544,38 +564,45 @@ const OffersPage: React.FC = () => {
 
       {/* Offers grid */}
       {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-10 h-10 border-4 border-border border-t-accent rounded-full animate-spin" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-hidden>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="v-talent-card p-4">
+              <div className="v-skel h-4 w-1/2 mb-2" />
+              <div className="v-skel h-3 w-full mb-1" />
+              <div className="v-skel h-3 w-3/4 mb-4" />
+              <div className="v-skel h-8 w-24 !rounded-lg" />
+            </div>
+          ))}
         </div>
       ) : filtered.length === 0 ? (
-        <Card>
-          <Card.Content className="p-8">
-            <EmptyState>
-              <EmptyState.Media>
-                <ShoppingBag className="size-7" />
-              </EmptyState.Media>
-              <EmptyState.Title>No offers found</EmptyState.Title>
-              <EmptyState.Description>
-                {view === 'mine'
-                  ? 'Create your first offer to attract brands.'
-                  : 'No matching offers available right now.'}
-              </EmptyState.Description>
-              {view === 'mine' && isCreatorOrManager && (
-                <EmptyState.Content>
-                  <Button
-                    variant="primary"
-                    onPress={() => {
-                      setEditing(null);
-                      setShowOfferModal(true);
-                    }}
-                  >
-                    <Plus size={14} /> New offer
-                  </Button>
-                </EmptyState.Content>
-              )}
-            </EmptyState>
-          </Card.Content>
-        </Card>
+        <EmptyPanel
+          icon={<ShoppingBag size={22} />}
+          title={view === 'mine' ? 'No offers yet' : search || filterType !== 'All' ? 'No offers match' : 'The marketplace is quiet'}
+          description={
+            view === 'mine'
+              ? 'Package what you do — a review video, a story set, a monthly retainer — and brands can hire you without a campaign.'
+              : search || filterType !== 'All'
+                ? 'Try another format or clear the search.'
+                : 'Creators and managers publish service offers here. Check back soon, or invite talent from the directory.'
+          }
+          actions={
+            view === 'mine' && isCreatorOrManager ? (
+              <Button
+                variant="primary"
+                onPress={() => {
+                  setEditing(null);
+                  setShowOfferModal(true);
+                }}
+              >
+                <Plus size={14} /> New offer
+              </Button>
+            ) : search || filterType !== 'All' ? (
+              <Button variant="primary" size="sm" onPress={() => { setSearch(''); setFilterType('All'); }}>
+                Clear filters
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((offer) => (

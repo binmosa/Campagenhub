@@ -1,13 +1,15 @@
 /**
  * socialLinks — one canonical way to read/write a profile's social presence.
  *
- * `creator_profiles.social_links` is a text column. Three shapes exist:
+ * `creator_profiles.social_links` is a text column. Shapes seen in the wild:
  *   1. legacy: one free-text URL                     "instagram.com/x"
  *   2. v1 JSON: url per platform                     {"instagram":"https://…"}
  *   3. v2 JSON: url + follower count per platform    {"instagram":{"url":"https://…","followers":450000}}
+ *   4. v3 JSON: v2 + verification state               {"instagram":{"url":…,"followers":…,"status":"verified",…}}
  *
- * `parseSocialLinks` accepts ALL of them; `serializeSocialLinks` writes v2
- * (falling back to the plain-string form when no follower count is set).
+ * A follower count is a CLAIM until an admin (or an automated check)
+ * verifies it — `status` is decided by the server; clients may send it
+ * but it is ignored and recomputed on save.
  *
  * Note: the canonical id for X is 'twitter' (a distinctive substring —
  * server-side platform filters match with ILIKE '%twitter%'; a key of 'x'
@@ -23,8 +25,21 @@ export type SocialPlatformId =
   | 'linkedin'
   | 'twitch';
 
-export type SocialEntry = { url: string; followers?: number };
+export type ClaimStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
+
+export type SocialEntry = {
+  url: string;
+  followers?: number;
+  status?: ClaimStatus;
+  verified_followers?: number;
+  verified_at?: string;
+  claimed_at?: string;
+  evidence_url?: string;
+  note?: string;
+};
 export type SocialMap = Partial<Record<SocialPlatformId, SocialEntry>>;
+
+export const CLAIM_STATUSES: ClaimStatus[] = ['unverified', 'pending', 'verified', 'rejected'];
 
 export const SOCIAL_PLATFORMS: {
   id: SocialPlatformId;
@@ -66,6 +81,27 @@ export const formatCompact = (n: number): string => {
   return String(Math.round(n));
 };
 
+/** "45k" / "1.2M" / "980" / "45,000" -> integer (0 when unparseable). */
+export const parseCompactNumber = (raw: string): number => {
+  const s = String(raw || '').trim().toLowerCase().replace(/[,\s_]/g, '');
+  const m = s.match(/^(\d+(?:\.\d+)?)([kmb])?$/);
+  if (!m) return 0;
+  const mult = m[2] === 'k' ? 1_000 : m[2] === 'm' ? 1_000_000 : m[2] === 'b' ? 1_000_000_000 : 1;
+  return Math.round(parseFloat(m[1]) * mult);
+};
+
+export type CompactUnit = 'x' | 'K' | 'M';
+export const UNIT_MULT: Record<CompactUnit, number> = { x: 1, K: 1_000, M: 1_000_000 };
+
+/** Split an integer into the friendliest {amount, unit} for an editor. */
+export const splitCompact = (n?: number): { amount: string; unit: CompactUnit } => {
+  if (!n || n <= 0) return { amount: '', unit: 'K' };
+  const trim = (v: number) => String(Math.round(v * 100) / 100);
+  if (n >= 1_000_000) return { amount: trim(n / 1_000_000), unit: 'M' };
+  if (n >= 1_000) return { amount: trim(n / 1_000), unit: 'K' };
+  return { amount: String(n), unit: 'x' };
+};
+
 const detectFromUrl = (url: string): SocialPlatformId | null => {
   const lower = url.toLowerCase();
   for (const p of SOCIAL_PLATFORMS) {
@@ -74,16 +110,31 @@ const detectFromUrl = (url: string): SocialPlatformId | null => {
   return null;
 };
 
+const toInt = (v: unknown): number | undefined => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : undefined;
+};
+
 const toEntry = (v: unknown): SocialEntry | null => {
   if (typeof v === 'string') {
-    return v.trim() ? { url: normalizeUrl(v) } : null;
+    return v.trim() ? { url: normalizeUrl(v), status: 'unverified' } : null;
   }
   if (v && typeof v === 'object') {
-    const url = typeof (v as any).url === 'string' ? (v as any).url.trim() : '';
-    const rawF = Number((v as any).followers);
-    const followers = Number.isFinite(rawF) && rawF > 0 ? Math.round(rawF) : undefined;
+    const e = v as any;
+    const url = typeof e.url === 'string' ? e.url.trim() : '';
+    const followers = toInt(e.followers);
     if (!url && !followers) return null;
-    return { url: url ? normalizeUrl(url) : '', followers };
+    const status: ClaimStatus = CLAIM_STATUSES.includes(e.status) ? e.status : followers ? 'pending' : 'unverified';
+    return {
+      url: url ? normalizeUrl(url) : '',
+      followers,
+      status,
+      verified_followers: toInt(e.verified_followers),
+      verified_at: typeof e.verified_at === 'string' ? e.verified_at : undefined,
+      claimed_at: typeof e.claimed_at === 'string' ? e.claimed_at : undefined,
+      evidence_url: typeof e.evidence_url === 'string' ? e.evidence_url : undefined,
+      note: typeof e.note === 'string' ? e.note : undefined,
+    };
   }
   return null;
 };
@@ -113,23 +164,34 @@ export const parseSocialLinks = (raw?: string | null): SocialMap => {
 
   // Legacy: a single URL / handle string. Detect the platform by domain.
   const id = detectFromUrl(value);
-  if (id) map[id] = { url: normalizeUrl(value) };
+  if (id) map[id] = { url: normalizeUrl(value), status: 'unverified' };
   return map;
 };
 
-/** Serialize a map back into the column value ('' when empty). */
+/** Serialize a map back into the column value ('' when empty). Keeps the
+ *  verification fields so an unrelated edit doesn't drop a badge; the
+ *  server recomputes status anyway. */
 export const serializeSocialLinks = (map: SocialMap): string => {
-  const out: Record<string, string | { url: string; followers: number }> = {};
+  const out: Record<string, SocialEntry> = {};
   for (const p of SOCIAL_PLATFORMS) {
     const e = map[p.id];
     if (!e) continue;
     const url = e.url?.trim() ? normalizeUrl(e.url) : '';
     const followers = e.followers && e.followers > 0 ? Math.round(e.followers) : 0;
     if (!url && !followers) continue;
-    out[p.id] = followers ? { url, followers } : url;
+    const clean: SocialEntry = { url, status: e.status || (followers ? 'pending' : 'unverified') };
+    if (followers) clean.followers = followers;
+    if (e.verified_followers) clean.verified_followers = e.verified_followers;
+    if (e.verified_at) clean.verified_at = e.verified_at;
+    if (e.claimed_at) clean.claimed_at = e.claimed_at;
+    if (e.evidence_url) clean.evidence_url = e.evidence_url;
+    if (e.note) clean.note = e.note;
+    out[p.id] = clean;
   }
   return Object.keys(out).length ? JSON.stringify(out) : '';
 };
+
+export const isVerified = (e?: SocialEntry | null): boolean => !!e && e.status === 'verified' && !!(e.verified_followers || e.followers);
 
 /** Ordered platform entries for display. */
 export const socialEntries = (raw?: string | null) => {
@@ -138,6 +200,9 @@ export const socialEntries = (raw?: string | null) => {
     ...p,
     url: map[p.id]!.url,
     followers: map[p.id]!.followers,
+    status: map[p.id]!.status || 'unverified',
+    verified: isVerified(map[p.id]),
+    verified_followers: map[p.id]!.verified_followers,
   }));
 };
 
@@ -145,4 +210,10 @@ export const socialEntries = (raw?: string | null) => {
 export const totalFollowers = (raw?: string | null): number => {
   const map = parseSocialLinks(raw);
   return Object.values(map).reduce((sum, e) => sum + (e?.followers || 0), 0);
+};
+
+/** Sum of VERIFIED follower counts only. */
+export const verifiedFollowers = (raw?: string | null): number => {
+  const map = parseSocialLinks(raw);
+  return Object.values(map).reduce((sum, e) => sum + (isVerified(e) ? e!.verified_followers || e!.followers || 0 : 0), 0);
 };
