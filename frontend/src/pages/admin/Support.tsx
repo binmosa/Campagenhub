@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   Clock,
   Eye,
   EyeOff,
+  FileCheck,
   Headphones,
   Inbox,
   MessageSquare,
@@ -12,1000 +13,495 @@ import {
   ShieldCheck,
   Star,
   Trash2,
+  UserCheck,
+  Users,
   Video,
   X,
 } from 'lucide-react';
-import {
-  Avatar,
-  Button,
-  Card,
-  Chip,
-  Label,
-  Modal,
-  Separator,
-  TextArea,
-  TextField,
-} from '@heroui/react';
-import { EmptyState, KPI, Segment } from '@heroui-pro/react';
-import { Input } from 'react-aria-components';
+import { Button, Chip, Modal } from '@heroui/react';
+import { Segment } from '@heroui-pro/react';
+import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
-import { PageShell } from '../../components/ui';
+import { toast } from '../../lib/toast';
+import { postedLabel } from '../../lib/campaignFormat';
+import { fieldClass } from '../talent/shared';
+import { MetricCard, PageShell } from '../../components/ui';
+import { EmptyPanel } from '../../components/common/EmptyPanel';
+import { StoryAvatar } from '../../components/common/StoryAvatar';
+import { ConfirmModal } from '../../components/common/ConfirmModal';
+import { Field, RoleChip, RowSkeletons, TICKET_COLOR, dateShort, userIdentity } from './shared';
 
-const fieldClass =
-  'w-full px-3.5 py-2.5 rounded-lg bg-surface text-foreground text-sm placeholder:text-muted border border-border focus:outline-none focus:border-field-border-focus';
+/**
+ * AdminSupport — the human-review desk. Four queues in one place:
+ * identity validations (KYC), manager change requests from brands, support
+ * tickets, and the testimonials shown on the landing page. Support agents
+ * see the validation queue only.
+ */
+type Tab = 'validations' | 'changes' | 'tickets' | 'reviews';
+type TicketFilter = 'all' | 'open' | 'in_progress' | 'resolved';
 
-type Tab =
-  | 'tickets'
-  | 'reviews'
-  | 'validations'
-  | 'manager-reassignments';
-
-const STATUS_COLOR: Record<string, 'success' | 'warning' | 'danger' | 'default' | 'accent'> = {
-  open: 'accent',
-  in_progress: 'warning',
-  resolved: 'success',
-};
+const Stars: React.FC<{ n: number; size?: number }> = ({ n, size = 12 }) => (
+  <span className="inline-flex items-center gap-0.5" aria-label={`${n}/5`}>
+    {[1, 2, 3, 4, 5].map((i) => (
+      <Star key={i} size={size} className={i <= n ? 'fill-warning text-warning' : ''} style={i <= n ? undefined : { color: 'var(--color-cool-gray)' }} />
+    ))}
+  </span>
+);
 
 const AdminSupport: React.FC = () => {
+  const { t } = useTranslation();
   const role = (localStorage.getItem('role') || 'creator').toLowerCase().trim();
-  const isSupportOnly = role === 'support';
+  const supportOnly = role === 'support';
+
   const [tab, setTab] = useState<Tab>('validations');
   const [tickets, setTickets] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [pendingUsers, setPendingUsers] = useState<any[]>([]);
-  const [managerFeedbacks, setManagerFeedbacks] = useState<any[]>([]);
+  const [changes, setChanges] = useState<any[]>([]);
   const [stats, setStats] = useState<any>({});
   const [loading, setLoading] = useState(true);
-  const [selectedTicket, setSelectedTicket] = useState<any>(null);
-  const [kycModalUser, setKycModalUser] = useState<any>(null);
+  const [error, setError] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [ticketFilter, setTicketFilter] = useState<TicketFilter>('all');
+
+  const [replyTo, setReplyTo] = useState<any>(null);
   const [replyText, setReplyText] = useState('');
-  const [filter, setFilter] = useState<'all' | 'open' | 'in_progress' | 'resolved'>(
-    'all'
-  );
+  const [kycUser, setKycUser] = useState<any>(null);
+  const [confirm, setConfirm] = useState<{ kind: 'rejectUser' | 'deleteReview' | 'rejectChange'; item: any } | null>(null);
+  const [showReview, setShowReview] = useState(false);
+  const [newReview, setNewReview] = useState({ user_name: '', user_role: '', rating: 5, comment: '' });
 
-  const [showCreateReview, setShowCreateReview] = useState(false);
-  const [newReview, setNewReview] = useState({
-    user_name: '',
-    user_role: 'Creator',
-    rating: 5,
-    comment: '',
-  });
-
-  const fetchData = async () => {
-    setLoading(true);
+  const load = useCallback(async () => {
+    setError(false);
     try {
-      if (isSupportOnly) {
-        const pendingRes = await api
-          .get('/admin/users/pending')
-          .catch(() => ({ data: [] }));
-        setPendingUsers(pendingRes.data || []);
-        setTickets([]);
-        setReviews([]);
-        setManagerFeedbacks([]);
-        setStats({});
+      const arr = (r: any) => (Array.isArray(r?.data) ? r.data : []);
+      if (supportOnly) {
+        const pu = await api.get('/admin/users/pending').catch(() => ({ data: [] }));
+        setPendingUsers(arr(pu));
       } else {
-        const [ticketsRes, reviewsRes, statsRes, pendingRes, feedbacksRes] =
-          await Promise.all([
-            api.get('/support/tickets'),
-            api.get('/reviews'),
-            api.get('/support/tickets/stats'),
-            api.get('/admin/users/pending').catch(() => ({ data: [] })),
-            api
-              .get('/managers/admin/feedback')
-              .catch(() => ({ data: [] })),
-          ]);
-        setTickets(ticketsRes.data || []);
-        setReviews(reviewsRes.data || []);
-        setStats(statsRes.data || {});
-        setPendingUsers(pendingRes.data || []);
-        setManagerFeedbacks(
-          (feedbacksRes.data || []).filter((f: any) => f.status === 'pending')
-        );
+        const [tk, rv, st, pu, fb] = await Promise.all([
+          api.get('/support/tickets').catch(() => ({ data: [] })),
+          api.get('/reviews').catch(() => ({ data: [] })),
+          api.get('/support/tickets/stats').catch(() => ({ data: {} })),
+          api.get('/admin/users/pending').catch(() => ({ data: [] })),
+          api.get('/managers/admin/feedback').catch(() => ({ data: [] })),
+        ]);
+        setTickets(arr(tk));
+        setReviews(arr(rv));
+        setStats(st.data || {});
+        setPendingUsers(arr(pu));
+        setChanges(arr(fb).filter((f: any) => f.status === 'pending'));
       }
-    } catch (e) {
-      console.error(e);
+    } catch {
+      setError(true);
     } finally {
       setLoading(false);
     }
-  };
+  }, [supportOnly]);
+  useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleReply = async () => {
-    if (!selectedTicket || !replyText.trim()) return;
+  const run = async (id: string, fn: () => Promise<unknown>, ok: string, fail: string) => {
+    setBusy(id);
     try {
-      await api.patch(`/support/tickets/${selectedTicket.id}/reply`, {
-        reply: replyText,
-        status: 'resolved',
-      });
-      setReplyText('');
-      setSelectedTicket(null);
-      fetchData();
-    } catch {
-      alert('Failed to reply');
+      await fn();
+      toast.success(ok);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || fail);
+    } finally {
+      setBusy(null);
     }
   };
 
-  const handleStatusChange = async (id: string, status: string) => {
-    try {
-      await api.patch(`/support/tickets/${id}/status`, { status });
-      fetchData();
-    } catch {
-      alert('Failed to update');
-    }
+  const validate = (u: any, status: 'active' | 'rejected') =>
+    run(u.id, () => api.patch(`/admin/users/${u.id}/validate`, { status }), status === 'active' ? t('adm.sup.approved', { email: u.email }) : t('adm.sup.rejectedUser', { email: u.email }), t('adm.users.updateFailed'));
+
+  const resolveChange = (f: any, status: 'approved' | 'rejected') =>
+    run(f.id, () => api.patch(`/managers/admin/feedback/${f.id}/resolve`, { status }), status === 'approved' ? t('adm.sup.changeApproved') : t('adm.sup.changeRejected'), t('adm.users.updateFailed'));
+
+  const setTicketStatus = (tk: any, status: string) =>
+    run(tk.id, () => api.patch(`/support/tickets/${tk.id}/status`, { status }), t('adm.sup.ticketUpdated', { status: t(`adm.sup.tStatus.${status}`) }), t('adm.users.updateFailed'));
+
+  const sendReply = async () => {
+    if (!replyTo || !replyText.trim()) return;
+    await run(replyTo.id, () => api.patch(`/support/tickets/${replyTo.id}/reply`, { reply: replyText.trim(), status: 'resolved' }), t('adm.sup.replied', { name: replyTo.sender_name }), t('adm.sup.replyFailed'));
+    setReplyTo(null);
+    setReplyText('');
   };
 
-  const toggleReview = async (id: string) => {
-    try {
-      await api.patch(`/reviews/${id}/toggle`);
-      fetchData();
-    } catch {
-      alert('Failed to toggle');
-    }
-  };
+  const toggleReview = (r: any) =>
+    run(r.id, () => api.patch(`/reviews/${r.id}/toggle`), r.is_visible ? t('adm.sup.reviewHidden') : t('adm.sup.reviewShown'), t('adm.users.updateFailed'));
 
-  const deleteReview = async (id: string) => {
-    if (!window.confirm('Delete this review?')) return;
-    try {
-      await api.delete(`/reviews/${id}`);
-      fetchData();
-    } catch {
-      alert('Failed to delete');
-    }
-  };
-
-  const handleCreateReview = async (e: React.FormEvent) => {
+  const createReview = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      await api.post('/public/reviews', newReview);
-      setShowCreateReview(false);
-      setNewReview({
-        user_name: '',
-        user_role: 'Creator',
-        rating: 5,
-        comment: '',
-      });
-      fetchData();
-    } catch {
-      alert('Failed to create review');
-    }
+    await run('newReview', () => api.post('/public/reviews', newReview), t('adm.sup.reviewCreated'), t('adm.sup.reviewFailed'));
+    setShowReview(false);
+    setNewReview({ user_name: '', user_role: '', rating: 5, comment: '' });
   };
 
-  const handleValidateUser = async (id: string, status: string) => {
-    try {
-      await api.patch(`/admin/users/${id}/validate`, { status });
-      fetchData();
-    } catch {
-      alert('Failed to update user status');
-    }
+  const onConfirm = async () => {
+    if (!confirm) return;
+    const { kind, item } = confirm;
+    if (kind === 'rejectUser') await validate(item, 'rejected');
+    if (kind === 'rejectChange') await resolveChange(item, 'rejected');
+    if (kind === 'deleteReview') await run(item.id, () => api.delete(`/reviews/${item.id}`), t('adm.sup.reviewDeleted'), t('adm.users.updateFailed'));
+    setConfirm(null);
+    if (kind === 'rejectUser') setKycUser(null);
   };
 
-  const handleResolveFeedback = async (id: string, status: string) => {
-    try {
-      await api.patch(`/admin/feedback/${id}/resolve`, { status });
-      fetchData();
-    } catch {
-      alert('Failed to resolve feedback');
-    }
-  };
+  const ticketCounts = useMemo(() => ({
+    open: tickets.filter((x) => x.status === 'open').length,
+    in_progress: tickets.filter((x) => x.status === 'in_progress').length,
+    resolved: tickets.filter((x) => x.status === 'resolved').length,
+  }), [tickets]);
+  const shownTickets = ticketFilter === 'all' ? tickets : tickets.filter((x) => x.status === ticketFilter);
 
-  const filteredTickets =
-    filter === 'all' ? tickets : tickets.filter((t) => t.status === filter);
+  const kpis = supportOnly ? (
+    <div className="grid grid-cols-2 gap-3">
+      <MetricCard label={t('adm.sup.kpiValidations')} value={pendingUsers.length} hint={t('adm.sup.kpiValidationsHint')} icon={UserCheck} iconStatus={pendingUsers.length ? 'warning' : 'success'} />
+      <MetricCard label={t('adm.sup.kpiDocs')} value={pendingUsers.filter((u) => u.kyc_video_url || u.kyc_id_front || u.identity_document).length} hint={t('adm.sup.kpiDocsHint')} icon={FileCheck} />
+    </div>
+  ) : (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <MetricCard label={t('adm.sup.kpiOpen')} value={stats.open || 0} hint={t('adm.sup.kpiOpenHint')} icon={Inbox} iconStatus={stats.open ? 'warning' : 'success'} />
+      <MetricCard label={t('adm.sup.tStatus.in_progress')} value={stats.inProgress || 0} hint={t('adm.sup.kpiProgressHint')} icon={Clock} />
+      <MetricCard label={t('adm.sup.tStatus.resolved')} value={stats.resolved || 0} hint={t('adm.sup.kpiResolvedHint', { n: stats.total || 0 })} icon={CheckCircle2} iconStatus="success" />
+      <MetricCard label={t('adm.sup.kpiValidations')} value={pendingUsers.length + changes.length} hint={t('adm.sup.kpiValidationsHint2', { n: changes.length })} icon={UserCheck} iconStatus={pendingUsers.length + changes.length ? 'warning' : 'success'} />
+    </div>
+  );
+
+  const docChips = (u: any) => (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {u.kyc_id_front && <Chip color="default" variant="soft" size="sm"><FileCheck size={11} /><Chip.Label>{t('adm.sup.idFront')}</Chip.Label></Chip>}
+      {u.kyc_id_back && <Chip color="default" variant="soft" size="sm"><FileCheck size={11} /><Chip.Label>{t('adm.sup.idBack')}</Chip.Label></Chip>}
+      {u.kyc_video_url && <Chip color="success" variant="soft" size="sm"><Video size={11} /><Chip.Label>{t('adm.sup.video')}</Chip.Label></Chip>}
+      {u.identity_document && <Chip color="default" variant="soft" size="sm"><FileCheck size={11} /><Chip.Label>{t('adm.sup.legacyDoc')}</Chip.Label></Chip>}
+      {!u.kyc_id_front && !u.kyc_id_back && !u.kyc_video_url && !u.identity_document && (
+        <Chip color="danger" variant="soft" size="sm"><AlertTriangle size={11} /><Chip.Label>{t('adm.sup.noDocs')}</Chip.Label></Chip>
+      )}
+    </div>
+  );
 
   return (
     <PageShell
-      title={isSupportOnly ? 'Verification center' : 'Support center'}
-      description={
-        isSupportOnly
-          ? 'Review and approve registration requests.'
-          : 'Manage support tickets, reviews, and user validations.'
-      }
+      hero
+      containerSize="wide"
+      title={supportOnly ? t('adm.sup.titleSupport') : t('adm.sup.title')}
+      titleAccent={t('adm.sup.titleAccent')}
+      description={supportOnly ? t('adm.sup.descSupport') : t('adm.sup.desc')}
       icon={<Headphones size={18} />}
+      actions={!supportOnly && tab === 'reviews' ? <Button variant="primary" size="md" onPress={() => setShowReview(true)}><Star size={13} /> {t('adm.sup.createReview')}</Button> : undefined}
+      stats={kpis}
     >
-      {/* KPIs */}
-      {!isSupportOnly && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KPI>
-            <KPI.Header>
-              <KPI.Title>Open</KPI.Title>
-            </KPI.Header>
-            <KPI.Content>
-              <KPI.Value
-                value={stats.open || 0}
-                maximumFractionDigits={0}
-              />
-              <KPI.Trend trend={(stats.open || 0) > 0 ? 'neutral' : 'up'}>
-                Awaiting reply
-              </KPI.Trend>
-            </KPI.Content>
-          </KPI>
-          <KPI>
-            <KPI.Header>
-              <KPI.Title>In progress</KPI.Title>
-            </KPI.Header>
-            <KPI.Content>
-              <KPI.Value
-                value={stats.inProgress || 0}
-                maximumFractionDigits={0}
-              />
-              <KPI.Trend trend="neutral">Being handled</KPI.Trend>
-            </KPI.Content>
-          </KPI>
-          <KPI>
-            <KPI.Header>
-              <KPI.Title>Resolved</KPI.Title>
-            </KPI.Header>
-            <KPI.Content>
-              <KPI.Value
-                value={stats.resolved || 0}
-                maximumFractionDigits={0}
-              />
-              <KPI.Trend trend={(stats.resolved || 0) > 0 ? 'up' : 'neutral'}>
-                Closed
-              </KPI.Trend>
-            </KPI.Content>
-          </KPI>
-          <KPI>
-            <KPI.Header>
-              <KPI.Title>Pending validations</KPI.Title>
-            </KPI.Header>
-            <KPI.Content>
-              <KPI.Value
-                value={pendingUsers.length + managerFeedbacks.length}
-                maximumFractionDigits={0}
-              />
-              <KPI.Trend
-                trend={
-                  pendingUsers.length + managerFeedbacks.length > 0
-                    ? 'neutral'
-                    : 'up'
-                }
-              >
-                Awaiting review
-              </KPI.Trend>
-            </KPI.Content>
-          </KPI>
-        </div>
+      {!supportOnly && (
+        <Segment size="md" selectedKey={tab} onSelectionChange={(k) => setTab(k as Tab)} aria-label={t('adm.sup.queues')}>
+          <Segment.Item id="validations">{t('adm.sup.tabValidations')} · {pendingUsers.length}</Segment.Item>
+          <Segment.Item id="changes">{t('adm.sup.tabChanges')} · {changes.length}</Segment.Item>
+          <Segment.Item id="tickets">{t('adm.sup.tabTickets')} · {tickets.length}</Segment.Item>
+          <Segment.Item id="reviews">{t('adm.sup.tabReviews')} · {reviews.length}</Segment.Item>
+        </Segment>
       )}
 
-      {/* Tabs + actions */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <Segment
-          selectedKey={tab}
-          onSelectionChange={(k) => setTab(k as Tab)}
-        >
-          <Segment.Item id="validations">
-            Validations · {pendingUsers.length}
-          </Segment.Item>
-          {!isSupportOnly && (
-            <Segment.Item id="manager-reassignments">
-              Manager changes · {managerFeedbacks.length}
-            </Segment.Item>
-          )}
-          {!isSupportOnly && (
-            <Segment.Item id="tickets">
-              Tickets · {tickets.length}
-            </Segment.Item>
-          )}
-          {!isSupportOnly && (
-            <Segment.Item id="reviews">
-              Reviews · {reviews.length}
-            </Segment.Item>
-          )}
-        </Segment>
-        {tab === 'reviews' && (
-          <Button
-            variant="primary"
-            size="md"
-            onPress={() => setShowCreateReview(true)}
-          >
-            <Star size={13} /> Create testimonial
-          </Button>
-        )}
-      </div>
-
-      {/* Body */}
       {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-10 h-10 border-4 border-border border-t-accent rounded-full animate-spin" />
-        </div>
+        <RowSkeletons n={4} />
+      ) : error ? (
+        <EmptyPanel tone="error" icon={<AlertTriangle size={22} />} title={t('adm.errTitle')} description={t('adm.errDesc')} actions={<Button variant="primary" onPress={() => { setLoading(true); load(); }}>{t('common.tryAgain')}</Button>} />
       ) : tab === 'validations' ? (
         pendingUsers.length === 0 ? (
-          <Card>
-            <Card.Content className="p-8">
-              <EmptyState>
-                <EmptyState.Media>
-                  <CheckCircle2 className="size-7" />
-                </EmptyState.Media>
-                <EmptyState.Title>All caught up</EmptyState.Title>
-                <EmptyState.Description>
-                  No pending account validations.
-                </EmptyState.Description>
-              </EmptyState>
-            </Card.Content>
-          </Card>
+          <EmptyPanel tone="success" icon={<ShieldCheck size={22} />} title={t('adm.sup.noValidationsTitle')} description={t('adm.sup.noValidationsDesc')} />
         ) : (
-          <div className="space-y-3">
-            {pendingUsers.map((user) => {
-              const name =
-                user.role === 'brand'
-                  ? user.brandProfile?.company_name
-                  : user.role === 'creator'
-                  ? user.creatorProfile?.full_name
-                  : user.managerProfile?.full_name;
-              const initial = (user.email || 'U')[0].toUpperCase();
+          <ul className="space-y-3">
+            {pendingUsers.map((u) => {
+              const who = userIdentity(u);
+              const rowBusy = busy === u.id;
               return (
-                <Card key={user.id}>
-                  <Card.Content className="p-5 flex flex-col md:flex-row md:items-center gap-4">
-                    <div className="flex items-start gap-3 flex-1 min-w-0">
-                      <Avatar size="lg">
-                        <Avatar.Fallback>{initial}</Avatar.Fallback>
-                      </Avatar>
+                <li key={u.id} className="v-talent-card p-4 flex flex-col lg:flex-row lg:items-center gap-4">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <StoryAvatar src={who.avatar} name={who.name || u.email} seed={u.id} size={44} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="v-ink font-medium truncate" style={{ fontSize: 14.5 }}>{who.name || u.email.split('@')[0]}</span>
+                        <RoleChip role={u.role} />
+                      </div>
+                      <div className="v-caption v-quiet truncate mt-0.5" style={{ fontSize: 12 }}>
+                        {u.email} · {t('adm.sup.submitted', { when: postedLabel(u.created_at) })}
+                      </div>
+                      <div className="mt-2">{docChips(u)}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap shrink-0">
+                    {(u.kyc_video_url || u.kyc_id_front || u.kyc_id_back) && (
+                      <Button variant="tertiary" size="sm" onPress={() => setKycUser(u)}><Eye size={12} /> {t('adm.sup.review')}</Button>
+                    )}
+                    {u.identity_document && (
+                      <a href={u.identity_document} download={`identity_${u.id}`}>
+                        <Button variant="tertiary" size="sm"><FileCheck size={12} /> {t('adm.sup.legacyDoc')}</Button>
+                      </a>
+                    )}
+                    <Button variant="primary" size="sm" isPending={rowBusy} onPress={() => validate(u, 'active')}><CheckCircle2 size={12} /> {t('adm.sup.approve')}</Button>
+                    <Button variant="ghost" size="sm" className="!text-danger" isPending={rowBusy} onPress={() => setConfirm({ kind: 'rejectUser', item: u })}><X size={12} /> {t('adm.sup.reject')}</Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )
+      ) : tab === 'changes' ? (
+        changes.length === 0 ? (
+          <EmptyPanel tone="success" icon={<Users size={22} />} title={t('adm.sup.noChangesTitle')} description={t('adm.sup.noChangesDesc')} />
+        ) : (
+          <ul className="space-y-3">
+            {changes.map((f) => {
+              const brand = userIdentity(f.brand);
+              const mgr = userIdentity(f.manager);
+              return (
+                <li key={f.id} className="v-talent-card p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <StoryAvatar src={brand.avatar} name={brand.name || f.brand?.email} seed={f.brand?.id || f.id} size={40} />
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-foreground text-sm font-semibold truncate">
-                            {user.email}
-                          </h3>
-                          <Chip color="default" variant="soft" size="sm">
-                            <Chip.Label className="capitalize">
-                              {user.role}
-                            </Chip.Label>
-                          </Chip>
-                        </div>
-                        {name && (
-                          <p className="text-muted text-xs mt-0.5">{name}</p>
-                        )}
-                        <div className="mt-3 flex gap-2 flex-wrap">
-                          {user.kyc_video_url && (
-                            <Button
-                              variant="tertiary"
-                              size="sm"
-                              onPress={() => setKycModalUser(user)}
-                            >
-                              <Eye size={12} /> Review KYC media
-                            </Button>
-                          )}
-                          {user.identity_document && (
-                            <a
-                              href={user.identity_document}
-                              download={`identity_${user.id}.pdf`}
-                            >
-                              <Button variant="tertiary" size="sm">
-                                <Eye size={12} /> Legacy document
-                              </Button>
-                            </a>
-                          )}
-                          {!user.kyc_video_url && !user.identity_document && (
-                            <Chip color="danger" variant="soft" size="sm">
-                              <Chip.Label>No documentation</Chip.Label>
-                            </Chip>
-                          )}
+                        <div className="v-ink font-medium truncate" style={{ fontSize: 14.5 }}>{t('adm.sup.changeFrom', { brand: brand.name || f.brand?.email })}</div>
+                        <div className="v-caption v-quiet truncate" style={{ fontSize: 12 }}>
+                          {t('adm.sup.currentManager', { manager: mgr.name || f.manager?.email })} · {postedLabel(f.created_at)}
                         </div>
                       </div>
                     </div>
-                    <div className="flex gap-2 flex-shrink-0">
-                      <Button
-                        variant="primary"
-                        size="md"
-                        onPress={() => handleValidateUser(user.id, 'active')}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="md"
-                        className="!text-danger"
-                        onPress={() => handleValidateUser(user.id, 'rejected')}
-                      >
-                        Reject
-                      </Button>
+                    <div className="flex items-center gap-2">
+                      <Stars n={Number(f.rating) || 0} />
+                      <Chip color="danger" variant="soft" size="sm"><AlertTriangle size={11} /><Chip.Label>{t('adm.sup.complaint')}</Chip.Label></Chip>
                     </div>
-                  </Card.Content>
-                </Card>
+                  </div>
+                  <blockquote className="rounded-xl px-4 py-3 v-body v-ink" style={{ background: 'var(--color-cool-gray)', fontSize: 13.5, fontStyle: 'italic' }}>“{f.feedback_text}”</blockquote>
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                    <Button variant="ghost" size="sm" isPending={busy === f.id} onPress={() => setConfirm({ kind: 'rejectChange', item: f })}>{t('adm.sup.rejectChange')}</Button>
+                    <Button variant="primary" size="sm" isPending={busy === f.id} onPress={() => resolveChange(f, 'approved')}><CheckCircle2 size={12} /> {t('adm.sup.approveChange')}</Button>
+                  </div>
+                </li>
               );
             })}
-          </div>
-        )
-      ) : tab === 'manager-reassignments' ? (
-        managerFeedbacks.length === 0 ? (
-          <Card>
-            <Card.Content className="p-8">
-              <EmptyState>
-                <EmptyState.Media>
-                  <CheckCircle2 className="size-7" />
-                </EmptyState.Media>
-                <EmptyState.Title>No reassignment requests</EmptyState.Title>
-                <EmptyState.Description>
-                  No active manager complaints or reassignment requests.
-                </EmptyState.Description>
-              </EmptyState>
-            </Card.Content>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {managerFeedbacks.map((f) => (
-              <Card key={f.id}>
-                <Card.Content className="p-5 space-y-4">
-                  <div className="flex items-start justify-between gap-3 flex-wrap">
-                    <div>
-                      <h3 className="text-foreground text-sm font-semibold">
-                        Change request from{' '}
-                        <span className="text-accent">
-                          {f.brand?.brandProfile?.company_name ||
-                            f.brand?.email}
-                        </span>
-                      </h3>
-                      <p className="text-muted text-xs mt-1">
-                        Current manager:{' '}
-                        <span className="text-foreground font-medium">
-                          {f.manager?.managerProfile?.full_name ||
-                            f.manager?.email}
-                        </span>
-                      </p>
-                    </div>
-                    <Chip color="danger" variant="soft" size="sm">
-                      <Chip.Label>Complaint</Chip.Label>
-                    </Chip>
-                  </div>
-                  <div>
-                    <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                      Complaint feedback
-                    </Label>
-                    <Card className="bg-surface-secondary">
-                      <Card.Content className="p-4 text-sm text-foreground leading-relaxed italic">
-                        "{f.feedback_text}"
-                      </Card.Content>
-                    </Card>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div className="inline-flex items-center gap-1 text-sm">
-                      <span className="text-muted">Brand rating:</span>
-                      <span className="text-foreground font-semibold inline-flex items-center gap-1">
-                        {f.rating}
-                        <Star
-                          size={13}
-                          className="fill-warning text-warning"
-                        />
-                      </span>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onPress={() =>
-                          handleResolveFeedback(f.id, 'approved')
-                        }
-                      >
-                        Approve & reassign
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onPress={() =>
-                          handleResolveFeedback(f.id, 'rejected')
-                        }
-                      >
-                        Reject request
-                      </Button>
-                    </div>
-                  </div>
-                </Card.Content>
-              </Card>
-            ))}
-          </div>
+          </ul>
         )
       ) : tab === 'tickets' ? (
         <>
-          <Segment
-            selectedKey={filter}
-            onSelectionChange={(k) => setFilter(k as typeof filter)}
-            size="sm"
-          >
-            <Segment.Item id="all">All · {tickets.length}</Segment.Item>
-            <Segment.Item id="open">
-              Open · {tickets.filter((t) => t.status === 'open').length}
-            </Segment.Item>
-            <Segment.Item id="in_progress">
-              In progress ·{' '}
-              {tickets.filter((t) => t.status === 'in_progress').length}
-            </Segment.Item>
-            <Segment.Item id="resolved">
-              Resolved ·{' '}
-              {tickets.filter((t) => t.status === 'resolved').length}
-            </Segment.Item>
+          <Segment size="sm" selectedKey={ticketFilter} onSelectionChange={(k) => setTicketFilter(k as TicketFilter)} aria-label={t('adm.users.statusFilter')}>
+            <Segment.Item id="all">{t('dash.all')} · {tickets.length}</Segment.Item>
+            <Segment.Item id="open">{t('adm.sup.tStatus.open')} · {ticketCounts.open}</Segment.Item>
+            <Segment.Item id="in_progress">{t('adm.sup.tStatus.in_progress')} · {ticketCounts.in_progress}</Segment.Item>
+            <Segment.Item id="resolved">{t('adm.sup.tStatus.resolved')} · {ticketCounts.resolved}</Segment.Item>
           </Segment>
-
-          {filteredTickets.length === 0 ? (
-            <Card>
-              <Card.Content className="p-8">
-                <EmptyState>
-                  <EmptyState.Media>
-                    <Inbox className="size-7" />
-                  </EmptyState.Media>
-                  <EmptyState.Title>No tickets found</EmptyState.Title>
-                </EmptyState>
-              </Card.Content>
-            </Card>
+          {shownTickets.length === 0 ? (
+            <EmptyPanel tone={tickets.length === 0 || ticketFilter === 'open' ? 'success' : 'neutral'} icon={<Inbox size={22} />} title={tickets.length === 0 ? t('adm.sup.noTicketsTitle') : t('common.noMatches')} description={tickets.length === 0 ? t('adm.sup.noTicketsDesc') : t('board.emptyStatus')} />
           ) : (
-            <div className="space-y-3">
-              {filteredTickets.map((ticket) => (
-                <Card key={ticket.id}>
-                  <Card.Content className="p-5 space-y-3">
-                    <div className="flex items-start justify-between gap-3 flex-wrap">
-                      <div className="flex items-center gap-2 min-w-0">
-                        {ticket.status === 'open' ? (
-                          <Inbox size={14} className="text-accent" />
-                        ) : ticket.status === 'in_progress' ? (
-                          <Clock size={14} className="text-warning" />
-                        ) : (
-                          <CheckCircle2 size={14} className="text-success" />
-                        )}
-                        <div>
-                          <span className="text-foreground text-sm font-semibold">
-                            {ticket.sender_name}
-                          </span>
-                          <span className="text-muted text-xs ml-2">
-                            {ticket.sender_email}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Chip
-                          color={STATUS_COLOR[ticket.status] || 'default'}
-                          variant="soft"
-                          size="sm"
-                        >
-                          <Chip.Label className="capitalize">
-                            {ticket.status.replace('_', ' ')}
-                          </Chip.Label>
-                        </Chip>
-                        <span className="text-muted text-xs tabular-nums">
-                          {new Date(ticket.created_at).toLocaleDateString()}
-                        </span>
+            <ul className="space-y-3">
+              {shownTickets.map((tk) => (
+                <li key={tk.id} className="v-talent-card p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <StoryAvatar name={tk.sender_name || tk.sender_email} seed={tk.sender_email || tk.id} size={40} />
+                      <div className="min-w-0">
+                        <div className="v-ink font-medium truncate" style={{ fontSize: 14.5 }}>{tk.subject || t('adm.sup.noSubject')}</div>
+                        <div className="v-caption v-quiet truncate" style={{ fontSize: 12 }}>{tk.sender_name} · {tk.sender_email} · {postedLabel(tk.created_at)}</div>
                       </div>
                     </div>
-                    {ticket.subject && (
-                      <p className="text-foreground text-sm font-semibold">
-                        {ticket.subject}
-                      </p>
-                    )}
-                    <p className="text-muted text-sm leading-relaxed">
-                      {ticket.message}
-                    </p>
-                    {ticket.admin_reply && (
-                      <Card className="bg-success-soft border-success/40">
-                        <Card.Content className="p-3">
-                          <Label className="text-success-soft-foreground text-xs font-medium uppercase tracking-wider block mb-1">
-                            Admin reply
-                          </Label>
-                          <p className="text-success-soft-foreground text-sm">
-                            {ticket.admin_reply}
-                          </p>
-                        </Card.Content>
-                      </Card>
-                    )}
-                    <div className="flex gap-2 flex-wrap">
-                      {ticket.status !== 'resolved' && (
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onPress={() => {
-                            setSelectedTicket(ticket);
-                            setReplyText('');
-                          }}
-                        >
-                          <Send size={12} /> Reply & resolve
-                        </Button>
-                      )}
-                      {ticket.status === 'open' && (
-                        <Button
-                          variant="tertiary"
-                          size="sm"
-                          onPress={() =>
-                            handleStatusChange(ticket.id, 'in_progress')
-                          }
-                        >
-                          Mark in progress
-                        </Button>
-                      )}
-                      {ticket.status !== 'open' &&
-                        ticket.status !== 'resolved' && (
-                          <Button
-                            variant="tertiary"
-                            size="sm"
-                            onPress={() =>
-                              handleStatusChange(ticket.id, 'resolved')
-                            }
-                          >
-                            Mark resolved
-                          </Button>
-                        )}
+                    <Chip color={TICKET_COLOR[tk.status] || 'default'} variant="soft" size="sm">
+                      {tk.status === 'open' ? <Inbox size={11} /> : tk.status === 'in_progress' ? <Clock size={11} /> : <CheckCircle2 size={11} />}
+                      <Chip.Label>{t(`adm.sup.tStatus.${tk.status}`, { defaultValue: tk.status })}</Chip.Label>
+                    </Chip>
+                  </div>
+                  <p className="v-body v-ink whitespace-pre-wrap" style={{ fontSize: 13.5 }}>{tk.message}</p>
+                  {tk.admin_reply && (
+                    <div className="rounded-xl px-4 py-3" style={{ background: 'rgba(22,199,132,0.10)', border: '1px solid rgba(22,199,132,0.28)' }}>
+                      <div className="v-caption font-medium uppercase tracking-wider mb-1 inline-flex items-center gap-1.5" style={{ fontSize: 10.5, color: '#0b6e3e' }}><MessageSquare size={11} /> {t('adm.sup.ourReply')}</div>
+                      <p className="v-body whitespace-pre-wrap" style={{ fontSize: 13, color: '#0b6e3e' }}>{tk.admin_reply}</p>
                     </div>
-                  </Card.Content>
-                </Card>
+                  )}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {tk.status !== 'resolved' && (
+                      <Button variant="primary" size="sm" onPress={() => { setReplyTo(tk); setReplyText(''); }}><Send size={12} /> {t('adm.sup.replyResolve')}</Button>
+                    )}
+                    {tk.status === 'open' && (
+                      <Button variant="tertiary" size="sm" isPending={busy === tk.id} onPress={() => setTicketStatus(tk, 'in_progress')}><Clock size={12} /> {t('adm.sup.markProgress')}</Button>
+                    )}
+                    {tk.status === 'in_progress' && (
+                      <Button variant="tertiary" size="sm" isPending={busy === tk.id} onPress={() => setTicketStatus(tk, 'resolved')}><CheckCircle2 size={12} /> {t('adm.sup.markResolved')}</Button>
+                    )}
+                    {tk.status === 'resolved' && (
+                      <Button variant="ghost" size="sm" isPending={busy === tk.id} onPress={() => setTicketStatus(tk, 'open')}>{t('adm.sup.reopen')}</Button>
+                    )}
+                  </div>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </>
+      ) : reviews.length === 0 ? (
+        <EmptyPanel icon={<Star size={22} />} title={t('adm.sup.noReviewsTitle')} description={t('adm.sup.noReviewsDesc')} actions={<Button variant="primary" onPress={() => setShowReview(true)}><Star size={13} /> {t('adm.sup.createReview')}</Button>} />
       ) : (
-        reviews.length === 0 ? (
-          <Card>
-            <Card.Content className="p-8">
-              <EmptyState>
-                <EmptyState.Media>
-                  <Star className="size-7" />
-                </EmptyState.Media>
-                <EmptyState.Title>No reviews yet</EmptyState.Title>
-              </EmptyState>
-            </Card.Content>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {reviews.map((review) => {
-              const initial = (review.user_name?.[0] || 'U').toUpperCase();
-              return (
-                <Card
-                  key={review.id}
-                  className={!review.is_visible ? 'opacity-60' : ''}
-                >
-                  <Card.Content className="p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <Avatar size="md">
-                          <Avatar.Fallback>{initial}</Avatar.Fallback>
-                        </Avatar>
-                        <div>
-                          <span className="text-foreground text-sm font-semibold">
-                            {review.user_name || 'Anonymous'}
-                          </span>
-                          <div className="inline-flex items-center gap-1 mt-0.5">
-                            {[1, 2, 3, 4, 5].map((i) => (
-                              <Star
-                                key={i}
-                                size={12}
-                                className={
-                                  i <= review.rating
-                                    ? 'text-warning fill-warning'
-                                    : 'text-border'
-                                }
-                              />
-                            ))}
-                            <span className="text-muted text-xs ml-1">
-                              {review.user_role}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          isIconOnly
-                          aria-label={review.is_visible ? 'Hide' : 'Show'}
-                          onPress={() => toggleReview(review.id)}
-                        >
-                          {review.is_visible ? (
-                            <Eye size={13} />
-                          ) : (
-                            <EyeOff size={13} />
-                          )}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          isIconOnly
-                          aria-label="Delete"
-                          className="!text-danger"
-                          onPress={() => deleteReview(review.id)}
-                        >
-                          <Trash2 size={13} />
-                        </Button>
-                      </div>
-                    </div>
-                    <p className="text-foreground text-sm leading-relaxed mt-3">
-                      {review.comment}
-                    </p>
-                    <span className="text-muted text-xs mt-2 block">
-                      {new Date(review.created_at).toLocaleDateString()}
-                    </span>
-                  </Card.Content>
-                </Card>
-              );
-            })}
-          </div>
-        )
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {reviews.map((r) => (
+            <article key={r.id} className="v-talent-card p-4 flex flex-col" style={r.is_visible ? undefined : { opacity: 0.6 }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <StoryAvatar name={r.user_name || 'A'} seed={r.id} size={40} />
+                  <div className="min-w-0">
+                    <div className="v-ink font-medium truncate" style={{ fontSize: 14 }}>{r.user_name || t('adm.sup.anonymous')}</div>
+                    <div className="v-caption v-quiet truncate" style={{ fontSize: 11.5 }}>{r.user_role || '—'}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button variant="ghost" size="sm" isIconOnly aria-label={r.is_visible ? t('adm.sup.hide') : t('adm.sup.show')} isPending={busy === r.id} onPress={() => toggleReview(r)}>
+                    {r.is_visible ? <Eye size={13} /> : <EyeOff size={13} />}
+                  </Button>
+                  <Button variant="ghost" size="sm" isIconOnly aria-label={t('adm.sup.deleteReview')} className="!text-danger" onPress={() => setConfirm({ kind: 'deleteReview', item: r })}>
+                    <Trash2 size={13} />
+                  </Button>
+                </div>
+              </div>
+              <div className="mt-2"><Stars n={Number(r.rating) || 0} /></div>
+              <p className="v-body v-ink mt-2 flex-1" style={{ fontSize: 13.5, lineHeight: 1.5 }}>“{r.comment}”</p>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="v-caption v-quiet" style={{ fontSize: 11 }}>{dateShort(r.created_at)}</span>
+                <Chip color={r.is_visible ? 'success' : 'default'} variant="soft" size="sm">
+                  <Chip.Label>{r.is_visible ? t('adm.sup.visible') : t('adm.sup.hidden')}</Chip.Label>
+                </Chip>
+              </div>
+            </article>
+          ))}
+        </div>
       )}
 
-      {/* Reply modal */}
-      <Modal
-        isOpen={!!selectedTicket}
-        onOpenChange={(open) => !open && setSelectedTicket(null)}
-      >
-        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
+      {/* Reply */}
+      <Modal isOpen={!!replyTo} onOpenChange={(o) => !o && setReplyTo(null)}>
+        <Modal.Backdrop>
           <Modal.Container>
-            <Modal.Dialog>
+            <Modal.Dialog className="!max-w-lg">
               <Modal.CloseTrigger />
               <Modal.Header>
                 <div>
-                  <Modal.Heading>Reply to ticket</Modal.Heading>
-                  <p className="text-muted text-xs mt-0.5">
-                    {selectedTicket?.sender_name} ·{' '}
-                    {selectedTicket?.sender_email}
-                  </p>
+                  <Modal.Heading>{t('adm.sup.replyTitle')}</Modal.Heading>
+                  <p className="v-caption v-quiet mt-0.5" style={{ fontSize: 12 }}>{replyTo?.sender_name} · {replyTo?.sender_email}</p>
                 </div>
               </Modal.Header>
               <Modal.Body>
                 <div className="space-y-4">
-                  <Card className="bg-surface-secondary">
-                    <Card.Content className="p-4">
-                      <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                        Original message
-                      </Label>
-                      <p className="text-foreground text-sm">
-                        {selectedTicket?.message}
-                      </p>
-                    </Card.Content>
-                  </Card>
-                  <div>
-                    <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                      Your reply
-                    </Label>
-                    <TextArea
-                      value={replyText}
-                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                        setReplyText(e.target.value)
-                      }
-                      placeholder="Type your reply…"
-                      rows={5}
-                      className={`${fieldClass} resize-none`}
-                    />
+                  <div className="rounded-xl px-4 py-3" style={{ background: 'var(--color-cool-gray)' }}>
+                    <div className="v-caption v-quiet font-medium uppercase tracking-wider mb-1" style={{ fontSize: 10.5 }}>{replyTo?.subject || t('adm.sup.original')}</div>
+                    <p className="v-body v-ink whitespace-pre-wrap" style={{ fontSize: 13 }}>{replyTo?.message}</p>
                   </div>
+                  <Field label={t('adm.sup.yourReply')} hint={t('adm.sup.replyHint')}>
+                    <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} rows={5} className={`${fieldClass} resize-y`} placeholder={t('adm.sup.replyPh')} autoFocus />
+                  </Field>
                 </div>
               </Modal.Body>
               <Modal.Footer>
-                <Button
-                  variant="ghost"
-                  onPress={() => setSelectedTicket(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  isDisabled={!replyText.trim()}
-                  onPress={handleReply}
-                >
-                  <Send size={13} /> Send reply & resolve
-                </Button>
+                <Button variant="ghost" onPress={() => setReplyTo(null)}>{t('common.cancel')}</Button>
+                <Button variant="primary" isDisabled={!replyText.trim()} isPending={busy === replyTo?.id} onPress={sendReply}><Send size={13} /> {t('adm.sup.sendReply')}</Button>
               </Modal.Footer>
             </Modal.Dialog>
           </Modal.Container>
         </Modal.Backdrop>
       </Modal>
 
-      {/* Create review modal */}
-      <Modal
-        isOpen={showCreateReview}
-        onOpenChange={(open) => !open && setShowCreateReview(false)}
-      >
-        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
+      {/* Create testimonial */}
+      <Modal isOpen={showReview} onOpenChange={(o) => !o && setShowReview(false)}>
+        <Modal.Backdrop>
           <Modal.Container>
-            <Modal.Dialog>
+            <Modal.Dialog className="!max-w-lg">
               <Modal.CloseTrigger />
               <Modal.Header>
-                <Modal.Heading>Create testimonial</Modal.Heading>
+                <Modal.Heading className="inline-flex items-center gap-2"><Star size={16} style={{ color: 'var(--color-campaign-purple)' }} /> {t('adm.sup.createReview')}</Modal.Heading>
               </Modal.Header>
-              <form id="create-review-form" onSubmit={handleCreateReview}>
+              <form id="create-review-form" onSubmit={createReview}>
                 <Modal.Body>
                   <div className="space-y-4">
-                    <TextField
-                      value={newReview.user_name}
-                      onChange={(v) =>
-                        setNewReview({ ...newReview, user_name: v })
-                      }
-                      isRequired
-                      aria-label="User name"
-                    >
-                      <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                        User name
-                      </Label>
-                      <Input className={fieldClass} placeholder="Jane Doe" />
-                    </TextField>
-                    <TextField
-                      value={newReview.user_role}
-                      onChange={(v) =>
-                        setNewReview({ ...newReview, user_role: v })
-                      }
-                      isRequired
-                      aria-label="Role"
-                    >
-                      <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                        Role / description
-                      </Label>
-                      <Input
-                        className={fieldClass}
-                        placeholder="Style creator (500k followers)"
-                      />
-                    </TextField>
-                    <div>
-                      <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                        Rating
-                      </Label>
-                      <select
-                        value={newReview.rating}
-                        onChange={(e) =>
-                          setNewReview({
-                            ...newReview,
-                            rating: Number(e.target.value),
-                          })
-                        }
-                        className={fieldClass}
-                      >
-                        <option value={5}>5 stars</option>
-                        <option value={4}>4 stars</option>
-                        <option value={3}>3 stars</option>
-                        <option value={2}>2 stars</option>
-                        <option value={1}>1 star</option>
-                      </select>
+                    <p className="v-caption v-quiet" style={{ fontSize: 12.5 }}>{t('adm.sup.reviewIntro')}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Field label={t('adm.sup.fName')}>
+                        <input required value={newReview.user_name} onChange={(e) => setNewReview({ ...newReview, user_name: e.target.value })} className={fieldClass} placeholder="Meron Haile" />
+                      </Field>
+                      <Field label={t('adm.sup.fRole')}>
+                        <input required value={newReview.user_role} onChange={(e) => setNewReview({ ...newReview, user_role: e.target.value })} className={fieldClass} placeholder={t('adm.sup.fRolePh')} />
+                      </Field>
                     </div>
                     <div>
-                      <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-1.5">
-                        Comment
-                      </Label>
-                      <TextArea
-                        value={newReview.comment}
-                        onChange={(
-                          e: React.ChangeEvent<HTMLTextAreaElement>
-                        ) =>
-                          setNewReview({
-                            ...newReview,
-                            comment: e.target.value,
-                          })
-                        }
-                        required
-                        rows={4}
-                        placeholder="CampaignHub is amazing…"
-                        className={`${fieldClass} resize-none`}
-                      />
+                      <span className="v-caption v-ink font-medium block mb-1" style={{ fontSize: 12 }}>{t('adm.sup.fRating')}</span>
+                      <div className="flex items-center gap-1" role="radiogroup" aria-label={t('adm.sup.fRating')}>
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <button key={n} type="button" role="radio" aria-checked={newReview.rating === n} aria-label={`${n}`} onClick={() => setNewReview({ ...newReview, rating: n })} className="p-1">
+                            <Star size={22} className={n <= newReview.rating ? 'fill-warning text-warning' : ''} style={n <= newReview.rating ? undefined : { color: 'var(--color-cool-gray)' }} />
+                          </button>
+                        ))}
+                      </div>
                     </div>
+                    <Field label={t('adm.sup.fComment')}>
+                      <textarea required rows={4} value={newReview.comment} onChange={(e) => setNewReview({ ...newReview, comment: e.target.value })} className={`${fieldClass} resize-y`} placeholder={t('adm.sup.fCommentPh')} />
+                    </Field>
                   </div>
                 </Modal.Body>
               </form>
               <Modal.Footer>
-                <Button
-                  variant="ghost"
-                  onPress={() => setShowCreateReview(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  form="create-review-form"
-                  variant="primary"
-                >
-                  Create
-                </Button>
+                <Button variant="ghost" onPress={() => setShowReview(false)}>{t('common.cancel')}</Button>
+                <Button type="submit" form="create-review-form" variant="primary" isPending={busy === 'newReview'}>{t('adm.sup.publishReview')}</Button>
               </Modal.Footer>
             </Modal.Dialog>
           </Modal.Container>
         </Modal.Backdrop>
       </Modal>
 
-      {/* KYC modal */}
-      <Modal
-        isOpen={!!kycModalUser}
-        onOpenChange={(open) => !open && setKycModalUser(null)}
-      >
-        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
+      {/* KYC review */}
+      <Modal isOpen={!!kycUser} onOpenChange={(o) => !o && setKycUser(null)}>
+        <Modal.Backdrop>
           <Modal.Container>
             <Modal.Dialog className="!max-w-3xl">
               <Modal.CloseTrigger />
               <Modal.Header>
-                <div>
-                  <Modal.Heading className="inline-flex items-center gap-2">
-                    <ShieldCheck size={16} className="text-accent" />
-                    KYC verification review
-                  </Modal.Heading>
-                  <p className="text-muted text-xs mt-0.5">
-                    {kycModalUser?.email}
-                  </p>
+                <div className="flex items-center gap-3 min-w-0 pr-8">
+                  <StoryAvatar src={userIdentity(kycUser).avatar} name={userIdentity(kycUser).name || kycUser?.email} seed={kycUser?.id || 'k'} size={40} />
+                  <div className="min-w-0">
+                    <Modal.Heading className="inline-flex items-center gap-2 truncate"><ShieldCheck size={16} style={{ color: 'var(--color-campaign-purple)' }} /> {t('adm.sup.kycTitle')}</Modal.Heading>
+                    <p className="v-caption v-quiet truncate" style={{ fontSize: 12 }}>{kycUser?.email} · {t(`adm.roles.${kycUser?.role}`, { defaultValue: kycUser?.role })}</p>
+                  </div>
                 </div>
               </Modal.Header>
               <Modal.Body>
-                <div className="space-y-5">
+                <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-2">
-                        Front of ID
-                      </Label>
-                      <div className="bg-surface-secondary rounded-xl border border-border aspect-video flex items-center justify-center overflow-hidden">
-                        {kycModalUser?.kyc_id_front ? (
-                          <img
-                            src={kycModalUser.kyc_id_front}
-                            alt="Front ID"
-                            className="w-full h-full object-contain"
-                          />
-                        ) : (
-                          <span className="text-muted text-sm font-medium">
-                            No image
-                          </span>
-                        )}
+                    {[['kyc_id_front', t('adm.sup.idFront')], ['kyc_id_back', t('adm.sup.idBack')]].map(([k, label]) => (
+                      <div key={k}>
+                        <div className="v-caption v-quiet font-medium uppercase tracking-wider mb-1.5" style={{ fontSize: 10.5 }}>{label}</div>
+                        <div className="rounded-xl v-hairline aspect-video flex items-center justify-center overflow-hidden" style={{ background: 'var(--color-cool-gray)' }}>
+                          {kycUser?.[k] ? <img src={kycUser[k]} alt={label} className="w-full h-full object-contain" /> : <span className="v-caption v-quiet">{t('adm.sup.noImage')}</span>}
+                        </div>
                       </div>
-                    </div>
-                    <div>
-                      <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-2">
-                        Back of ID
-                      </Label>
-                      <div className="bg-surface-secondary rounded-xl border border-border aspect-video flex items-center justify-center overflow-hidden">
-                        {kycModalUser?.kyc_id_back ? (
-                          <img
-                            src={kycModalUser.kyc_id_back}
-                            alt="Back ID"
-                            className="w-full h-full object-contain"
-                          />
-                        ) : (
-                          <span className="text-muted text-sm font-medium">
-                            No image
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                    ))}
                   </div>
-                  <Separator />
                   <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <Label className="text-muted text-xs font-medium uppercase tracking-wider inline-flex items-center gap-1.5">
-                        <Video size={11} /> Verification video
-                      </Label>
-                      <Chip color="success" variant="soft" size="sm">
-                        <CheckCircle2 size={11} />
-                        <Chip.Label>Motion checked</Chip.Label>
-                      </Chip>
-                    </div>
-                    <div className="bg-overlay rounded-xl overflow-hidden border border-border aspect-video flex items-center justify-center">
-                      {kycModalUser?.kyc_video_url ? (
-                        <video
-                          src={kycModalUser.kyc_video_url}
-                          controls
-                          autoPlay
-                          className="w-full h-full object-contain"
-                        />
-                      ) : (
-                        <span className="text-muted text-sm font-medium">
-                          No video uploaded
-                        </span>
-                      )}
+                    <div className="v-caption v-quiet font-medium uppercase tracking-wider mb-1.5 inline-flex items-center gap-1.5" style={{ fontSize: 10.5 }}><Video size={11} /> {t('adm.sup.video')}</div>
+                    <div className="rounded-xl v-hairline aspect-video flex items-center justify-center overflow-hidden" style={{ background: '#0b1736' }}>
+                      {kycUser?.kyc_video_url ? <video src={kycUser.kyc_video_url} controls className="w-full h-full object-contain" /> : <span className="v-caption" style={{ color: '#fff', opacity: 0.7 }}>{t('adm.sup.noVideo')}</span>}
                     </div>
                   </div>
                 </div>
               </Modal.Body>
               <Modal.Footer>
-                <Button
-                  variant="ghost"
-                  className="!text-danger"
-                  onPress={() => {
-                    handleValidateUser(kycModalUser.id, 'rejected');
-                    setKycModalUser(null);
-                  }}
-                >
-                  <X size={13} /> Reject & disconnect
-                </Button>
-                <Button
-                  variant="primary"
-                  onPress={() => {
-                    handleValidateUser(kycModalUser.id, 'active');
-                    setKycModalUser(null);
-                  }}
-                >
-                  <CheckCircle2 size={13} /> Approve & activate
-                </Button>
+                <Button variant="ghost" className="!text-danger" onPress={() => setConfirm({ kind: 'rejectUser', item: kycUser })}><X size={13} /> {t('adm.sup.rejectDisconnect')}</Button>
+                <Button variant="primary" isPending={busy === kycUser?.id} onPress={async () => { await validate(kycUser, 'active'); setKycUser(null); }}><CheckCircle2 size={13} /> {t('adm.sup.approveActivate')}</Button>
               </Modal.Footer>
             </Modal.Dialog>
           </Modal.Container>
         </Modal.Backdrop>
       </Modal>
+
+      <ConfirmModal
+        open={!!confirm}
+        tone="danger"
+        pending={!!confirm && busy === confirm.item.id}
+        title={confirm?.kind === 'rejectUser' ? t('adm.sup.rejectUserTitle') : confirm?.kind === 'rejectChange' ? t('adm.sup.rejectChangeTitle') : t('adm.sup.deleteReviewTitle')}
+        body={confirm?.kind === 'rejectUser' ? t('adm.sup.rejectUserBody', { email: confirm.item.email }) : confirm?.kind === 'rejectChange' ? t('adm.sup.rejectChangeBody') : t('adm.sup.deleteReviewBody', { name: confirm?.item.user_name })}
+        confirmLabel={confirm?.kind === 'deleteReview' ? t('adm.sup.deleteReview') : t('adm.sup.reject')}
+        onConfirm={onConfirm}
+        onClose={() => setConfirm(null)}
+      />
     </PageShell>
   );
 };

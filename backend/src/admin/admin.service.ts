@@ -39,10 +39,29 @@ export class AdminService {
     private notificationsService: NotificationsService,
   ) {}
 
-  async getAllUsers(): Promise<User[]> {
-    return this.usersRepository.find({
+  /**
+   * The back-office user directory. Strips what no admin screen needs and
+   * no client should ever hold: the password hash, KYC document blobs,
+   * Telegram identifiers/tokens and the referral code.
+   */
+  async getAllUsers(): Promise<any[]> {
+    const users = await this.usersRepository.find({
       relations: ['creatorProfile', 'brandProfile', 'managerProfile'],
       order: { created_at: 'DESC' },
+    });
+    return users.map((u) => {
+      const {
+        password_hash,
+        identity_document,
+        kyc_id_front,
+        kyc_id_back,
+        kyc_video_url,
+        telegram_chat_id,
+        telegram_connect_token,
+        referral_code,
+        ...safe
+      } = u as any;
+      return { ...safe, has_kyc_submission: !!(kyc_video_url || kyc_id_front || identity_document), telegram_linked: !!telegram_chat_id };
     });
   }
 
@@ -186,7 +205,7 @@ export class AdminService {
     const depositedRaw = await this.paymentTransactionRepo
       .createQueryBuilder('tx')
       .select('COALESCE(SUM(tx.amount), 0)', 'total')
-      .where('tx.campaignId = :campaignId', { campaignId })
+      .where('tx.campaign = :campaignId', { campaignId })
       .andWhere('tx.status = :status', { status: 'completed' })
       .getRawOne();
     const deposited = Number(depositedRaw?.total || 0);
@@ -194,7 +213,7 @@ export class AdminService {
     const committedRaw = await this.payoutsRepository
       .createQueryBuilder('payout')
       .select('COALESCE(SUM(payout.amount), 0)', 'total')
-      .where('payout.campaignId = :campaignId', { campaignId })
+      .where('payout.campaign = :campaignId', { campaignId })
       .andWhere('payout.status IN (:...statuses)', { statuses: ['pending', 'approved'] })
       .getRawOne();
     const committed = Number(committedRaw?.total || 0);

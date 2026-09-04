@@ -9,7 +9,7 @@ import { EmptyPanel } from '../../components/common/EmptyPanel';
 import { Notice } from '../../components/common/Notice';
 import LocationCascade, { EMPTY_LOCATION, type LocationValue } from '../../components/common/LocationCascade';
 import AccountSettings from '../../components/AccountSettings';
-import PayoutSettings from '../../components/PayoutSettings';
+import PayoutSummary from '../../components/PayoutSummary';
 import { KycCard } from '../../components/common/KycCard';
 import { NICHES, accentFor, fieldClass } from '../talent/shared';
 
@@ -400,7 +400,7 @@ const ManagerProfilePage: React.FC = () => {
 
       <section className="space-y-3">
         <h2 className="v-ink font-medium" style={{ fontSize: 16, letterSpacing: '-0.015em' }}>{t('cprof.payoutSection')}</h2>
-        <PayoutSettings />
+        <PayoutSummary />
       </section>
 
       <section className="space-y-3">

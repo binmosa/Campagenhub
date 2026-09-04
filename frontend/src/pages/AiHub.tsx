@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -1668,6 +1669,7 @@ const AI_TABS: TabDef[] = [
 
 /* ── Main hub ───────────────────────────────────────────────────── */
 const AiHub: React.FC = () => {
+  const { t } = useTranslation();
   const role = (localStorage.getItem('role') || 'creator').toLowerCase();
   const displayTabs =
     role === 'creator'
@@ -1706,14 +1708,14 @@ const AiHub: React.FC = () => {
     <PageShell
       hero
       containerSize="wide"
-      title="AI"
-      titleAccent="Studio"
-      description="Captions, pitches, contracts, creator matching and applicant ranking — drafted by a frontier language model, decided by you."
+      title={t('ops.ai.title')}
+      titleAccent={t('ops.ai.accent')}
+      description={t('ops.ai.desc')}
       icon={<Brain size={18} />}
       eyebrow={
         <span className="v-pill-quiet">
           <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--color-signal-green)' }} />
-          {displayTabs.length} tools · live via OpenRouter
+          {t('ops.ai.tools', { n: displayTabs.length })}
         </span>
       }
       stats={

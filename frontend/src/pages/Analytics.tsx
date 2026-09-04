@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
   BarChart2,
@@ -40,6 +41,7 @@ import { Link } from 'react-router-dom';
 type TabKey = 'overview' | 'monitor' | 'match' | 'predict' | 'vision';
 
 const Analytics: React.FC = () => {
+  const { t } = useTranslation();
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [stats, setStats] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,9 +71,9 @@ const Analytics: React.FC = () => {
     <PageShell
       hero
       containerSize="wide"
-      title="Analytics &"
-      titleAccent="insights"
-      description="Applicants over time, budget in USD, platform mix — plus content monitoring and AI matching tools."
+      title={t('ops.an.title')}
+      titleAccent={t('ops.an.accent')}
+      description={t('ops.an.desc')}
       icon={<BarChart2 size={18} />}
     >
       {/* Tabs */}
@@ -80,20 +82,20 @@ const Analytics: React.FC = () => {
         onSelectionChange={(k) => setActiveTab(k as TabKey)}
       >
         <Segment.Item id="overview">
-          <BarChart2 size={13} /> Overview
+          <BarChart2 size={13} /> {t('ops.an.tabOverview')}
         </Segment.Item>
         <Segment.Item id="monitor">
-          <Eye size={13} /> Content monitoring
+          <Eye size={13} /> {t('ops.an.tabMonitor')}
         </Segment.Item>
         <Segment.Item id="match">
-          <Target size={13} /> Smart match
+          <Target size={13} /> {t('ops.an.tabMatch')}
         </Segment.Item>
         <Segment.Item id="predict">
-          <TrendingUp size={13} /> Performance AI
+          <TrendingUp size={13} /> {t('ops.an.tabPredict')}
         </Segment.Item>
         {role === 'admin' && (
           <Segment.Item id="vision">
-            <Shield size={13} /> Vision research
+            <Shield size={13} /> {t('ops.an.tabVision')}
           </Segment.Item>
         )}
       </Segment>
@@ -166,6 +168,7 @@ const weekLabel = (iso: string) => {
  * derived client-side. Empty → EmptyPanel instead of a blank chart.
  */
 const OverviewTab: React.FC<{ campaigns: any[]; role: string; stats: any | null }> = ({ campaigns, role, stats }) => {
+  const { t } = useTranslation();
   const isBrand = role === 'brand';
 
   /* ── Brand: server stats ───────────────────────────────────────── */
@@ -175,11 +178,11 @@ const OverviewTab: React.FC<{ campaigns: any[]; role: string; stats: any | null 
       return (
         <EmptyPanel
           icon={<TrendingUp size={22} />}
-          title="No campaign data yet"
-          description="Post your first brief and this page fills with applicants over time, budget by week and your platform split."
+          title={t('ops.an.emptyTitle')}
+          description={t('ops.an.emptyDesc')}
           actions={
             <Link to="/dashboard/campaigns?new=1">
-              <Button variant="primary">Create a campaign</Button>
+              <Button variant="primary">{t('ops.an.createCampaign')}</Button>
             </Link>
           }
         />
@@ -222,7 +225,7 @@ const OverviewTab: React.FC<{ campaigns: any[]; role: string; stats: any | null 
             <Separator />
             <Card.Content className="p-5">
               {WEEKLY.every((w: any) => !w.applications && !w.accepted) ? (
-                <EmptyPanel size="sm" icon={<Users size={18} />} title="No applicants in the last 12 weeks" description="Applicant activity shows up here the week it happens." />
+                <EmptyPanel size="sm" icon={<Users size={18} />} title={t('ops.an.emptyApplicants')} description={t('ops.an.emptyApplicantsDesc')} />
               ) : (
                 <ResponsiveContainer width="100%" height={280}>
                   <AreaChart data={WEEKLY}>

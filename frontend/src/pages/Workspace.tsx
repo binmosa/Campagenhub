@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
   ArrowRight,
@@ -591,6 +592,7 @@ const TaskCard: React.FC<{
 
 /* ── Main page ──────────────────────────────────────────────────── */
 const WorkspacePage: React.FC = () => {
+  const { t } = useTranslation();
   const role = (localStorage.getItem('role') || 'creator').toLowerCase();
   const isBrand = role === 'brand';
 
@@ -703,34 +705,30 @@ const WorkspacePage: React.FC = () => {
     <PageShell
       hero
       containerSize="wide"
-      title={isBrand ? 'Team' : 'Your'}
-      titleAccent="workspace"
-      description={
-        isBrand
-          ? 'Tasks and deliverables for every creator on an active contract — assign, track, review.'
-          : 'Your assigned tasks and deliverables, with the links you submit for review.'
-      }
+      title={isBrand ? t('ops.ws.titleBrand') : t('ops.ws.titleOwn')}
+      titleAccent={t('ops.ws.accent')}
+      description={isBrand ? t('ops.ws.descBrand') : t('ops.ws.descOwn')}
       icon={<ClipboardList size={18} />}
       actions={
         isBrand && contracts.length > 0 ? (
           <Button variant="primary" size="md" onPress={openAddTaskModal}>
-            <Plus size={14} /> Assign task
+            <Plus size={14} /> {t('ops.ws.assign')}
           </Button>
         ) : role === 'creator' && contracts.length > 0 ? (
           <Button variant="primary" size="md" onPress={() => setShowSubmitModal(true)}>
-            <Sparkles size={14} /> Submit content
+            <Sparkles size={14} /> {t('ops.ws.submit')}
           </Button>
         ) : undefined
       }
       stats={
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <MetricCard label="Total tasks" value={stats.total} icon={ClipboardList} />
-          <MetricCard label="To do" value={stats.pending} hint="pending start" icon={TodoIcon} iconStatus={stats.pending ? 'warning' : undefined} />
-          <MetricCard label="In progress" value={stats.in_progress} hint="active now" icon={TrendingUp} />
+          <MetricCard label={t('ops.ws.kTotal')} value={stats.total} icon={ClipboardList} />
+          <MetricCard label={t('ops.ws.kTodo')} value={stats.pending} hint={t('ops.ws.kTodoHint')} icon={TodoIcon} iconStatus={stats.pending ? 'warning' : undefined} />
+          <MetricCard label={t('ops.ws.kProgress')} value={stats.in_progress} hint={t('ops.ws.kProgressHint')} icon={TrendingUp} />
           <MetricCard
-            label="Completed"
+            label={t('ops.ws.kDone')}
             value={stats.completed}
-            hint={stats.total > 0 ? `${Math.round((stats.completed / stats.total) * 100)}% done` : 'no tasks yet'}
+            hint={stats.total > 0 ? t('ops.ws.kDoneHint', { pct: Math.round((stats.completed / stats.total) * 100) }) : t('ops.ws.kNoTasks')}
             icon={DoneIcon}
             iconStatus="success"
           />
@@ -843,15 +841,15 @@ const WorkspacePage: React.FC = () => {
       ) : filteredTasks.length === 0 ? (
         <EmptyPanel
           icon={<ClipboardList size={22} />}
-          title={tasks.length === 0 ? 'No tasks yet' : 'Nothing in this view'}
+          title={tasks.length === 0 ? t('ops.ws.emptyTitle') : t('ops.ws.emptyView')}
           description={
             tasks.length > 0
-              ? 'Switch the status or contract filter to see the rest.'
+              ? t('ops.ws.emptyViewDesc')
               : isBrand
                 ? contracts.length > 0
-                  ? 'Assign the first deliverable to someone on your team — they get notified and can submit links here.'
-                  : 'Tasks live on contracts. Accept an applicant or invitation first, then assign work here.'
-                : 'Tasks assigned to you by brands will appear here with their deadlines.'
+                  ? t('ops.ws.emptyBrandDesc')
+                  : t('ops.ws.emptyBrandNoContracts')
+                : t('ops.ws.emptyCreatorDesc')
           }
           actions={
             tasks.length > 0 ? (

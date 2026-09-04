@@ -126,6 +126,8 @@ const BrandProfile: React.FC = () => {
   const [authUser, setAuthUser] = useState<any>(null);
 
   const fetchAuthUser = () => api.get('/auth/me').then((r) => setAuthUser(r.data)).catch(() => {});
+  /* Team members act for the brand but only the owner edits it or manages the team. */
+  const isTeamMember = !!authUser?.isTeamMember;
 
   useEffect(() => {
     fetchAuthUser();
@@ -195,7 +197,7 @@ const BrandProfile: React.FC = () => {
       description={t('profile.desc')}
       icon={<Building2 size={18} />}
       actions={
-        !editing && !loading ? (
+        !editing && !loading && !isTeamMember ? (
           <Button variant="primary" size="md" onPress={() => setEditing(true)}>
             <Pencil size={13} /> {t('profile.edit')}
           </Button>
@@ -271,7 +273,7 @@ const BrandProfile: React.FC = () => {
             icon={<Building2 size={22} />}
             title={t('profile.emptyTitle')}
             description={t('profile.emptyDesc')}
-            actions={<Button variant="primary" onPress={() => setEditing(true)}><Pencil size={13} /> {t('profile.edit')}</Button>}
+            actions={isTeamMember ? undefined : <Button variant="primary" onPress={() => setEditing(true)}><Pencil size={13} /> {t('profile.edit')}</Button>}
           />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -418,12 +420,16 @@ const BrandProfile: React.FC = () => {
         </h2>
         <AccountSettings email={authUser?.email} />
       </div>
-      <div>
-        <h2 className="v-ink font-medium mb-3 inline-flex items-center gap-2" style={{ fontSize: 16, letterSpacing: '-0.015em' }}>
-          {t('profile.teamSection')}
-        </h2>
-        <TeamManager />
-      </div>
+      {isTeamMember ? (
+        <p className="v-caption v-quiet" style={{ fontSize: 12.5 }}>{t('profile.teamMemberNote')}</p>
+      ) : (
+        <div>
+          <h2 className="v-ink font-medium mb-3 inline-flex items-center gap-2" style={{ fontSize: 16, letterSpacing: '-0.015em' }}>
+            {t('profile.teamSection')}
+          </h2>
+          <TeamManager />
+        </div>
+      )}
     </PageShell>
   );
 };

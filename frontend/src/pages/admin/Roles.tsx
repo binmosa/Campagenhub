@@ -1,142 +1,275 @@
-import React, { useEffect, useState } from 'react';
-import { Shield, Plus, Trash2, Save, X, Edit, Lock } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, Braces, Check, KeyRound, ListChecks, Pencil, Plus, Shield, Trash2, Users, X } from 'lucide-react';
+import { Button, Chip, Modal, Switch } from '@heroui/react';
+import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
+import { toast } from '../../lib/toast';
+import { fieldClass } from '../talent/shared';
+import { MetricCard, PageShell } from '../../components/ui';
+import { EmptyPanel } from '../../components/common/EmptyPanel';
+import { ConfirmModal } from '../../components/common/ConfirmModal';
+import { Field, dateShort, type AdminUser } from './shared';
 
-const AdminRoles: React.FC = () => {
-  const [roles, setRoles] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
-  const [showEdit, setShowEdit] = useState(false);
-  const [editingRole, setEditingRole] = useState<any>(null);
+/**
+ * AdminRoles — custom staff roles and what they may do. Permissions are a
+ * flat map of flags; edit them as a checklist (add a key, flip it) or, for
+ * power users, as raw JSON. Roles are assigned to people on the Users page.
+ */
+type Role = { id: string; name: string; permissions?: Record<string, boolean> | null; created_at?: string };
+type Perm = { key: string; on: boolean };
 
-  const [newRoleName, setNewRoleName] = useState('');
-  const [newRolePerms, setNewRolePerms] = useState('');
+const toPerms = (p?: Record<string, unknown> | null): Perm[] => Object.entries(p || {}).map(([key, v]) => ({ key, on: !!v }));
+const fromPerms = (list: Perm[]): Record<string, boolean> => Object.fromEntries(list.filter((p) => p.key.trim()).map((p) => [p.key.trim(), p.on]));
 
-  const fetchRoles = () => {
-    setLoading(true);
-    api.get('/roles/global')
-      .then(res => { setRoles(res.data || []); setLoading(false); })
-      .catch(() => setLoading(false));
-  };
+const PermissionEditor: React.FC<{ value: Perm[]; onChange: (v: Perm[]) => void }> = ({ value, onChange }) => {
+  const { t } = useTranslation();
+  const [raw, setRaw] = useState(false);
+  const [json, setJson] = useState('');
+  const [draft, setDraft] = useState('');
 
-  useEffect(() => {
-    fetchRoles();
-  }, []);
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const openRaw = () => { setJson(JSON.stringify(fromPerms(value), null, 2)); setRaw(true); };
+  const applyRaw = () => {
     try {
-      const perms = newRolePerms.trim() ? JSON.parse(newRolePerms) : {};
-      await api.post('/roles/global', { name: newRoleName, permissions: perms });
-      setShowCreate(false);
-      setNewRoleName('');
-      setNewRolePerms('');
-      fetchRoles();
-    } catch { alert('Failed to create role. Check JSON format.'); }
+      const parsed = JSON.parse(json || '{}');
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('shape');
+      onChange(toPerms(parsed));
+      setRaw(false);
+    } catch {
+      toast.error(t('adm.roles.jsonInvalid'));
+    }
   };
-
-  const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`Delete role ${name}? Users with this role may lose access.`)) return;
-    try {
-      await api.delete(`/roles/${id}`);
-      fetchRoles();
-    } catch { alert('Failed to delete role'); }
-  };
-
-  const handleSavePerms = async () => {
-    try {
-      const perms = newRolePerms.trim() ? JSON.parse(newRolePerms) : {};
-      await api.patch(`/roles/${editingRole.id}`, { permissions: perms });
-      setShowEdit(false);
-      fetchRoles();
-    } catch { alert('Failed to save. Check JSON.'); }
+  const add = () => {
+    const key = draft.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+    if (!key) return;
+    if (value.some((p) => p.key === key)) return toast.error(t('adm.roles.dupKey', { key }));
+    onChange([...value, { key, on: true }]);
+    setDraft('');
   };
 
   return (
-    <div className="max-w-6xl mx-auto py-4 md:py-8 px-0 md:px-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 border-b border-surface-200 pb-6">
-        <div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-surface-900 tracking-tight">Role Studio</h1>
-          <p className="text-surface-500 font-medium text-sm mt-1">Create and manage global custom roles and permission payloads.</p>
-        </div>
-        <button onClick={() => { setNewRoleName(''); setNewRolePerms(''); setShowCreate(true); }} className="bg-brand-500 hover:bg-brand-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm transition-colors flex items-center gap-2">
-          <Plus size={16} /> Create Role
-        </button>
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <span className="v-caption v-ink font-medium" style={{ fontSize: 12 }}>{t('adm.roles.permissions')}</span>
+        {raw ? (
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" onPress={() => setRaw(false)}><X size={11} /> {t('common.cancel')}</Button>
+            <Button variant="tertiary" size="sm" onPress={applyRaw}><Check size={11} /> {t('adm.roles.applyJson')}</Button>
+          </div>
+        ) : (
+          <Button variant="ghost" size="sm" onPress={openRaw}><Braces size={11} /> {t('adm.roles.editJson')}</Button>
+        )}
       </div>
-
-      {loading ? (
-        <div className="flex justify-center py-20"><div className="w-10 h-10 border-4 border-surface-200 border-t-brand-600 rounded-full animate-spin"></div></div>
+      {raw ? (
+        <textarea rows={8} value={json} onChange={(e) => setJson(e.target.value)} className={`${fieldClass} font-mono`} aria-label={t('adm.roles.permissions')} />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {roles.map(r => (
-            <div key={r.id} className="card p-6 border-t-4 border-t-brand-500">
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center gap-2">
-                  <Shield size={20} className="text-brand-500" />
-                  <h3 className="font-bold text-surface-900 text-lg">{r.name}</h3>
-                </div>
-                <button onClick={() => handleDelete(r.id, r.name)} className="text-surface-400 hover:text-red-500 p-1 bg-surface-50 rounded transition-colors"><Trash2 size={16}/></button>
-              </div>
-              <div className="bg-slate-900 rounded-lg p-3 overflow-auto max-h-32 mb-4">
-                <pre className="text-xs text-green-400 font-mono m-0">{JSON.stringify(r.permissions, null, 2)}</pre>
-              </div>
-              <button 
-                onClick={() => { setEditingRole(r); setNewRolePerms(JSON.stringify(r.permissions || {}, null, 2)); setShowEdit(true); }}
-                className="w-full py-2 bg-surface-50 hover:bg-surface-100 text-surface-700 rounded-xl font-bold text-sm border border-surface-200 transition-all flex items-center justify-center gap-2"
-              >
-                <Edit size={14} /> Edit Permissions
-              </button>
+        <div className="space-y-2">
+          {value.length === 0 && <p className="v-caption v-quiet" style={{ fontSize: 12 }}>{t('adm.roles.noPerms')}</p>}
+          {value.map((p, i) => (
+            <div key={p.key} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: 'var(--color-cool-gray)' }}>
+              <code className="v-ink flex-1 truncate" style={{ fontSize: 12.5 }}>{p.key}</code>
+              <Switch isSelected={p.on} onChange={(on) => onChange(value.map((x, j) => (j === i ? { ...x, on } : x)))} aria-label={p.key}>
+                <Switch.Control><Switch.Thumb /></Switch.Control>
+              </Switch>
+              <Button variant="ghost" size="sm" isIconOnly aria-label={t('adm.roles.removeKey', { key: p.key })} onPress={() => onChange(value.filter((_, j) => j !== i))}>
+                <X size={12} />
+              </Button>
             </div>
           ))}
-          {roles.length === 0 && (
-            <div className="col-span-full py-16 text-center border-2 border-dashed border-surface-200 rounded-2xl">
-              <Shield size={48} className="mx-auto text-surface-300 mb-3" />
-              <p className="text-surface-600 font-bold text-lg">No Custom Admin Roles</p>
-              <p className="text-surface-400 text-sm max-w-sm mx-auto mt-1">Create custom roles here, then assign them to users in the User Management tab.</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* CREATE MODAL */}
-      {showCreate && (
-        <div className="fixed inset-0 bg-surface-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-          <div className="bg-surface border border-surface-200 rounded-2xl max-w-md w-full p-6 shadow-2xl">
-            <h2 className="text-xl font-bold text-surface-900 mb-4">Create New Role</h2>
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div><label className="text-sm font-bold text-surface-700 mb-1 block">Role Name</label><input type="text" required placeholder="e.g. Content Moderator" value={newRoleName} onChange={e => setNewRoleName(e.target.value)} className="w-full bg-surface-50 border border-surface-200 rounded-xl px-4 py-2" /></div>
-              <div>
-                <label className="text-sm font-bold text-surface-700 mb-1 flex items-center gap-1 block"><Lock size={14}/> JSON Permissions</label>
-                <textarea rows={5} value={newRolePerms} onChange={e => setNewRolePerms(e.target.value)} placeholder='{"can_moderate": true}' className="w-full bg-slate-900 text-green-400 font-mono text-xs border border-surface-200 rounded-xl px-4 py-3 resize-none" />
-              </div>
-              <div className="pt-4 flex justify-end gap-3 border-t border-surface-100">
-                <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 text-surface-600 font-bold hover:bg-surface-100 rounded-xl">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-brand-500 text-white font-bold rounded-xl hover:bg-brand-600">Create Role</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* EDIT MODAL */}
-      {showEdit && editingRole && (
-        <div className="fixed inset-0 bg-surface-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-          <div className="bg-surface border border-surface-200 rounded-2xl max-w-md w-full p-6 shadow-2xl">
-            <h2 className="text-xl font-bold text-surface-900 mb-1">Edit {editingRole.name}</h2>
-            <p className="text-xs text-surface-500 mb-4">Editing global permissions payload.</p>
-            <div className="space-y-4">
-              <div>
-                <textarea rows={6} value={newRolePerms} onChange={e => setNewRolePerms(e.target.value)} className="w-full bg-slate-900 text-green-400 font-mono text-xs border border-surface-200 rounded-xl px-4 py-3 resize-none" />
-              </div>
-              <div className="pt-4 flex justify-end gap-3 border-t border-surface-100">
-                <button type="button" onClick={() => setShowEdit(false)} className="px-4 py-2 text-surface-600 font-bold hover:bg-surface-100 rounded-xl">Cancel</button>
-                <button type="button" onClick={handleSavePerms} className="px-4 py-2 bg-brand-500 text-white font-bold rounded-xl hover:bg-brand-600">Save Payload</button>
-              </div>
-            </div>
+          <div className="flex items-center gap-2">
+            <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} className={fieldClass} placeholder={t('adm.roles.keyPh')} aria-label={t('adm.roles.addKey')} />
+            <Button variant="tertiary" size="sm" onPress={add} isDisabled={!draft.trim()}><Plus size={12} /> {t('adm.roles.addKey')}</Button>
           </div>
         </div>
       )}
     </div>
   );
 };
+
+const AdminRoles: React.FC = () => {
+  const { t } = useTranslation();
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<Role | 'new' | null>(null);
+  const [name, setName] = useState('');
+  const [perms, setPerms] = useState<Perm[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState<Role | null>(null);
+
+  const load = useCallback(() => {
+    setError(false);
+    Promise.all([api.get('/roles/global'), api.get('/admin/users').catch(() => ({ data: [] }))])
+      .then(([r, u]) => {
+        setRoles(Array.isArray(r.data) ? r.data : []);
+        setUsers(Array.isArray(u.data) ? u.data : []);
+      })
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, []);
+  useEffect(load, [load]);
+
+  const usersByRole = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const u of users) {
+      const r = String(u.role || '').toLowerCase();
+      m[r] = (m[r] || 0) + 1;
+    }
+    return m;
+  }, [users]);
+  const onCustom = roles.reduce((s, r) => s + (usersByRole[String(r.name).toLowerCase()] || 0), 0);
+  const keyCount = roles.reduce((s, r) => s + Object.keys(r.permissions || {}).length, 0);
+
+  const startCreate = () => { setEditing('new'); setName(''); setPerms([]); };
+  const startEdit = (r: Role) => { setEditing(r); setName(r.name); setPerms(toPerms(r.permissions)); };
+
+  const save = async () => {
+    if (editing === 'new' && !name.trim()) return toast.error(t('adm.roles.nameRequired'));
+    setBusy(true);
+    try {
+      if (editing === 'new') {
+        await api.post('/roles/global', { name: name.trim(), permissions: fromPerms(perms) });
+        toast.success(t('adm.roles.created', { name: name.trim() }));
+      } else if (editing) {
+        await api.patch(`/roles/${editing.id}`, { permissions: fromPerms(perms) });
+        toast.success(t('adm.roles.saved', { name: editing.name }));
+      }
+      setEditing(null);
+      load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || t('adm.roles.saveFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!confirmDelete) return;
+    setBusy(true);
+    try {
+      await api.delete(`/roles/${confirmDelete.id}`);
+      toast.success(t('adm.roles.deleted', { name: confirmDelete.name }));
+      setConfirmDelete(null);
+      load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || t('adm.roles.deleteFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stats = (
+    <div className="grid grid-cols-3 gap-3">
+      <MetricCard label={t('adm.roles.kpiRoles')} value={roles.length} hint={t('adm.roles.kpiRolesHint')} icon={Shield} />
+      <MetricCard label={t('adm.roles.kpiPeople')} value={onCustom} hint={t('adm.roles.kpiPeopleHint')} icon={Users} iconStatus={onCustom ? 'success' : undefined} />
+      <MetricCard label={t('adm.roles.kpiKeys')} value={keyCount} hint={t('adm.roles.kpiKeysHint')} icon={KeyRound} />
+    </div>
+  );
+
+  return (
+    <PageShell
+      hero
+      title={t('adm.roles.title')}
+      titleAccent={t('adm.roles.titleAccent')}
+      description={t('adm.roles.desc')}
+      icon={<Shield size={18} />}
+      actions={<Button variant="primary" size="md" onPress={startCreate}><Plus size={14} /> {t('adm.roles.create')}</Button>}
+      stats={stats}
+    >
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" aria-hidden>
+          {[0, 1, 2].map((i) => <div key={i} className="v-talent-card p-5"><div className="v-skel h-5 w-1/2 mb-3" /><div className="v-skel h-3 w-full mb-1.5" /><div className="v-skel h-3 w-2/3" /></div>)}
+        </div>
+      ) : error ? (
+        <EmptyPanel tone="error" icon={<AlertTriangle size={22} />} title={t('adm.errTitle')} description={t('adm.errDesc')} actions={<Button variant="primary" onPress={() => { setLoading(true); load(); }}>{t('common.tryAgain')}</Button>} />
+      ) : roles.length === 0 ? (
+        <EmptyPanel icon={<Shield size={22} />} title={t('adm.roles.emptyTitle')} description={t('adm.roles.emptyDesc')} actions={<Button variant="primary" onPress={startCreate}><Plus size={13} /> {t('adm.roles.create')}</Button>} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {roles.map((r) => {
+            const list = toPerms(r.permissions);
+            const people = usersByRole[String(r.name).toLowerCase()] || 0;
+            return (
+              <article key={r.id} className="v-talent-card p-5 flex flex-col">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="v-hero-icon shrink-0" style={{ width: 36, height: 36, borderRadius: 11 }}><Shield size={16} /></span>
+                    <div className="min-w-0">
+                      <h3 className="v-ink font-medium truncate" style={{ fontSize: 15.5, letterSpacing: '-0.012em' }}>{r.name}</h3>
+                      <div className="v-caption v-quiet" style={{ fontSize: 11.5 }}>
+                        {t('adm.roles.people', { n: people })}{r.created_at ? ` · ${dateShort(r.created_at)}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="sm" isIconOnly aria-label={t('adm.roles.deleteAria', { name: r.name })} className="!text-danger" onPress={() => setConfirmDelete(r)}>
+                    <Trash2 size={14} />
+                  </Button>
+                </div>
+                <div className="mt-4 flex items-center gap-1.5 flex-wrap flex-1 content-start">
+                  {list.length === 0 && <span className="v-caption v-quiet" style={{ fontSize: 12 }}>{t('adm.roles.noPerms')}</span>}
+                  {list.slice(0, 8).map((p) => (
+                    <Chip key={p.key} color={p.on ? 'success' : 'default'} variant="soft" size="sm">
+                      {p.on ? <Check size={10} /> : <X size={10} />}
+                      <Chip.Label><code style={{ fontSize: 11 }}>{p.key}</code></Chip.Label>
+                    </Chip>
+                  ))}
+                  {list.length > 8 && <span className="v-caption v-quiet" style={{ fontSize: 11.5 }}>+{list.length - 8}</span>}
+                </div>
+                <Button variant="tertiary" size="sm" className="mt-4" fullWidth onPress={() => startEdit(r)}>
+                  <Pencil size={12} /> {t('adm.roles.edit')}
+                </Button>
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      <Modal isOpen={!!editing} onOpenChange={(o) => !o && !busy && setEditing(null)}>
+        <Modal.Backdrop isDismissable={!busy}>
+          <Modal.Container>
+            <Modal.Dialog className="!max-w-lg">
+              <Modal.CloseTrigger />
+              <Modal.Header>
+                <Modal.Heading className="inline-flex items-center gap-2">
+                  <ListChecks size={16} style={{ color: 'var(--color-campaign-purple)' }} />
+                  {editing === 'new' ? t('adm.roles.createTitle') : t('adm.roles.editTitle', { name: (editing as Role)?.name })}
+                </Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                <div className="space-y-4">
+                  {editing === 'new' ? (
+                    <Field label={t('adm.roles.name')} hint={t('adm.roles.nameHint')}>
+                      <input value={name} onChange={(e) => setName(e.target.value)} className={fieldClass} placeholder={t('adm.roles.namePh')} autoFocus />
+                    </Field>
+                  ) : (
+                    <p className="v-caption v-quiet" style={{ fontSize: 12.5 }}>{t('adm.roles.editIntro')}</p>
+                  )}
+                  <PermissionEditor value={perms} onChange={setPerms} />
+                </div>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button variant="ghost" onPress={() => setEditing(null)} isDisabled={busy}>{t('common.cancel')}</Button>
+                <Button variant="primary" onPress={save} isPending={busy}>
+                  {editing === 'new' ? t('adm.roles.create') : t('adm.roles.save')}
+                </Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+
+      <ConfirmModal
+        open={!!confirmDelete}
+        tone="danger"
+        pending={busy}
+        title={t('adm.roles.deleteTitle', { name: confirmDelete?.name })}
+        body={t('adm.roles.deleteBody', { n: confirmDelete ? usersByRole[String(confirmDelete.name).toLowerCase()] || 0 : 0 })}
+        confirmLabel={t('adm.roles.deleteConfirm')}
+        onConfirm={remove}
+        onClose={() => setConfirmDelete(null)}
+      />
+    </PageShell>
+  );
+};
+
 export default AdminRoles;

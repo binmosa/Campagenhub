@@ -9,12 +9,13 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CreatorProfile } from '../creators/creator-profile.entity';
 import { BrandProfile } from '../brands/brand-profile.entity';
 import { ManagerProfile } from '../managers/manager-profile.entity';
+import { Role } from '../roles/role.entity';
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
-    TypeOrmModule.forFeature([CreatorProfile, BrandProfile, ManagerProfile]),
+    TypeOrmModule.forFeature([CreatorProfile, BrandProfile, ManagerProfile, Role]),
     JwtModule.register({
       secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '24h' },

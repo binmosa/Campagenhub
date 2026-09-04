@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Award,
   Camera,
@@ -407,6 +408,7 @@ const OfferInviteModal: React.FC<{
 
 /* ── Main page ──────────────────────────────────────────────────── */
 const OffersPage: React.FC = () => {
+  const { t } = useTranslation();
   const role = (localStorage.getItem('role') || 'creator').toLowerCase();
   const isBrandOrAdmin = role === 'brand' || role === 'admin';
   const isCreatorOrManager = role === 'creator' || role === 'manager';
@@ -471,30 +473,26 @@ const OffersPage: React.FC = () => {
     <PageShell
       hero
       containerSize="wide"
-      title={isBrandOrAdmin ? 'Creator' : 'My'}
-      titleAccent={isBrandOrAdmin ? 'marketplace' : 'offers'}
+      title={isBrandOrAdmin ? t('ops.offers.titleBrand') : t('ops.offers.titleOwn')}
+      titleAccent={isBrandOrAdmin ? t('ops.offers.accentBrand') : t('ops.offers.accentOwn')}
       stats={
         <div className="grid grid-cols-3 gap-3">
           {isCreatorOrManager ? (
             <>
-              <MetricCard label="My offers" value={myOffers.length} icon={ShoppingBag} />
-              <MetricCard label="Live" value={myOffers.filter((o) => o.is_active).length} hint={`${myOffers.filter((o) => !o.is_active).length} paused`} icon={ActiveIcon} iconStatus="success" />
-              <MetricCard label="On the marketplace" value={allOffers.length} hint="all creators & managers" icon={TypeIcon} />
+              <MetricCard label={t('ops.offers.kMine')} value={myOffers.length} icon={ShoppingBag} />
+              <MetricCard label={t('ops.offers.kLive')} value={myOffers.filter((o) => o.is_active).length} hint={t('ops.offers.kPaused', { n: myOffers.filter((o) => !o.is_active).length })} icon={ActiveIcon} iconStatus="success" />
+              <MetricCard label={t('ops.offers.kMarket')} value={allOffers.length} hint={t('ops.offers.kMarketHint')} icon={TypeIcon} />
             </>
           ) : (
             <>
-              <MetricCard label="Offers" value={allOffers.length} hint="from creators & managers" icon={ShoppingBag} />
-              <MetricCard label="Formats" value={new Set(allOffers.map((o) => o.content_type).filter(Boolean)).size} hint="content types on offer" icon={TypeIcon} />
-              <MetricCard label="Matching" value={filtered.length} hint="with current filters" icon={ActiveIcon} />
+              <MetricCard label={t('ops.offers.kOffers')} value={allOffers.length} hint={t('ops.offers.kOffersHint')} icon={ShoppingBag} />
+              <MetricCard label={t('ops.offers.kFormats')} value={new Set(allOffers.map((o) => o.content_type).filter(Boolean)).size} hint={t('ops.offers.kFormatsHint')} icon={TypeIcon} />
+              <MetricCard label={t('ops.offers.kMatching')} value={filtered.length} hint={t('ops.offers.kMatchingHint')} icon={ActiveIcon} />
             </>
           )}
         </div>
       }
-      description={
-        isBrandOrAdmin
-          ? 'Browse service offerings from verified creators and managers.'
-          : 'Publish your services and set your rates.'
-      }
+      description={isBrandOrAdmin ? t('ops.offers.descBrand') : t('ops.offers.descOwn')}
       icon={<ShoppingBag size={18} />}
       actions={
         isCreatorOrManager ? (
@@ -507,7 +505,7 @@ const OffersPage: React.FC = () => {
               setShowOfferModal(true);
             }}
           >
-            <Plus size={14} /> New offer
+            <Plus size={14} /> {t('ops.offers.newOffer')}
           </Button>
         ) : null
       }
@@ -577,13 +575,13 @@ const OffersPage: React.FC = () => {
       ) : filtered.length === 0 ? (
         <EmptyPanel
           icon={<ShoppingBag size={22} />}
-          title={view === 'mine' ? 'No offers yet' : search || filterType !== 'All' ? 'No offers match' : 'The marketplace is quiet'}
+          title={view === 'mine' ? t('ops.offers.emptyMine') : search || filterType !== 'All' ? t('ops.offers.emptyMatch') : t('ops.offers.emptyQuiet')}
           description={
             view === 'mine'
-              ? 'Package what you do — a review video, a story set, a monthly retainer — and brands can hire you without a campaign.'
+              ? t('ops.offers.emptyMineDesc')
               : search || filterType !== 'All'
-                ? 'Try another format or clear the search.'
-                : 'Creators and managers publish service offers here. Check back soon, or invite talent from the directory.'
+                ? t('ops.offers.emptyMatchDesc')
+                : t('ops.offers.emptyQuietDesc')
           }
           actions={
             view === 'mine' && isCreatorOrManager ? (
@@ -594,7 +592,7 @@ const OffersPage: React.FC = () => {
                   setShowOfferModal(true);
                 }}
               >
-                <Plus size={14} /> New offer
+                <Plus size={14} /> {t('ops.offers.newOffer')}
               </Button>
             ) : search || filterType !== 'All' ? (
               <Button variant="primary" size="sm" onPress={() => { setSearch(''); setFilterType('All'); }}>

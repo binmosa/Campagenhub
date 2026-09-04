@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -411,6 +412,7 @@ const InvitationCard: React.FC<{
 };
 
 const Invitations: React.FC = () => {
+  const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const queryInviteId = searchParams.get('inviteId');
 
@@ -472,15 +474,15 @@ const Invitations: React.FC = () => {
     <PageShell
       hero
       containerSize="wide"
-      title="Collaboration"
-      titleAccent="invitations"
-      description="Invitations travel with their contract and payment terms — accept, negotiate or decline in one place."
+      title={t('ops.inv.title')}
+      titleAccent={t('ops.inv.accent')}
+      description={t('ops.inv.desc')}
       icon={<Mail size={18} />}
       stats={
         <div className="grid grid-cols-3 gap-3">
-          <MetricCard label="Received" value={received.length} hint={`${pending} awaiting your reply`} icon={Mail} iconStatus={pending ? 'warning' : undefined} />
-          <MetricCard label="Sent" value={sent.length} hint={`${sent.filter((i) => i.status === 'pending').length} pending`} icon={Users} />
-          <MetricCard label="Accepted" value={[...received, ...sent].filter((i) => i.status === 'accepted').length} hint="collaborations started" icon={CheckCircle} iconStatus="success" />
+          <MetricCard label={t('ops.inv.kReceived')} value={received.length} hint={t('ops.inv.kReceivedHint', { n: pending })} icon={Mail} iconStatus={pending ? 'warning' : undefined} />
+          <MetricCard label={t('ops.inv.kSent')} value={sent.length} hint={t('ops.inv.kSentHint', { n: sent.filter((i) => i.status === 'pending').length })} icon={Users} />
+          <MetricCard label={t('ops.inv.kAccepted')} value={[...received, ...sent].filter((i) => i.status === 'accepted').length} hint={t('ops.inv.kAcceptedHint')} icon={CheckCircle} iconStatus="success" />
         </div>
       }
     >
@@ -491,9 +493,7 @@ const Invitations: React.FC = () => {
             <div className="flex items-center gap-2">
               <AlertCircle size={16} className="text-warning" />
               <span className="text-foreground text-sm font-semibold">
-                {approvals.length} invitation
-                {approvals.length === 1 ? '' : 's'} from your manager need
-                payment approval
+                {t('ops.inv.approvals', { count: approvals.length })}
               </span>
             </div>
             <ul className="space-y-2">
@@ -558,16 +558,12 @@ const Invitations: React.FC = () => {
       ) : list.length === 0 ? (
         <EmptyPanel
           icon={<Mail size={22} />}
-          title={tab === 'received' ? 'No invitations received yet' : 'No invitations sent yet'}
-          description={
-            tab === 'received'
-              ? 'When a brand or manager invites you to collaborate, it lands here with the contract and payment terms.'
-              : 'Invite creators or managers straight from the talent directory — the contract and payment terms travel with the invite.'
-          }
+          title={tab === 'received' ? t('ops.inv.emptyReceived') : t('ops.inv.emptySent')}
+          description={tab === 'received' ? t('ops.inv.emptyReceivedDesc') : t('ops.inv.emptySentDesc')}
           actions={
             tab === 'sent' ? (
               <Link to="/dashboard/talent">
-                <Button variant="primary">Browse talent</Button>
+                <Button variant="primary">{t('ops.inv.browseTalent')}</Button>
               </Link>
             ) : undefined
           }

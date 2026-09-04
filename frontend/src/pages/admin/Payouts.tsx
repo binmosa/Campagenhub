@@ -1,35 +1,48 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle,
+  AlertTriangle,
   Building2,
-  CheckCircle,
+  Check,
+  CheckCircle2,
   ClipboardList,
+  Clock,
   Copy,
   CreditCard,
   DollarSign,
   ExternalLink,
-  Loader,
-  Mail,
+  Landmark,
+  Send,
   Smartphone,
-  User as UserIcon,
+  Wallet,
   XCircle,
 } from 'lucide-react';
-import { Avatar, Button, Card, Chip, Modal, SearchField, Separator } from '@heroui/react';
-import { DataGrid, EmptyState, KPI } from '@heroui-pro/react';
-import type { DataGridColumn } from '@heroui-pro/react';
+import { Button, Chip, Modal } from '@heroui/react';
+import { Segment } from '@heroui-pro/react';
+import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
-import { PageShell } from '../../components/ui';
+import { toast } from '../../lib/toast';
+import { weekSums } from '../../lib/series';
+import { postedLabel } from '../../lib/campaignFormat';
+import { MetricCard, PageShell } from '../../components/ui';
+import { EmptyPanel } from '../../components/common/EmptyPanel';
+import { DirectoryToolbar } from '../../components/common/filters';
+import { StoryAvatar } from '../../components/common/StoryAvatar';
+import { ConfirmModal } from '../../components/common/ConfirmModal';
+import { Fact, PAYOUT_COLOR, Panel, RowSkeletons, SectionTitle, dateShort, dateTime, money, userIdentity } from './shared';
 
+/**
+ * AdminPayouts — the money desk for admin and finance: brand escrow on
+ * top, the payout queue in the middle (approve → execute → paid), and the
+ * staff audit trail underneath. Executing a transfer always confirms.
+ */
 type Payout = {
   id: string;
   status: string;
   amount: number | string;
   created_at: string;
-  campaign?: { title?: string };
-  creator?: {
-    email?: string;
-    creatorProfile?: { avatar_url?: string };
-  };
+  tx_ref?: string | null;
+  campaign?: { id?: string; title?: string; currency?: string };
+  creator?: any;
   payoutAccount?: {
     account_type?: string;
     bank_name?: string;
@@ -40,881 +53,414 @@ type Payout = {
     mobile_number?: string;
     mobile_network?: string;
     is_verified?: boolean;
-  };
+    country?: string;
+  } | null;
 };
-
-type BrandBalance = {
-  brandId: string;
-  brandEmail: string;
-  deposited: number | string;
-  committed: number | string;
-  available: number | string;
-};
-
-type AuditLog = {
-  id: string;
-  action: string;
-  details: string;
-  created_at: string;
-  user?: { email?: string; role?: string };
-};
-
-const STATUS_COLOR: Record<string, 'success' | 'warning' | 'danger' | 'default'> = {
-  pending: 'warning',
-  approved: 'default',
-  paid: 'success',
-  rejected: 'danger',
-};
-
-const ACTION_COLOR: Record<string, 'success' | 'warning' | 'danger' | 'default'> = {
-  APPROVED_PAYOUT: 'default',
-  EXECUTED_PAYOUT: 'success',
-  REJECTED_PAYOUT: 'danger',
-};
-
-const fieldClass =
-  'w-full px-3.5 py-2.5 rounded-lg bg-surface text-foreground text-sm placeholder:text-muted border border-border focus:outline-none focus:border-field-border-focus';
+type Balance = { brandId: string; brandEmail: string; deposited: number | string; committed: number | string; available: number | string };
+type StatusFilter = 'all' | 'pending' | 'approved' | 'paid' | 'rejected';
+const STATUSES: StatusFilter[] = ['pending', 'approved', 'paid', 'rejected'];
+const PAGE = 30;
 
 const AdminPayouts: React.FC = () => {
+  const { t } = useTranslation();
+  const role = (localStorage.getItem('role') || 'creator').toLowerCase().trim();
+  const isAdmin = role === 'admin';
+
   const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [balances, setBalances] = useState<Balance[]>([]);
+  const [audit, setAudit] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [status, setStatus] = useState<StatusFilter>('all');
+  const [limit, setLimit] = useState(PAGE);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Payout | null>(null);
+  const [confirm, setConfirm] = useState<{ kind: 'execute' | 'reject' | 'approve'; payout: Payout } | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
 
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [confirmPayoutId, setConfirmPayoutId] = useState<string | null>(null);
-  const [detailPayout, setDetailPayout] = useState<Payout | null>(null);
-  const [copiedField, setCopiedField] = useState<string | null>(null);
-
-  const [brandBalances, setBrandBalances] = useState<BrandBalance[]>([]);
-  const [balancesLoading, setBalancesLoading] = useState(false);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [auditLoading, setAuditLoading] = useState(false);
-
-  const currentRole = (localStorage.getItem('role') || 'creator').toLowerCase().trim();
-  const isAdmin = currentRole === 'admin';
-  const isFinance = currentRole === 'finance';
-
-  useEffect(() => {
-    api
-      .get('/admin/payouts')
-      .then((res) => {
-        setPayouts(res.data || []);
-        setLoading(false);
+  const load = useCallback(() => {
+    setError(false);
+    Promise.all([
+      api.get('/admin/payouts'),
+      api.get('/admin/brand-balances').catch(() => ({ data: [] })),
+      isAdmin ? api.get('/admin/audit-logs').catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+    ])
+      .then(([p, b, a]) => {
+        setPayouts(Array.isArray(p.data) ? p.data : []);
+        setBalances(Array.isArray(b.data) ? b.data : []);
+        setAudit(Array.isArray(a.data) ? a.data : []);
       })
-      .catch(() => setLoading(false));
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, [isAdmin]);
+  useEffect(load, [load]);
 
-    if (isAdmin) {
-      setAuditLoading(true);
-      api
-        .get('/admin/audit-logs')
-        .then((res) => {
-          setAuditLogs(res.data || []);
-          setAuditLoading(false);
-        })
-        .catch(() => setAuditLoading(false));
+  const counts = useMemo(() => {
+    const by: Record<string, number> = {};
+    let paidVolume = 0;
+    for (const p of payouts) {
+      by[p.status] = (by[p.status] || 0) + 1;
+      if (p.status === 'paid') paidVolume += Number(p.amount) || 0;
     }
+    const escrow = balances.reduce((s, b) => s + (Number(b.available) || 0), 0);
+    const deposited = balances.reduce((s, b) => s + (Number(b.deposited) || 0), 0);
+    return { by, paidVolume, escrow, deposited };
+  }, [payouts, balances]);
 
-    if (isAdmin || isFinance) {
-      setBalancesLoading(true);
-      api
-        .get('/admin/brand-balances')
-        .then((res) => {
-          setBrandBalances(res.data || []);
-          setBalancesLoading(false);
-        })
-        .catch(() => setBalancesLoading(false));
-    }
-  }, [isAdmin, isFinance]);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return payouts.filter((p) => {
+      if (status !== 'all' && p.status !== status) return false;
+      if (!q) return true;
+      const who = userIdentity(p.creator);
+      return [p.creator?.email, who.name, p.campaign?.title, p.status, p.tx_ref].some((s) => String(s || '').toLowerCase().includes(q));
+    });
+  }, [payouts, search, status]);
+  const shown = filtered.slice(0, limit);
 
-  const handleStatusUpdate = async (id: string, newStatus: string) => {
-    setActionLoading(id);
+  const setStatusOf = async (p: Payout, next: 'approved' | 'rejected') => {
+    setBusy(p.id);
     try {
-      await api.patch(`/admin/payouts/${id}`, { status: newStatus });
-      setPayouts((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, status: newStatus } : p))
-      );
-    } catch {
-      alert('Failed to update payout status');
+      await api.patch(`/admin/payouts/${p.id}`, { status: next });
+      setPayouts((prev) => prev.map((x) => (x.id === p.id ? { ...x, status: next } : x)));
+      if (detail?.id === p.id) setDetail((d) => (d ? { ...d, status: next } : d));
+      toast.success(next === 'approved' ? t('adm.pay.approved', { amount: money(p.amount) }) : t('adm.pay.rejected', { amount: money(p.amount) }));
+      if (isAdmin) api.get('/admin/audit-logs').then((r) => setAudit(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || t('adm.pay.updateFailed'));
     } finally {
-      setActionLoading(null);
+      setBusy(null);
     }
   };
 
-  const handleExecutePayout = async () => {
-    if (!confirmPayoutId) return;
-    setActionLoading(confirmPayoutId);
+  const execute = async (p: Payout) => {
+    setBusy(p.id);
     try {
-      await api.post(`/admin/payouts/${confirmPayoutId}/execute`);
-      setPayouts((prev) =>
-        prev.map((p) =>
-          p.id === confirmPayoutId ? { ...p, status: 'paid' } : p
-        )
-      );
-      setConfirmPayoutId(null);
-      alert('Transfer dispatched successfully via Flutterwave!');
-    } catch (err: any) {
-      alert(
-        err.response?.data?.message ||
-          'Failed to execute transfer. Please check escrow budget.'
-      );
-      setConfirmPayoutId(null);
+      await api.post(`/admin/payouts/${p.id}/execute`);
+      setPayouts((prev) => prev.map((x) => (x.id === p.id ? { ...x, status: 'paid' } : x)));
+      if (detail?.id === p.id) setDetail((d) => (d ? { ...d, status: 'paid' } : d));
+      toast.success(t('adm.pay.executed', { amount: money(p.amount) }));
+      load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || t('adm.pay.executeFailed'));
     } finally {
-      setActionLoading(null);
+      setBusy(null);
     }
   };
 
-  const copyToClipboard = (text: string, fieldId: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedField(fieldId);
-    setTimeout(() => setCopiedField(null), 2000);
+  const onConfirm = async () => {
+    if (!confirm) return;
+    const { kind, payout } = confirm;
+    if (kind === 'execute') await execute(payout);
+    if (kind === 'reject') await setStatusOf(payout, 'rejected');
+    if (kind === 'approve') await setStatusOf(payout, 'approved');
+    setConfirm(null);
   };
 
-  const filtered = useMemo(
-    () =>
-      payouts.filter((p) => {
-        const matchesSearch =
-          (p.creator?.email || '').toLowerCase().includes(search.toLowerCase()) ||
-          (p.campaign?.title || '').toLowerCase().includes(search.toLowerCase()) ||
-          p.status.toLowerCase().includes(search.toLowerCase());
-        const matchesFilter =
-          filterStatus === 'all' || p.status === filterStatus;
-        return matchesSearch && matchesFilter;
-      }),
-    [payouts, search, filterStatus]
-  );
+  const copy = (text: string, key: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(key);
+      setTimeout(() => setCopied(null), 1500);
+    });
+  };
 
-  const stats = useMemo(
-    () => ({
-      pending: payouts.filter((p) => p.status === 'pending').length,
-      approved: payouts.filter((p) => p.status === 'approved').length,
-      paid: payouts.filter((p) => p.status === 'paid').length,
-      total: payouts.reduce((s, p) => s + Number(p.amount || 0), 0),
-    }),
-    [payouts]
-  );
+  const accountChip = (p: Payout) => {
+    const a = p.payoutAccount;
+    if (!a || (!a.account_number && !a.mobile_number)) {
+      return <Chip color="danger" variant="soft" size="sm"><AlertTriangle size={11} /><Chip.Label>{t('adm.pay.noAccount')}</Chip.Label></Chip>;
+    }
+    if (a.mobile_number && !a.account_number) {
+      return <Chip color="default" variant="soft" size="sm"><Smartphone size={11} /><Chip.Label>{a.mobile_network || t('adm.pay.mobileMoney')}</Chip.Label></Chip>;
+    }
+    return (
+      <Chip color={a.is_verified ? 'success' : 'default'} variant="soft" size="sm">
+        {a.is_verified ? <CheckCircle2 size={11} /> : <Landmark size={11} />}
+        <Chip.Label>{a.bank_name || t('adm.pay.bank')}{a.is_verified ? ` · ${t('adm.pay.verified')}` : ''}</Chip.Label>
+      </Chip>
+    );
+  };
 
-  /* ─── Payouts DataGrid columns ────────────────────────────── */
-  const payoutColumns: DataGridColumn<Payout>[] = [
-    {
-      allowsResizing: true,
-      allowsSorting: true,
-      cell: (item) => {
-        const initial = (item.creator?.email || 'C')[0].toUpperCase();
-        return (
-          <div className="flex items-center gap-3 min-w-0">
-            <Avatar size="sm">
-              {item.creator?.creatorProfile?.avatar_url && (
-                <Avatar.Image
-                  src={item.creator.creatorProfile.avatar_url}
-                  alt={item.creator.email}
-                />
-              )}
-              <Avatar.Fallback>{initial}</Avatar.Fallback>
-            </Avatar>
-            <div className="flex flex-col min-w-0">
-              <span className="text-foreground text-sm font-medium truncate">
-                {item.creator?.email || 'N/A'}
-              </span>
-              <span className="text-muted text-xs truncate">
-                {item.campaign?.title || 'Direct payment'}
-              </span>
-            </div>
-          </div>
-        );
-      },
-      header: 'Recipient',
-      id: 'recipient',
-      isRowHeader: true,
-      minWidth: 280,
-    },
-    {
-      accessorKey: 'amount',
-      align: 'end',
-      allowsResizing: true,
-      allowsSorting: true,
-      cell: (item) => (
-        <span className="font-medium text-foreground tabular-nums">
-          ${Number(item.amount || 0).toLocaleString()}
-        </span>
-      ),
-      header: 'Amount',
-      id: 'amount',
-      minWidth: 120,
-    },
-    {
-      accessorKey: 'status',
-      allowsResizing: true,
-      allowsSorting: true,
-      cell: (item) => (
-        <Chip
-          color={STATUS_COLOR[item.status] || 'default'}
-          size="sm"
-          variant="soft"
-        >
-          <Chip.Label className="capitalize">{item.status}</Chip.Label>
-        </Chip>
-      ),
-      header: 'Status',
-      id: 'status',
-      minWidth: 120,
-    },
-    {
-      accessorKey: 'created_at',
-      allowsResizing: true,
-      allowsSorting: true,
-      cell: (item) => (
-        <span className="text-muted text-sm tabular-nums">
-          {new Date(item.created_at).toLocaleDateString('en-US', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-          })}
-        </span>
-      ),
-      header: 'Created',
-      id: 'created_at',
-      minWidth: 130,
-    },
-    {
-      align: 'end',
-      allowsResizing: false,
-      cell: (item) => (
-        <div className="flex items-center gap-1 justify-end">
-          <Button
-            variant="tertiary"
-            size="sm"
-            onPress={() => setDetailPayout(item)}
-          >
-            Details
+  const actions = (p: Payout, full = false) => {
+    const pending = busy === p.id;
+    return (
+      <div className={`flex items-center gap-1.5 flex-wrap ${full ? '' : 'lg:justify-end'}`}>
+        {!full && <Button variant="ghost" size="sm" className="!px-2.5" onPress={() => setDetail(p)}>{t('adm.pay.details')}</Button>}
+        {isAdmin && p.status === 'pending' && (
+          <Button variant="primary" size="sm" className="!px-2.5" isPending={pending} onPress={() => setConfirm({ kind: 'approve', payout: p })}>
+            <Check size={11} /> {t('adm.pay.approve')}
           </Button>
-          {item.status === 'approved' && (
-            <Button
-              variant="primary"
-              size="sm"
-              isPending={actionLoading === item.id}
-              onPress={() => setConfirmPayoutId(item.id)}
-            >
-              <ExternalLink className="size-3" /> Execute
-            </Button>
-          )}
-          {isAdmin && item.status === 'pending' && (
-            <Button
-              variant="primary"
-              size="sm"
-              isPending={actionLoading === item.id}
-              onPress={() => handleStatusUpdate(item.id, 'approved')}
-            >
-              Approve
-            </Button>
-          )}
-        </div>
-      ),
-      header: '',
-      id: 'actions',
-      minWidth: 240,
-      pinned: 'end',
-    },
-  ];
+        )}
+        {p.status === 'approved' && (
+          <Button variant="primary" size="sm" className="!px-2.5" isPending={pending} onPress={() => setConfirm({ kind: 'execute', payout: p })}>
+            <Send size={11} /> {t('adm.pay.execute')}
+          </Button>
+        )}
+        {p.status !== 'paid' && p.status !== 'rejected' && (
+          <Button variant="ghost" size="sm" className="!px-2.5 !text-danger" isPending={pending} onPress={() => setConfirm({ kind: 'reject', payout: p })}>
+            <XCircle size={11} /> {t('adm.pay.reject')}
+          </Button>
+        )}
+      </div>
+    );
+  };
 
-  /* ─── Brand balances DataGrid columns ──────────────────────── */
-  const balanceColumns: DataGridColumn<BrandBalance>[] = [
-    {
-      accessorKey: 'brandEmail',
-      allowsResizing: true,
-      allowsSorting: true,
-      cell: (item) => (
-        <span className="text-foreground text-sm font-medium">
-          {item.brandEmail}
-        </span>
-      ),
-      header: 'Brand',
-      id: 'brandEmail',
-      isRowHeader: true,
-      minWidth: 240,
-    },
-    {
-      accessorKey: 'deposited',
-      align: 'end',
-      allowsResizing: true,
-      allowsSorting: true,
-      cell: (item) => (
-        <span className="text-foreground text-sm tabular-nums">
-          ${Number(item.deposited || 0).toLocaleString()}
-        </span>
-      ),
-      header: 'Deposited',
-      id: 'deposited',
-      minWidth: 130,
-    },
-    {
-      accessorKey: 'committed',
-      align: 'end',
-      allowsResizing: true,
-      allowsSorting: true,
-      cell: (item) => (
-        <span className="text-muted text-sm tabular-nums">
-          ${Number(item.committed || 0).toLocaleString()}
-        </span>
-      ),
-      header: 'Committed',
-      id: 'committed',
-      minWidth: 130,
-    },
-    {
-      accessorKey: 'available',
-      align: 'end',
-      allowsResizing: true,
-      allowsSorting: true,
-      cell: (item) => (
-        <span className="text-success text-sm font-medium tabular-nums">
-          ${Number(item.available || 0).toLocaleString()}
-        </span>
-      ),
-      header: 'Available',
-      id: 'available',
-      minWidth: 130,
-    },
-  ];
-
-  /* ─── Audit DataGrid columns ──────────────────────────────── */
-  const auditColumns: DataGridColumn<AuditLog>[] = [
-    {
-      allowsResizing: true,
-      cell: (item) => (
-        <div className="flex flex-col min-w-0">
-          <span className="text-foreground text-sm font-medium truncate">
-            {item.user?.email || 'System'}
-          </span>
-          <span className="text-muted text-xs capitalize truncate">
-            {item.user?.role || 'N/A'}
-          </span>
-        </div>
-      ),
-      header: 'User',
-      id: 'user',
-      isRowHeader: true,
-      minWidth: 220,
-    },
-    {
-      accessorKey: 'action',
-      allowsResizing: true,
-      allowsSorting: true,
-      cell: (item) => (
-        <Chip
-          color={ACTION_COLOR[item.action] || 'default'}
-          size="sm"
-          variant="soft"
-        >
-          <Chip.Label>{item.action?.replace(/_/g, ' ')}</Chip.Label>
-        </Chip>
-      ),
-      header: 'Action',
-      id: 'action',
-      minWidth: 180,
-    },
-    {
-      allowsResizing: true,
-      cell: (item) => {
-        let details: any = {};
-        try {
-          details = JSON.parse(item.details || '{}');
-        } catch {}
-        return (
-          <span className="text-muted text-sm">
-            {details.creatorEmail && (
-              <>
-                To <span className="text-foreground font-medium">{details.creatorEmail}</span>
-              </>
-            )}
-            {details.amount && (
-              <>
-                {' · '}
-                <span className="text-foreground font-medium">
-                  ${Number(details.amount).toLocaleString()}
-                </span>
-              </>
-            )}
-            {details.campaignTitle && ` · ${details.campaignTitle}`}
-          </span>
-        );
-      },
-      header: 'Details',
-      id: 'details',
-      minWidth: 300,
-    },
-    {
-      accessorKey: 'created_at',
-      allowsResizing: true,
-      allowsSorting: true,
-      cell: (item) => (
-        <span className="text-muted text-xs tabular-nums whitespace-nowrap">
-          {new Date(item.created_at).toLocaleString()}
-        </span>
-      ),
-      header: 'Timestamp',
-      id: 'created_at',
-      minWidth: 180,
-    },
-  ];
-
-  const CopyRow: React.FC<{ label: string; value?: string; fieldId: string }> = ({
-    label,
-    value,
-    fieldId,
-  }) => (
+  const CopyRow: React.FC<{ label: string; value?: string; k: string }> = ({ label, value, k }) => (
     <div className="flex items-center justify-between gap-3 py-2">
       <div className="min-w-0">
-        <div className="text-muted text-[10px] font-medium uppercase tracking-wider">
-          {label}
-        </div>
-        <div className="text-foreground text-sm font-medium truncate">
-          {value || 'Not set'}
-        </div>
+        <div className="v-caption v-quiet" style={{ fontSize: 11 }}>{label}</div>
+        <div className="v-ink font-medium truncate" style={{ fontSize: 13 }}>{value || t('adm.pay.notSet')}</div>
       </div>
       {value && (
-        <Button
-          variant="tertiary"
-          size="sm"
-          onPress={() => copyToClipboard(value, fieldId)}
-        >
-          {copiedField === fieldId ? (
-            <>
-              <CheckCircle className="size-3 text-success" /> Copied
-            </>
-          ) : (
-            <>
-              <Copy className="size-3" /> Copy
-            </>
-          )}
+        <Button variant="tertiary" size="sm" onPress={() => copy(value, k)}>
+          {copied === k ? <><Check size={11} /> {t('adm.pay.copied')}</> : <><Copy size={11} /> {t('adm.pay.copy')}</>}
         </Button>
       )}
     </div>
   );
 
+  const stats = (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <MetricCard label={t('adm.pay.kpiPending')} value={counts.by.pending || 0} hint={t('adm.pay.kpiPendingHint')} icon={Clock} iconStatus={counts.by.pending ? 'warning' : undefined} />
+      <MetricCard label={t('adm.pay.kpiApproved')} value={counts.by.approved || 0} hint={t('adm.pay.kpiApprovedHint')} icon={Send} iconStatus={counts.by.approved ? 'warning' : undefined} />
+      <MetricCard label={t('adm.pay.kpiPaid')} value={money(counts.paidVolume)} hint={t('adm.pay.kpiPaidHint', { n: counts.by.paid || 0 })} series={weekSums(payouts, (p) => p.status === 'paid')} chartColor="var(--color-signal-green, #16c784)" icon={DollarSign} iconStatus="success" />
+      <MetricCard label={t('adm.pay.kpiEscrow')} value={money(counts.escrow)} hint={t('adm.pay.kpiEscrowHint', { v: money(counts.deposited) })} icon={Wallet} />
+    </div>
+  );
+
   return (
     <PageShell
-      title="Payout management"
-      description="Review pending payouts and manually dispatch funds via Flutterwave."
+      hero
+      containerSize="wide"
+      title={t('adm.pay.title')}
+      titleAccent={t('adm.pay.titleAccent')}
+      description={t('adm.pay.desc')}
       icon={<DollarSign size={18} />}
+      actions={
+        <a href="https://app.flutterwave.com/dashboard/payments/transfers/new/" target="_blank" rel="noopener noreferrer">
+          <Button variant="tertiary" size="md"><ExternalLink size={13} /> {t('adm.pay.flutterwave')}</Button>
+        </a>
+      }
+      stats={stats}
     >
-      {/* KPI stats */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Pending</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={stats.pending} maximumFractionDigits={0} />
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Approved</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={stats.approved} maximumFractionDigits={0} />
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Paid</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value value={stats.paid} maximumFractionDigits={0} />
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Total volume</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value
-              value={stats.total}
-              style="currency"
-              currency="USD"
-              notation="compact"
-              maximumFractionDigits={1}
-            />
-          </KPI.Content>
-        </KPI>
-      </div>
-
-      {/* Brand balances */}
-      {(isAdmin || isFinance) && (
-        <Card>
-          <Card.Header>
-            <Card.Title className="text-base">Brand wallet balances</Card.Title>
-            <Card.Description>
-              Escrow snapshot — funds deposited, committed, and available for transfer.
-            </Card.Description>
-          </Card.Header>
-          <Separator />
-          <Card.Content className="p-0">
-            {balancesLoading ? (
-              <div className="p-8 text-center text-muted text-sm">
-                Loading balances…
-              </div>
-            ) : (
-              <DataGrid
-                allowsColumnResize
-                aria-label="Brand balances"
-                columns={balanceColumns}
-                contentClassName="min-w-[700px]"
-                data={brandBalances}
-                getRowId={(item) => item.brandId}
-                renderEmptyState={() => 'No brand balances yet.'}
-                selectionMode="none"
-                variant="primary"
-              />
-            )}
-          </Card.Content>
-        </Card>
+      {error && (
+        <EmptyPanel tone="error" size="sm" icon={<AlertTriangle size={20} />} title={t('adm.errTitle')} description={t('adm.errDesc')} actions={<Button variant="primary" size="sm" onPress={() => { setLoading(true); load(); }}>{t('common.tryAgain')}</Button>} />
       )}
 
-      {/* Payouts toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          className={`${fieldClass} sm:w-44`}
-        >
-          <option value="all">All statuses</option>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="paid">Paid</option>
-          <option value="rejected">Rejected</option>
-        </select>
-        <div className="flex items-center gap-3">
-          <SearchField
-            aria-label="Search payouts"
-            value={search}
-            onChange={setSearch}
-          >
-            <SearchField.Group>
-              <SearchField.SearchIcon />
-              <SearchField.Input
-                className="w-full sm:w-[280px]"
-                placeholder="Search by creator, campaign, or status…"
-              />
-              <SearchField.ClearButton />
-            </SearchField.Group>
-          </SearchField>
-          <a
-            href="https://app.flutterwave.com/dashboard/payments/transfers/new/"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Button variant="tertiary" size="md" className="whitespace-nowrap">
-              <ExternalLink className="size-3.5" /> Flutterwave
-            </Button>
-          </a>
-        </div>
-      </div>
-
-      {/* Payouts list */}
-      {loading ? (
-        <div className="flex justify-center py-20">
-          <div className="w-10 h-10 border-4 border-border border-t-accent rounded-full animate-spin" />
-        </div>
-      ) : payouts.length === 0 ? (
-        <Card>
-          <Card.Content className="p-8">
-            <EmptyState>
-              <EmptyState.Media>
-                <DollarSign className="size-7" />
-              </EmptyState.Media>
-              <EmptyState.Title>No payouts yet</EmptyState.Title>
-              <EmptyState.Description>
-                Payouts appear here when brands deposit funds for creators.
-              </EmptyState.Description>
-            </EmptyState>
-          </Card.Content>
-        </Card>
-      ) : (
-        <DataGrid
-          allowsColumnResize
-          aria-label="Payouts"
-          columns={payoutColumns}
-          contentClassName="min-w-[1100px]"
-          data={filtered}
-          defaultSortDescriptor={{
-            column: 'created_at',
-            direction: 'descending',
-          }}
-          getRowId={(item) => item.id}
-          renderEmptyState={() => 'No payouts match the filter.'}
-          selectionMode="none"
-          variant="primary"
-        />
-      )}
-
-      {/* Audit logs (admin only) */}
-      {isAdmin && (
-        <Card>
-          <Card.Header>
-            <Card.Title className="inline-flex items-center gap-2 text-base">
-              <ClipboardList size={15} className="text-accent" />
-              Finance & staff activity log
-            </Card.Title>
-          </Card.Header>
-          <Separator />
-          <Card.Content className="p-0">
-            {auditLoading ? (
-              <div className="flex justify-center py-10">
-                <div className="w-8 h-8 border-4 border-border border-t-accent rounded-full animate-spin" />
-              </div>
-            ) : auditLogs.length === 0 ? (
-              <div className="p-8">
-                <EmptyState>
-                  <EmptyState.Media>
-                    <ClipboardList className="size-6" />
-                  </EmptyState.Media>
-                  <EmptyState.Title>No activity recorded yet</EmptyState.Title>
-                  <EmptyState.Description>
-                    Finance staff actions appear here once taken.
-                  </EmptyState.Description>
-                </EmptyState>
-              </div>
-            ) : (
-              <DataGrid
-                allowsColumnResize
-                aria-label="Audit logs"
-                columns={auditColumns}
-                contentClassName="min-w-[900px]"
-                data={auditLogs}
-                defaultSortDescriptor={{
-                  column: 'created_at',
-                  direction: 'descending',
-                }}
-                getRowId={(item) => item.id}
-                selectionMode="none"
-                variant="primary"
-              />
-            )}
-          </Card.Content>
-        </Card>
-      )}
-
-      {/* Detail modal */}
-      <Modal
-        isOpen={!!detailPayout}
-        onOpenChange={(open) => !open && setDetailPayout(null)}
-      >
-        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
-        <Modal.Container>
-          <Modal.Dialog>
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>Payout details</Modal.Heading>
-            </Modal.Header>
-            <Modal.Body>
-              {detailPayout && (
-                <div className="space-y-5">
-                  {/* Recipient summary */}
-                  <Card>
-                    <Card.Content className="p-4 space-y-2">
-                      <div className="flex items-center gap-2 text-sm">
-                        <Mail className="size-3.5 text-muted" />
-                        <span className="text-foreground">
-                          {detailPayout.creator?.email || 'N/A'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm">
-                        <CreditCard className="size-3.5 text-muted" />
-                        <span className="text-foreground">
-                          Amount:{' '}
-                          <span className="font-semibold">
-                            ${Number(detailPayout.amount || 0).toLocaleString()}
-                          </span>
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm">
-                        <DollarSign className="size-3.5 text-muted" />
-                        <span className="text-foreground">
-                          Campaign:{' '}
-                          <span className="font-medium">
-                            {detailPayout.campaign?.title || 'Direct'}
-                          </span>
-                        </span>
-                      </div>
-                    </Card.Content>
-                  </Card>
-
-                  {/* Payout account */}
-                  <div>
-                    <div className="text-muted text-xs font-medium uppercase tracking-wider mb-2 inline-flex items-center gap-1.5">
-                      <Building2 className="size-3" /> Recipient payout details
+      {/* Brand escrow */}
+      <div>
+        <SectionTitle icon={<Building2 size={15} />}>{t('adm.pay.escrow')}</SectionTitle>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3" aria-hidden>{[0, 1, 2].map((i) => <div key={i} className="v-talent-card p-4"><div className="v-skel h-4 w-1/2 mb-3" /><div className="v-skel h-3 w-full" /></div>)}</div>
+        ) : balances.length === 0 ? (
+          <EmptyPanel size="sm" icon={<Building2 size={18} />} title={t('adm.pay.noEscrowTitle')} description={t('adm.pay.noEscrowDesc')} />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {balances.map((b) => {
+              const dep = Number(b.deposited) || 0;
+              const com = Number(b.committed) || 0;
+              const pct = dep ? Math.min(100, Math.round((com / dep) * 100)) : 0;
+              return (
+                <article key={b.brandId} className="v-talent-card p-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <StoryAvatar name={b.brandEmail} seed={b.brandId} size={36} />
+                    <div className="min-w-0 flex-1">
+                      <div className="v-ink font-medium truncate" style={{ fontSize: 13.5 }}>{b.brandEmail}</div>
+                      <div className="v-caption v-quiet" style={{ fontSize: 11.5 }}>{t('adm.pay.committedPct', { pct })}</div>
                     </div>
-                    {detailPayout.payoutAccount ? (
-                      <Card>
-                        <Card.Content className="p-4 divide-y divide-border">
-                          {(detailPayout.payoutAccount.account_type === 'bank' ||
-                            detailPayout.payoutAccount.bank_name) && (
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden mt-3" style={{ background: 'var(--color-cool-gray)' }}>
+                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'var(--gradient-signature)' }} />
+                  </div>
+                  <dl className="grid grid-cols-3 gap-2 mt-3">
+                    <Fact label={t('adm.pay.deposited')}>{money(dep)}</Fact>
+                    <Fact label={t('adm.pay.committed')}>{money(com)}</Fact>
+                    <Fact label={t('adm.pay.available')}><span style={{ color: '#0b6e3e' }}>{money(b.available)}</span></Fact>
+                  </dl>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Queue */}
+      <div>
+        <SectionTitle icon={<CreditCard size={15} />}>{t('adm.pay.queue')}</SectionTitle>
+        <DirectoryToolbar
+          search={{ value: search, onChange: setSearch, placeholder: t('adm.pay.searchPh'), widthClass: 'w-full sm:w-[300px]' }}
+          count={t('adm.pay.count', { shown: shown.length, total: filtered.length })}
+        >
+          <Segment size="sm" selectedKey={status} onSelectionChange={(k) => { setStatus(k as StatusFilter); setLimit(PAGE); }} aria-label={t('adm.users.statusFilter')}>
+            <Segment.Item id="all">{t('dash.all')} · {payouts.length}</Segment.Item>
+            {STATUSES.map((s) => (
+              <Segment.Item key={s} id={s}>{t(`adm.pay.status.${s}`)} · {counts.by[s] || 0}</Segment.Item>
+            ))}
+          </Segment>
+        </DirectoryToolbar>
+
+        {loading ? (
+          <RowSkeletons n={4} />
+        ) : filtered.length === 0 ? (
+          <EmptyPanel
+            tone={payouts.length === 0 ? 'neutral' : status === 'pending' ? 'success' : 'neutral'}
+            icon={<DollarSign size={22} />}
+            title={payouts.length === 0 ? t('adm.pay.emptyTitle') : status === 'pending' ? t('adm.pay.clearTitle') : t('common.noMatches')}
+            description={payouts.length === 0 ? t('adm.pay.emptyDesc') : status === 'pending' ? t('adm.pay.clearDesc') : t('board.emptyStatus')}
+            actions={payouts.length > 0 && (search || status !== 'all') ? <Button variant="tertiary" onPress={() => { setSearch(''); setStatus('all'); }}>{t('board.resetFilters')}</Button> : undefined}
+          />
+        ) : (
+          <>
+            <ul className="space-y-3">
+              {shown.map((p) => {
+                const who = userIdentity(p.creator);
+                return (
+                  <li key={p.id} className="v-talent-card p-4 grid grid-cols-1 lg:grid-cols-[minmax(220px,1.3fr)_minmax(140px,0.8fr)_auto_minmax(260px,1fr)] gap-4 items-center">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <StoryAvatar src={who.avatar} name={who.name || p.creator?.email} seed={p.creator?.id || p.id} size={44} />
+                      <div className="min-w-0">
+                        <div className="v-ink font-medium truncate" style={{ fontSize: 14.5 }}>{who.name || p.creator?.email}</div>
+                        <div className="v-caption v-quiet truncate" style={{ fontSize: 11.5 }}>
+                          {p.creator?.email} · {p.campaign?.title || t('adm.pay.direct')} · {postedLabel(p.created_at)}
+                        </div>
+                        <div className="mt-1.5">{accountChip(p)}</div>
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="v-ink font-medium tabular-nums" style={{ fontSize: 22, letterSpacing: '-0.02em' }}>{money(p.amount)}</div>
+                      {p.tx_ref && <div className="v-caption v-quiet truncate" style={{ fontSize: 11 }}>{p.tx_ref}</div>}
+                    </div>
+                    <Chip color={PAYOUT_COLOR[p.status] || 'default'} variant="soft" size="sm">
+                      <Chip.Label>{t(`adm.pay.status.${p.status}`, { defaultValue: p.status })}</Chip.Label>
+                    </Chip>
+                    {actions(p)}
+                  </li>
+                );
+              })}
+            </ul>
+            {filtered.length > shown.length && (
+              <div className="flex justify-center mt-6">
+                <button type="button" onClick={() => setLimit((n) => n + PAGE)} className="v-facet-btn !px-4 !py-2.5">
+                  {t('common.loadMore', { n: filtered.length - shown.length })}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Audit trail */}
+      {isAdmin && (
+        <Panel icon={<ClipboardList size={15} />} title={t('adm.pay.audit')} desc={t('adm.pay.auditDesc')}>
+          {!loading && audit.length === 0 ? (
+            <p className="v-caption v-quiet" style={{ fontSize: 12.5 }}>{t('adm.dash.noActivity')}</p>
+          ) : (
+            <ol className="relative pl-5" style={{ borderLeft: '2px solid var(--color-cool-gray)' }}>
+              {audit.slice(0, 25).map((l) => {
+                let d: any = {};
+                try { d = JSON.parse(l.details || '{}'); } catch { /* raw */ }
+                const tone = l.action === 'EXECUTED_PAYOUT' ? '#16c784' : l.action === 'REJECTED_PAYOUT' ? '#ff5a5f' : '#6c63ff';
+                return (
+                  <li key={l.id} className="relative pb-4 last:pb-0">
+                    <span className="absolute -left-[27px] top-1 inline-block h-3 w-3 rounded-full" style={{ background: tone, boxShadow: '0 0 0 3px var(--color-paper)' }} />
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="v-ink font-medium" style={{ fontSize: 13 }}>{t(`adm.audit.${l.action}`, { defaultValue: String(l.action || '').replace(/_/g, ' ').toLowerCase() })}</span>
+                      {d.amount && <span className="v-ink tabular-nums" style={{ fontSize: 13 }}>{money(d.amount)}</span>}
+                      {d.creatorEmail && <span className="v-caption v-quiet" style={{ fontSize: 12 }}>→ {d.creatorEmail}</span>}
+                      {d.campaignTitle && <span className="v-caption v-quiet" style={{ fontSize: 12 }}>· {d.campaignTitle}</span>}
+                    </div>
+                    <div className="v-caption v-quiet" style={{ fontSize: 11.5 }}>{l.user?.email || t('adm.audit.system')}{l.user?.role ? ` (${t(`adm.roles.${l.user.role}`, { defaultValue: l.user.role })})` : ''} · {dateTime(l.created_at)}</div>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </Panel>
+      )}
+
+      {/* Details */}
+      <Modal isOpen={!!detail} onOpenChange={(o) => !o && setDetail(null)}>
+        <Modal.Backdrop>
+          <Modal.Container>
+            <Modal.Dialog className="!max-w-lg">
+              <Modal.CloseTrigger />
+              <Modal.Header>
+                <div className="flex items-center gap-3 min-w-0 pr-8">
+                  <StoryAvatar src={userIdentity(detail?.creator).avatar} name={userIdentity(detail?.creator).name || detail?.creator?.email} seed={detail?.creator?.id || detail?.id || 'p'} size={40} />
+                  <div className="min-w-0">
+                    <Modal.Heading className="truncate">{userIdentity(detail?.creator).name || detail?.creator?.email}</Modal.Heading>
+                    <p className="v-caption v-quiet truncate" style={{ fontSize: 12 }}>{detail?.creator?.email}</p>
+                  </div>
+                </div>
+              </Modal.Header>
+              <Modal.Body>
+                {detail && (
+                  <div className="space-y-4">
+                    <dl className="grid grid-cols-2 gap-2">
+                      <Fact label={t('apps.amount')}>{money(detail.amount)}</Fact>
+                      <Fact label={t('adm.pay.statusLbl')}>{t(`adm.pay.status.${detail.status}`, { defaultValue: detail.status })}</Fact>
+                      <Fact label={t('dash.campaign')}>{detail.campaign?.title || t('adm.pay.direct')}</Fact>
+                      <Fact label={t('adm.pay.requested')}>{dateShort(detail.created_at)}</Fact>
+                    </dl>
+                    <div>
+                      <div className="v-caption v-quiet font-medium uppercase tracking-wider mb-1 inline-flex items-center gap-1.5" style={{ fontSize: 10.5 }}>
+                        <Landmark size={11} /> {t('adm.pay.recipient')}
+                      </div>
+                      {detail.payoutAccount && (detail.payoutAccount.account_number || detail.payoutAccount.mobile_number) ? (
+                        <div className="rounded-xl px-3 divide-y divide-border v-hairline">
+                          {detail.payoutAccount.account_number && (
                             <>
-                              <CopyRow
-                                label="Bank name"
-                                value={detailPayout.payoutAccount.bank_name}
-                                fieldId={`bank-${detailPayout.id}`}
-                              />
-                              <CopyRow
-                                label="Account number"
-                                value={detailPayout.payoutAccount.account_number}
-                                fieldId={`acct-${detailPayout.id}`}
-                              />
-                              <CopyRow
-                                label="Account name"
-                                value={detailPayout.payoutAccount.account_name}
-                                fieldId={`name-${detailPayout.id}`}
-                              />
-                              <CopyRow
-                                label="Bank code"
-                                value={detailPayout.payoutAccount.bank_code}
-                                fieldId={`code-${detailPayout.id}`}
-                              />
-                              <div className="py-2">
-                                <div className="text-muted text-[10px] font-medium uppercase tracking-wider">
-                                  Currency
+                              <CopyRow label={t('adm.pay.bankName')} value={detail.payoutAccount.bank_name} k="bank" />
+                              <CopyRow label={t('adm.pay.accountNumber')} value={detail.payoutAccount.account_number} k="acct" />
+                              <CopyRow label={t('adm.pay.accountName')} value={detail.payoutAccount.account_name} k="name" />
+                              <CopyRow label={t('adm.pay.bankCode')} value={detail.payoutAccount.bank_code} k="code" />
+                              <div className="py-2 flex items-center justify-between">
+                                <div>
+                                  <div className="v-caption v-quiet" style={{ fontSize: 11 }}>{t('adm.pay.currency')}</div>
+                                  <div className="v-ink font-medium" style={{ fontSize: 13 }}>{detail.payoutAccount.currency || 'USD'}{detail.payoutAccount.country ? ` · ${detail.payoutAccount.country}` : ''}</div>
                                 </div>
-                                <div className="text-foreground text-sm font-medium">
-                                  {detailPayout.payoutAccount.currency || 'USD'}
-                                </div>
+                                {detail.payoutAccount.is_verified && (
+                                  <Chip color="success" variant="soft" size="sm"><CheckCircle2 size={11} /><Chip.Label>{t('adm.pay.bankVerified')}</Chip.Label></Chip>
+                                )}
                               </div>
                             </>
                           )}
-                          {detailPayout.payoutAccount.mobile_number && (
-                            <CopyRow
-                              label={`Mobile money · ${detailPayout.payoutAccount.mobile_network || ''}`}
-                              value={detailPayout.payoutAccount.mobile_number}
-                              fieldId={`mobile-${detailPayout.id}`}
-                            />
+                          {detail.payoutAccount.mobile_number && (
+                            <CopyRow label={`${t('adm.pay.mobileMoney')} · ${detail.payoutAccount.mobile_network || ''}`} value={detail.payoutAccount.mobile_number} k="mobile" />
                           )}
-                          {detailPayout.payoutAccount.is_verified && (
-                            <div className="pt-2">
-                              <Chip color="success" size="sm" variant="soft">
-                                <CheckCircle className="size-3" />
-                                <Chip.Label>Bank verified</Chip.Label>
-                              </Chip>
-                            </div>
-                          )}
-                        </Card.Content>
-                      </Card>
-                    ) : (
-                      <Card className="bg-danger-soft border-danger/40">
-                        <Card.Content className="p-3 flex items-center gap-2 text-sm font-medium text-danger-soft-foreground">
-                          <AlertCircle className="size-3.5" />
-                          <span>
-                            No payout account configured. Recipient must set bank
-                            details first.
-                          </span>
-                        </Card.Content>
-                      </Card>
-                    )}
-                  </div>
-
-                  {/* Quick actions */}
-                  <div className="flex flex-col gap-2">
-                    {detailPayout.status === 'approved' && (
-                      <Button
-                        variant="primary"
-                        fullWidth
-                        isPending={actionLoading === detailPayout.id}
-                        onPress={() => {
-                          setConfirmPayoutId(detailPayout.id);
-                          setDetailPayout(null);
-                        }}
-                      >
-                        <ExternalLink className="size-3.5" /> Execute transfer
-                      </Button>
-                    )}
-                    {isAdmin && detailPayout.status === 'pending' && (
-                      <Button
-                        variant="primary"
-                        fullWidth
-                        isPending={actionLoading === detailPayout.id}
-                        onPress={() => {
-                          handleStatusUpdate(detailPayout.id, 'approved');
-                          setDetailPayout(null);
-                        }}
-                      >
-                        <CheckCircle className="size-3.5" /> Approve payout
-                      </Button>
-                    )}
-                    {detailPayout.status !== 'paid' &&
-                      detailPayout.status !== 'rejected' && (
-                        <Button
-                          variant="danger-soft"
-                          fullWidth
-                          isPending={actionLoading === detailPayout.id}
-                          onPress={() => {
-                            handleStatusUpdate(detailPayout.id, 'rejected');
-                            setDetailPayout(null);
-                          }}
-                        >
-                          <XCircle className="size-3.5" /> Reject payout
-                        </Button>
+                        </div>
+                      ) : (
+                        <EmptyPanel tone="error" size="sm" icon={<AlertTriangle size={18} />} title={t('adm.pay.noAccount')} description={t('adm.pay.noAccountDesc')} />
                       )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </Modal.Body>
-            <Modal.Footer>
-              <Button variant="ghost" onPress={() => setDetailPayout(null)}>
-                Close
-              </Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
+                )}
+              </Modal.Body>
+              <Modal.Footer>
+                <div className="flex-1">{detail && actions(detail, true)}</div>
+                <Button variant="ghost" onPress={() => setDetail(null)}>{t('common.close')}</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
         </Modal.Backdrop>
       </Modal>
 
-      {/* Confirm transfer modal */}
-      <Modal
-        isOpen={!!confirmPayoutId}
-        onOpenChange={(open) => !open && setConfirmPayoutId(null)}
-      >
-        <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
-        <Modal.Container>
-          <Modal.Dialog>
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading className="inline-flex items-center gap-2">
-                <UserIcon className="size-4" />
-                Confirm escrow transfer
-              </Modal.Heading>
-            </Modal.Header>
-            <Modal.Body>
-              <p className="text-muted text-sm">
-                You're about to securely dispatch funds from the platform escrow
-                to the recipient's bank via Flutterwave. The system automatically
-                validates the brand's escrow deposit.
-              </p>
-            </Modal.Body>
-            <Modal.Footer>
-              <Button
-                variant="ghost"
-                onPress={() => setConfirmPayoutId(null)}
-                isDisabled={actionLoading === confirmPayoutId}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                isPending={actionLoading === confirmPayoutId}
-                onPress={handleExecutePayout}
-              >
-                {actionLoading === confirmPayoutId ? (
-                  <Loader className="size-4 animate-spin" />
-                ) : (
-                  <CheckCircle className="size-4" />
-                )}
-                Confirm dispatch
-              </Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      <ConfirmModal
+        open={!!confirm}
+        tone={confirm?.kind === 'reject' ? 'danger' : 'primary'}
+        pending={!!confirm && busy === confirm.payout.id}
+        title={confirm?.kind === 'execute' ? t('adm.pay.executeTitle') : confirm?.kind === 'reject' ? t('adm.pay.rejectTitle') : t('adm.pay.approveTitle')}
+        body={
+          confirm?.kind === 'execute'
+            ? t('adm.pay.executeBody', { amount: money(confirm.payout.amount), who: confirm.payout.creator?.email })
+            : confirm?.kind === 'reject'
+              ? t('adm.pay.rejectBody', { amount: money(confirm.payout.amount), who: confirm.payout.creator?.email })
+              : t('adm.pay.approveBody', { amount: money(confirm?.payout.amount), who: confirm?.payout.creator?.email })
+        }
+        confirmLabel={confirm?.kind === 'execute' ? t('adm.pay.executeConfirm') : confirm?.kind === 'reject' ? t('adm.pay.reject') : t('adm.pay.approve')}
+        onConfirm={onConfirm}
+        onClose={() => setConfirm(null)}
+      />
     </PageShell>
   );
 };

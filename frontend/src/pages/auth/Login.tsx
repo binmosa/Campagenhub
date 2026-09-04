@@ -237,6 +237,7 @@ const Login: React.FC = () => {
           <form onSubmit={handleLogin} className="space-y-4">
             {error && (
               <motion.div
+                role="alert"
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="flex items-center gap-2.5 px-3.5 py-3 rounded-lg v-body"

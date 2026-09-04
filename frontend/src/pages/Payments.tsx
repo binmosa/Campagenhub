@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
   Building2,
@@ -203,6 +204,7 @@ const fieldStyle: React.CSSProperties = {
 
 /* ─── Main page ─────────────────────────────────────────────────── */
 const Payments: React.FC = () => {
+  const { t } = useTranslation();
   const role = (localStorage.getItem('role') || 'creator').toLowerCase().trim();
   const isBrand = role === 'brand';
 
@@ -295,21 +297,17 @@ const Payments: React.FC = () => {
     <PageShell
       hero
       containerSize="wide"
-      title={isBrand ? 'Team' : 'Your'}
-      titleAccent="payments"
+      title={isBrand ? t('ops.pay.titleBrand') : t('ops.pay.titleOwn')}
+      titleAccent={t('ops.pay.accent')}
       stats={
         <div className={`grid grid-cols-2 gap-3 ${isBrand ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
-          <MetricCard label="Total paid" value={fmt(stats.totalPaid)} hint="completed" icon={DollarSign} iconStatus={stats.totalPaid > 0 ? 'success' : undefined} />
-          <MetricCard label="Pending" value={fmt(stats.totalPending)} hint="in flight" icon={PendingIcon} iconStatus={stats.totalPending > 0 ? 'warning' : undefined} />
-          {isBrand && <MetricCard label="Payees" value={stats.team} hint="contracts + team" icon={TeamIcon} />}
-          <MetricCard label="Transactions" value={stats.count} hint="all time" icon={TxIcon} />
+          <MetricCard label={t('ops.pay.kPaid')} value={fmt(stats.totalPaid)} hint={t('ops.pay.kPaidHint')} icon={DollarSign} iconStatus={stats.totalPaid > 0 ? 'success' : undefined} />
+          <MetricCard label={t('ops.pay.kPending')} value={fmt(stats.totalPending)} hint={t('ops.pay.kPendingHint')} icon={PendingIcon} iconStatus={stats.totalPending > 0 ? 'warning' : undefined} />
+          {isBrand && <MetricCard label={t('ops.pay.kPayees')} value={stats.team} hint={t('ops.pay.kPayeesHint')} icon={TeamIcon} />}
+          <MetricCard label={t('ops.pay.kTx')} value={stats.count} hint={t('ops.pay.kTxHint')} icon={TxIcon} />
         </div>
       }
-      description={
-        isBrand
-          ? 'Send instant payments to your team members via Flutterwave or Telebirr.'
-          : 'View your payment history and configure your payout account.'
-      }
+      description={isBrand ? t('ops.pay.descBrand') : t('ops.pay.descOwn')}
       icon={<Wallet size={18} />}
       actions={
         isBrand ? (
@@ -319,7 +317,7 @@ const Payments: React.FC = () => {
             className="!rounded-xl"
             onPress={() => setShowPay(true)}
           >
-            <Send size={14} /> Instant pay
+            <Send size={14} /> {t('ops.pay.instantPay')}
           </Button>
         ) : null
       }
@@ -329,13 +327,13 @@ const Payments: React.FC = () => {
         <Card.Header className="flex-row items-center justify-between">
           <Card.Title className="inline-flex items-center gap-2 text-base">
             <CreditCard size={15} className="text-accent" />
-            Transaction history
+            {t('ops.pay.history')}
           </Card.Title>
           <Button
             variant="tertiary"
             size="sm"
             isIconOnly
-            aria-label="Refresh"
+            aria-label={t('ops.pay.refresh')}
             onPress={load}
           >
             <RefreshCw size={13} />
@@ -354,12 +352,8 @@ const Payments: React.FC = () => {
               <EmptyPanel
                 size="sm"
                 icon={<DollarSign size={18} />}
-                title="No transactions yet"
-                description={
-                  isBrand
-                    ? 'Send your first payment to a creator on your team — Flutterwave and Telebirr are wired in, with escrow per campaign.'
-                    : 'Payments from brands land here. Add a payout account below so you can be paid without delay.'
-                }
+                title={t('ops.pay.emptyTitle')}
+                description={isBrand ? t('ops.pay.emptyBrandDesc') : t('ops.pay.emptyOwnDesc')}
                 actions={
                   isBrand ? (
                     <Button variant="primary" size="sm" onPress={() => setShowPay(true)}>

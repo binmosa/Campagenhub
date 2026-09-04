@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -57,6 +58,7 @@ const fieldStyle: React.CSSProperties = {
 };
 
 const Messages: React.FC = () => {
+  const { t } = useTranslation();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [searchResults, setSearchResults] = useState<Conversation[]>([]);
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null);
@@ -184,21 +186,21 @@ const Messages: React.FC = () => {
     <PageShell
       hero
       containerSize="wide"
-      title="Your"
-      titleAccent="messages"
-      description={`Direct conversations with ${role === 'brand' ? 'the creators and managers you work with' : 'brands and managers'} — offers, briefs and deliverables in one thread.`}
+      title={t('ops.msg.title')}
+      titleAccent={t('ops.msg.accent')}
+      description={role === 'brand' ? t('ops.msg.descBrand') : t('ops.msg.descOwn')}
       icon={<MessageSquare size={18} />}
       stats={
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <MetricCard label="Conversations" value={conversations.length} icon={InboxIcon} />
+          <MetricCard label={t('ops.msg.kConvos')} value={conversations.length} icon={InboxIcon} />
           <MetricCard
-            label="Unread"
+            label={t('ops.msg.kUnread')}
             value={conversations.reduce((s, c) => s + (Number(c.unread) || 0), 0)}
-            hint={`${conversations.filter((c) => Number(c.unread) > 0).length} threads`}
+            hint={t('ops.msg.kThreads', { n: conversations.filter((c) => Number(c.unread) > 0).length })}
             icon={UnreadIcon}
             iconStatus={conversations.some((c) => Number(c.unread) > 0) ? 'warning' : undefined}
           />
-          <MetricCard label="Open thread" value={activeConvo ? (activeConvo.name || '—') : '—'} hint={activeConvo ? `${messages.length} messages` : 'pick a conversation'} icon={MessageSquare} className="hidden sm:block" />
+          <MetricCard label={t('ops.msg.kOpen')} value={activeConvo ? (activeConvo.name || '—') : '—'} hint={activeConvo ? t('ops.msg.kMessagesN', { n: messages.length }) : t('ops.msg.kPick')} icon={MessageSquare} className="hidden sm:block" />
         </div>
       }
     >
@@ -239,8 +241,8 @@ const Messages: React.FC = () => {
                   <EmptyPanel
                     size="sm"
                     icon={<MessageSquare size={16} />}
-                    title="No conversations yet"
-                    description="Search above by name to start one."
+                    title={t('ops.msg.emptyTitle')}
+                    description={t('ops.msg.emptyDesc')}
                   />
                 </div>
               ) : (
@@ -475,8 +477,8 @@ const Messages: React.FC = () => {
                 <EmptyPanel
                   className="w-full max-w-md"
                   icon={<MessageSquare size={22} />}
-                  title="Pick a conversation"
-                  description="Select a thread on the left, or search for a creator, manager or brand to start one. Messages refresh in real time."
+                  title={t('ops.msg.pickTitle')}
+                  description={t('ops.msg.pickDesc')}
                 />
               </div>
             )}

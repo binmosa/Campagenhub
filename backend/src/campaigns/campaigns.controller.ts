@@ -4,8 +4,14 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { TeamPermission, TeamPermissionGuard } from '../auth/team-permission.guard';
 import { UserRole } from '../users/user.entity';
 
+/**
+ * Brand-owned routes act for `req.user.brandId` — the owner itself, or the
+ * parent brand when a team member is signed in — and team members must hold
+ * the matching permission flag (see TeamPermissionGuard).
+ */
 @Controller('api/campaigns')
 export class CampaignsController {
   constructor(private readonly campaignsService: CampaignsService) {}
@@ -42,11 +48,12 @@ export class CampaignsController {
   }
 
   // Brand overview numbers (funnels, committed budget, weekly series).
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, TeamPermissionGuard)
   @Get('brand/stats')
   @Roles(UserRole.BRAND)
+  @TeamPermission('can_view_analytics')
   async getBrandStats(@Request() req: any) {
-    return this.campaignsService.getBrandStats(req.user.userId);
+    return this.campaignsService.getBrandStats(req.user.brandId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -57,7 +64,7 @@ export class CampaignsController {
     @Query('status') status?: string,
     @Query('search') search?: string,
   ) {
-    return this.campaignsService.getCampaignsByBrand(req.user.userId, { status, search });
+    return this.campaignsService.getCampaignsByBrand(req.user.brandId, { status, search });
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -68,28 +75,31 @@ export class CampaignsController {
     @Query('status') status?: string,
     @Query('search') search?: string,
   ) {
-    return this.campaignsService.getCampaignsByBrand(req.user.userId, { status, search });
+    return this.campaignsService.getCampaignsByBrand(req.user.brandId, { status, search });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, TeamPermissionGuard)
   @Post()
   @Roles(UserRole.BRAND)
+  @TeamPermission('can_add_campaigns')
   async createCampaign(@Request() req: any, @Body() body: any) {
-    return this.campaignsService.createCampaign(req.user, body);
+    return this.campaignsService.createCampaign({ ...req.user, userId: req.user.brandId }, body);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, TeamPermissionGuard)
   @Patch(':id')
   @Roles(UserRole.BRAND)
+  @TeamPermission('can_add_campaigns')
   async updateCampaign(@Request() req: any, @Param('id') id: string, @Body() body: any) {
-    return this.campaignsService.updateCampaign(id, req.user.userId, body);
+    return this.campaignsService.updateCampaign(id, req.user.brandId, body);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, TeamPermissionGuard)
   @Delete(':id')
   @Roles(UserRole.BRAND)
+  @TeamPermission('can_add_campaigns')
   async deleteCampaign(@Request() req: any, @Param('id') id: string) {
-    await this.campaignsService.deleteCampaign(id, req.user.userId);
+    await this.campaignsService.deleteCampaign(id, req.user.brandId);
     return { success: true };
   }
 
@@ -98,6 +108,6 @@ export class CampaignsController {
   @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')
   async getOne(@Request() req: any, @Param('id') id: string, @Query('lang') lang?: string) {
-    return this.campaignsService.getCampaignById(id, req.user || undefined, lang);
+    return this.campaignsService.getCampaignById(id, req.user ? { ...req.user, userId: req.user.brandId || req.user.userId } : undefined, lang);
   }
 }

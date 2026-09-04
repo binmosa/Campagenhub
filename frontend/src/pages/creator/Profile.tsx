@@ -17,7 +17,7 @@ import { EmptyPanel } from '../../components/common/EmptyPanel';
 import { Notice } from '../../components/common/Notice';
 import LocationCascade, { EMPTY_LOCATION, type LocationValue } from '../../components/common/LocationCascade';
 import AccountSettings from '../../components/AccountSettings';
-import PayoutSettings from '../../components/PayoutSettings';
+import PayoutSummary from '../../components/PayoutSummary';
 import { KycCard } from '../../components/common/KycCard';
 import PlatformIcon from '../landing/mocks/PlatformIcon';
 import { NICHES, PLATFORM_ICON_KEY, accentFor, fieldClass } from '../talent/shared';
@@ -380,7 +380,7 @@ const CreatorProfilePage: React.FC = () => {
 
       <div>
         <h2 className="v-ink font-medium mb-3 inline-flex items-center gap-2" style={{ fontSize: 16, letterSpacing: '-0.015em' }}>{t('cprof.payoutSection')}</h2>
-        <PayoutSettings />
+        <PayoutSummary />
       </div>
       <div>
         <h2 className="v-ink font-medium mb-3 inline-flex items-center gap-2" style={{ fontSize: 16, letterSpacing: '-0.015em' }}>{t('profile.accountSection')}</h2>

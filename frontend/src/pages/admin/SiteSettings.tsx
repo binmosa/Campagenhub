@@ -1,161 +1,66 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle,
+  AlertTriangle,
+  BarChart3,
   Bell,
+  Bot,
   Check,
+  Contact,
+  Handshake,
+  LayoutList,
+  Mail,
+  Megaphone,
   Palette,
+  Radio,
+  Rocket,
   Save,
   Settings2,
+  Sparkles,
+  Star,
   ToggleLeft,
-  Type,
   Upload,
+  Users,
+  Wrench,
 } from 'lucide-react';
-import {
-  Button,
-  Card,
-  Chip,
-  Label,
-  Separator,
-  Switch,
-  TextArea,
-  TextField,
-} from '@heroui/react';
-import { Input } from 'react-aria-components';
+import { Button, Chip, Switch } from '@heroui/react';
+import { useTranslation } from 'react-i18next';
 import api, { serverOrigin } from '../../lib/api';
+import { toast } from '../../lib/toast';
 import { useTheme } from '../../contexts/ThemeContext';
-import { PageShell } from '../../components/ui';
+import { fieldClass } from '../talent/shared';
+import { MetricCard, PageShell } from '../../components/ui';
+import { Field, Panel } from './shared';
 
-const fieldClass =
-  'w-full px-3.5 py-2.5 rounded-lg bg-surface text-foreground text-sm placeholder:text-muted border border-border focus:outline-none focus:border-field-border-focus';
-
+/**
+ * SiteSettings — everything an admin can change on the public site
+ * without a deploy: maintenance lock, landing copy per section, section
+ * toggles, live-activity popups, stats source and the platform accent.
+ * Values are the same string map the landing reads from /public/settings.
+ */
 type SettingsMap = Record<string, string>;
 
-/* ── Reusable helpers ─────────────────────────────────────────────── */
-const SettingSection: React.FC<{
-  title: string;
-  description?: string;
-  icon: React.ReactNode;
-  tone?: 'default' | 'danger';
-  children: React.ReactNode;
-}> = ({ title, description, icon, tone = 'default', children }) => (
-  <Card className={tone === 'danger' ? 'border-danger/40' : ''}>
-    <Card.Header>
-      <Card.Title
-        className={`inline-flex items-center gap-2 text-base ${
-          tone === 'danger' ? 'text-danger' : ''
-        }`}
-      >
-        {icon} {title}
-      </Card.Title>
-      {description && <Card.Description>{description}</Card.Description>}
-    </Card.Header>
-    <Separator />
-    <Card.Content className="p-5 space-y-4">{children}</Card.Content>
-  </Card>
-);
-
-const SettingText: React.FC<{
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: string;
-}> = ({ label, value, onChange, placeholder, type }) => (
-  <TextField value={value} onChange={onChange} aria-label={label}>
-    <Label className="text-muted text-[10px] font-medium uppercase tracking-wider block mb-1.5">
-      {label}
-    </Label>
-    <Input className={fieldClass} placeholder={placeholder} type={type} />
-  </TextField>
-);
-
-const SettingTextArea: React.FC<{
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  rows?: number;
-}> = ({ label, value, onChange, placeholder, rows = 3 }) => (
-  <div>
-    <Label className="text-muted text-[10px] font-medium uppercase tracking-wider block mb-1.5">
-      {label}
-    </Label>
-    <TextArea
-      value={value}
-      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-        onChange(e.target.value)
-      }
-      rows={rows}
-      placeholder={placeholder}
-      className={`${fieldClass} resize-none`}
-    />
-  </div>
-);
-
-const SettingToggle: React.FC<{
-  label: string;
-  description: string;
-  value: boolean;
-  onChange: (v: boolean) => void;
-  tone?: 'default' | 'danger';
-}> = ({ label, description, value, onChange, tone }) => (
-  <div
-    className={`flex items-center justify-between gap-4 p-3 rounded-lg border ${
-      tone === 'danger'
-        ? 'bg-danger-soft border-danger/40'
-        : 'bg-surface-secondary border-border'
-    }`}
-  >
-    <div className="min-w-0">
-      <div className="text-foreground text-sm font-semibold">{label}</div>
-      <div className="text-muted text-xs mt-0.5">{description}</div>
-    </div>
-    <Switch isSelected={value} onChange={onChange}>
-      <Switch.Control>
-        <Switch.Thumb />
-      </Switch.Control>
-    </Switch>
-  </div>
-);
-
-const SettingImageUpload: React.FC<{
-  label: string;
-  value: string;
-  onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  previewClass?: string;
-}> = ({ label, value, onUpload, previewClass = 'h-24' }) => (
-  <div>
-    <Label className="text-muted text-[10px] font-medium uppercase tracking-wider block mb-1.5">
-      {label}
-    </Label>
-    <div className="flex items-center gap-3 flex-wrap">
-      {value && (
-        <div
-          className={`${previewClass} w-32 rounded-lg overflow-hidden border border-border`}
-        >
-          <img
-            src={value.startsWith('http') ? value : `${serverOrigin}${value}`}
-            alt="Preview"
-            className="w-full h-full object-cover"
-          />
-        </div>
-      )}
-      <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-foreground text-sm font-medium cursor-pointer hover:border-accent/40">
-        <Upload size={13} />
-        {value ? 'Replace' : 'Upload'}
-        <input
-          type="file"
-          accept="image/*"
-          onChange={onUpload}
-          className="hidden"
-        />
-      </label>
-    </div>
-  </div>
-);
+const DEFAULTS: SettingsMap = {
+  ticker_enabled: 'true',
+  ticker_text: '',
+  notifications_enabled: 'true',
+  notifications_mock_enabled: 'true',
+  stats_use_real_data: 'false',
+  for_brands_enabled: 'true',
+  for_creators_enabled: 'true',
+  testimonials_enabled: 'true',
+  testimonials_mock_enabled: 'true',
+  faq_enabled: 'true',
+  contact_enabled: 'true',
+  platform_theme: 'theme-brand',
+  is_maintenance_mode: 'false',
+  maintenance_message: '',
+  hero_title: '',
+  hero_subtitle: '',
+  about_text: '',
+};
 
 const THEMES = [
-  { id: 'theme-brand', label: 'CampaignHub Brand', hex: '#5b5cf6', lightHex: '#36d7dc' },
+  { id: 'theme-brand', label: 'Campgains Hub', hex: '#5b5cf6', lightHex: '#36d7dc' },
   { id: 'theme-yellow', label: 'Golden Yellow', hex: '#ca8a04', lightHex: '#facc15' },
   { id: 'theme-blue', label: 'Ocean Blue', hex: '#2563eb', lightHex: '#60a5fa' },
   { id: 'theme-green', label: 'Growth Green', hex: '#16a34a', lightHex: '#4ade80' },
@@ -163,616 +68,359 @@ const THEMES = [
   { id: 'theme-indigo', label: 'Indigo Aura', hex: '#6366f1', lightHex: '#818cf8' },
 ];
 
-const SiteSettings: React.FC = () => {
-  const [settings, setSettings] = useState<SettingsMap>({
-    ticker_enabled: 'true',
-    ticker_text: '',
-    notifications_enabled: 'true',
-    notifications_mock_enabled: 'true',
-    stats_use_real_data: 'false',
-    for_brands_enabled: 'true',
-    for_creators_enabled: 'true',
-    testimonials_enabled: 'true',
-    testimonials_mock_enabled: 'true',
-    faq_enabled: 'true',
-    contact_enabled: 'true',
-    platform_theme: 'theme-brand',
-    is_maintenance_mode: 'false',
-    maintenance_message: '',
-    hero_title: '',
-    hero_subtitle: '',
-    about_text: '',
-  });
+const SECTION_TOGGLES = ['for_brands_enabled', 'for_creators_enabled', 'testimonials_enabled', 'faq_enabled', 'contact_enabled', 'ticker_enabled'] as const;
 
-  const [status, setStatus] = useState<
-    'idle' | 'loading' | 'success' | 'error'
-  >('idle');
+const Toggle: React.FC<{ label: React.ReactNode; desc?: React.ReactNode; value: boolean; onChange: (v: boolean) => void; tone?: 'default' | 'danger' }> = ({ label, desc, value, onChange, tone }) => (
+  <div className="flex items-center justify-between gap-4 rounded-xl px-3.5 py-3" style={{ background: tone === 'danger' ? 'rgba(255,90,95,0.08)' : 'var(--color-cool-gray)' }}>
+    <div className="min-w-0">
+      <div className="v-ink font-medium" style={{ fontSize: 13.5 }}>{label}</div>
+      {desc && <div className="v-caption v-quiet mt-0.5" style={{ fontSize: 12 }}>{desc}</div>}
+    </div>
+    <Switch isSelected={value} onChange={onChange} aria-label={typeof label === 'string' ? label : undefined}>
+      <Switch.Control><Switch.Thumb /></Switch.Control>
+    </Switch>
+  </div>
+);
+
+const SiteSettings: React.FC = () => {
+  const { t } = useTranslation();
+  const { applyBrandTheme } = useTheme();
+  const [settings, setSettings] = useState<SettingsMap>(DEFAULTS);
+  const [saved, setSaved] = useState<SettingsMap>(DEFAULTS);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState<string | null>(null);
 
   useEffect(() => {
     api
       .get('/public/settings')
       .then((res) => {
-        setSettings((prev) => ({
-          ...prev,
-          ...res.data,
-          ticker_text: res.data.ticker_text || 'Spotify, Epic Games, Gymshark',
-        }));
+        const next = { ...DEFAULTS, ...(res.data || {}), ticker_text: res.data?.ticker_text || 'Spotify, Epic Games, Gymshark' };
+        setSettings(next);
+        setSaved(next);
       })
-      .catch(console.error);
-  }, []);
+      .catch(() => toast.error(t('adm.site.loadFailed')));
+  }, [t]);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setStatus('loading');
+  const set = (key: string, value: string) => setSettings((prev) => ({ ...prev, [key]: value }));
+  const toggle = (key: string, v: boolean) => set(key, v ? 'true' : 'false');
+  const on = (key: string) => settings[key] === 'true';
+  const dirty = useMemo(() => Object.keys({ ...settings, ...saved }).filter((k) => (settings[k] || '') !== (saved[k] || '')).length, [settings, saved]);
+  const sectionsOn = SECTION_TOGGLES.filter((k) => on(k)).length;
+
+  const save = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setSaving(true);
     try {
       await api.patch('/admin/settings', settings);
-      setStatus('success');
-      setTimeout(() => setStatus('idle'), 3000);
-    } catch {
-      setStatus('error');
-      setTimeout(() => setStatus('idle'), 3000);
+      setSaved(settings);
+      toast.success(t('adm.site.saved'));
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || t('adm.site.saveFailed'));
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleFileUpload = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    settingKey: string
-  ) => {
+  const upload = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 4 * 1024 * 1024) return toast.error(t('adm.site.fileTooBig'));
     const reader = new FileReader();
     reader.onloadend = async () => {
+      setUploading(key);
       try {
-        const base64Data = reader.result as string;
-        const response = await api.post('/uploads', {
-          file: base64Data,
-          filename: file.name,
-        });
-        if (response.data.url) {
-          setSettings((prev) => ({
-            ...prev,
-            [settingKey]: response.data.url,
-          }));
-        }
-      } catch (error) {
-        console.error('File upload failed', error);
+        const res = await api.post('/uploads', { file: reader.result, filename: file.name });
+        if (res.data?.url) set(key, res.data.url);
+      } catch {
+        toast.error(t('adm.site.uploadFailed'));
+      } finally {
+        setUploading(null);
       }
     };
     reader.readAsDataURL(file);
   };
 
-  const { applyBrandTheme } = useTheme();
-
-  const set = (key: string, value: string) =>
-    setSettings((prev) => ({ ...prev, [key]: value }));
-  const toggle = (key: string, v: boolean) =>
-    set(key, v ? 'true' : 'false');
-
-  const setPlatformTheme = (themeId: string) => {
-    set('platform_theme', themeId);
-    applyBrandTheme(themeId);
+  const Text: React.FC<{ k: string; label: string; ph?: string; type?: string }> = ({ k, label, ph, type = 'text' }) => (
+    <Field label={label}>
+      <input type={type} value={settings[k] || ''} onChange={(e) => set(k, e.target.value)} className={fieldClass} placeholder={ph} />
+    </Field>
+  );
+  const Area: React.FC<{ k: string; label: string; ph?: string; rows?: number }> = ({ k, label, ph, rows = 2 }) => (
+    <Field label={label}>
+      <textarea value={settings[k] || ''} onChange={(e) => set(k, e.target.value)} rows={rows} className={`${fieldClass} resize-y`} placeholder={ph} />
+    </Field>
+  );
+  const Image: React.FC<{ k: string; label: string }> = ({ k, label }) => {
+    const v = settings[k] || '';
+    return (
+      <div>
+        <span className="v-caption v-ink font-medium block mb-1" style={{ fontSize: 12 }}>{label}</span>
+        <div className="flex items-center gap-3 flex-wrap">
+          {v && (
+            <div className="h-20 w-32 rounded-lg overflow-hidden v-hairline">
+              <img src={v.startsWith('http') ? v : `${serverOrigin}${v}`} alt="" className="w-full h-full object-cover" />
+            </div>
+          )}
+          <label className="v-facet-btn !px-3 !py-2 cursor-pointer inline-flex items-center gap-2">
+            <Upload size={13} /> {uploading === k ? t('adm.site.uploading') : v ? t('adm.site.replace') : t('adm.site.upload')}
+            <input type="file" accept="image/*" onChange={upload(k)} className="hidden" />
+          </label>
+          {v && <Button variant="ghost" size="sm" onPress={() => set(k, '')}>{t('adm.site.remove')}</Button>}
+        </div>
+      </div>
+    );
   };
 
-  const activeThemeLabel =
-    THEMES.find((t) => t.id === settings.platform_theme)?.label || 'Default';
+  const NAV: { id: string; label: string; icon: React.ReactNode }[] = [
+    { id: 'maintenance', label: t('adm.site.nMaintenance'), icon: <Wrench size={13} /> },
+    { id: 'hero', label: t('adm.site.nHero'), icon: <Rocket size={13} /> },
+    { id: 'sections', label: t('adm.site.nSections'), icon: <LayoutList size={13} /> },
+    { id: 'copy', label: t('adm.site.nCopy'), icon: <Megaphone size={13} /> },
+    { id: 'proof', label: t('adm.site.nProof'), icon: <Star size={13} /> },
+    { id: 'contact', label: t('adm.site.nContact'), icon: <Contact size={13} /> },
+    { id: 'theme', label: t('adm.site.nTheme'), icon: <Palette size={13} /> },
+  ];
+
+  const stats = (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <MetricCard
+        label={t('adm.site.kpiMode')}
+        value={<span style={{ fontSize: 20 }}>{on('is_maintenance_mode') ? t('adm.site.locked') : t('adm.site.live')}</span>}
+        hint={on('is_maintenance_mode') ? t('adm.site.lockedHint') : t('adm.site.liveHint')}
+        icon={on('is_maintenance_mode') ? AlertTriangle : Radio}
+        iconStatus={on('is_maintenance_mode') ? 'danger' : 'success'}
+      />
+      <MetricCard label={t('adm.site.kpiSections')} value={`${sectionsOn}/${SECTION_TOGGLES.length}`} hint={t('adm.site.kpiSectionsHint')} icon={LayoutList} />
+      <MetricCard label={t('adm.site.kpiStats')} value={<span style={{ fontSize: 20 }}>{on('stats_use_real_data') ? t('adm.site.realData') : t('adm.site.mockData')}</span>} hint={t('adm.site.kpiStatsHint')} icon={BarChart3} iconStatus={on('stats_use_real_data') ? 'success' : 'warning'} />
+      <MetricCard label={t('adm.site.kpiUnsaved')} value={dirty} hint={dirty ? t('adm.site.kpiUnsavedHint') : t('adm.site.allSaved')} icon={Save} iconStatus={dirty ? 'warning' : undefined} />
+    </div>
+  );
 
   return (
     <PageShell
-      title="Site control"
-      description="Configure landing page sections, notifications, and data sources."
+      hero
+      containerSize="wide"
+      title={t('adm.site.title')}
+      titleAccent={t('adm.site.titleAccent')}
+      description={t('adm.site.desc')}
       icon={<Settings2 size={18} />}
+      actions={
+        <Button variant="primary" size="md" isPending={saving} isDisabled={!dirty} onPress={() => save()}>
+          <Save size={14} /> {t('adm.site.save')}
+        </Button>
+      }
+      stats={stats}
     >
-      <form onSubmit={handleSave} className="space-y-4">
-        {/* Maintenance */}
-        <SettingSection
-          title="Emergency & maintenance"
-          description="Lock the platform for non-admin users."
-          icon={<AlertCircle size={15} className="text-danger" />}
-          tone="danger"
-        >
-          <SettingToggle
-            label="Enable maintenance mode"
-            description="Instantly locks the platform for all non-admin users."
-            value={settings.is_maintenance_mode === 'true'}
-            onChange={(v) => toggle('is_maintenance_mode', v)}
-            tone="danger"
-          />
-          <SettingTextArea
-            label="Maintenance message (public)"
-            value={settings.maintenance_message || ''}
-            onChange={(v) => set('maintenance_message', v)}
-            placeholder="We are currently upgrading the platform…"
-          />
-        </SettingSection>
+      <form onSubmit={save} className="grid grid-cols-1 lg:grid-cols-[200px_1fr] gap-5 items-start">
+        {/* Jump nav */}
+        <nav className="hidden lg:block sticky top-20 v-talent-card p-2" aria-label={t('adm.site.jump')}>
+          {NAV.map((n) => (
+            <a key={n.id} href={`#site-${n.id}`} className="flex items-center gap-2 rounded-lg px-2.5 py-2 v-body v-ink hover:bg-[color:var(--color-cool-gray)]" style={{ fontSize: 13 }}>
+              <span style={{ color: 'var(--color-campaign-purple)' }}>{n.icon}</span> {n.label}
+            </a>
+          ))}
+        </nav>
 
-        {/* Hero */}
-        <SettingSection
-          title="Hero section"
-          icon={<ToggleLeft size={15} className="text-accent" />}
-        >
-          <SettingText
-            label="Hero title"
-            value={settings.hero_title || ''}
-            onChange={(v) => set('hero_title', v)}
-            placeholder="e.g. Launch campaigns. Find creators. Grow."
-          />
-          <SettingTextArea
-            label="Hero description"
-            value={settings.about_text || ''}
-            onChange={(v) => set('about_text', v)}
-            placeholder="e.g. The easiest way for brands to connect with talented creators."
-            rows={2}
-          />
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <SettingText
-              label="Primary button"
-              value={settings.hero_btn_primary || ''}
-              onChange={(v) => set('hero_btn_primary', v)}
-              placeholder="Get started free"
-            />
-            <SettingText
-              label="Secondary button"
-              value={settings.hero_btn_secondary || ''}
-              onChange={(v) => set('hero_btn_secondary', v)}
-              placeholder="Log in"
-            />
-            <SettingText
-              label="Dashboard button"
-              value={settings.hero_btn_dashboard || ''}
-              onChange={(v) => set('hero_btn_dashboard', v)}
-              placeholder="Go to dashboard"
-            />
-          </div>
-          <SettingImageUpload
-            label="Hero background image"
-            value={settings.hero_bg_image || ''}
-            onUpload={(e) => handleFileUpload(e, 'hero_bg_image')}
-          />
-        </SettingSection>
-
-        {/* AI Studio */}
-        <SettingSection
-          title="AI Studio highlight"
-          icon={<ToggleLeft size={15} className="text-accent" />}
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <SettingText
-              label="Block title"
-              value={settings.ai_studio_title || ''}
-              onChange={(v) => set('ai_studio_title', v)}
-              placeholder="AI Studio"
-            />
-            <SettingText
-              label="Block subtitle"
-              value={settings.ai_studio_subtitle || ''}
-              onChange={(v) => set('ai_studio_subtitle', v)}
-              placeholder="Your personal growth engine"
-            />
-          </div>
-          <SettingText
-            label="Main headline"
-            value={settings.ai_studio_main_title || ''}
-            onChange={(v) => set('ai_studio_main_title', v)}
-            placeholder="Level up with the AI Studio"
-          />
-          <SettingTextArea
-            label="Description"
-            value={settings.ai_studio_desc || ''}
-            onChange={(v) => set('ai_studio_desc', v)}
-            placeholder="We've integrated a powerful…"
-            rows={2}
-          />
-        </SettingSection>
-
-        {/* For Brands + How it Works */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <SettingSection
-            title="For brands"
-            icon={<ToggleLeft size={15} className="text-accent" />}
-          >
-            <SettingText
-              label="Title"
-              value={settings.brands_title || ''}
-              onChange={(v) => set('brands_title', v)}
-              placeholder="Everything brands need…"
-            />
-            <SettingTextArea
-              label="Description"
-              value={settings.brands_desc || ''}
-              onChange={(v) => set('brands_desc', v)}
-              placeholder="From finding the perfect…"
-              rows={2}
-            />
-          </SettingSection>
-          <SettingSection
-            title="How it works"
-            icon={<ToggleLeft size={15} className="text-accent" />}
-          >
-            <SettingText
-              label="Title"
-              value={settings.how_it_works_title || ''}
-              onChange={(v) => set('how_it_works_title', v)}
-              placeholder="How CampaignHub works"
-            />
-            <SettingTextArea
-              label="Description"
-              value={settings.how_it_works_desc || ''}
-              onChange={(v) => set('how_it_works_desc', v)}
-              placeholder="Four simple steps…"
-              rows={2}
-            />
-            <SettingImageUpload
-              label="Section image"
-              value={settings.how_it_works_image || ''}
-              onUpload={(e) => handleFileUpload(e, 'how_it_works_image')}
-            />
-          </SettingSection>
-        </div>
-
-        {/* For Creators */}
-        <SettingSection
-          title="For creators"
-          icon={<ToggleLeft size={15} className="text-accent" />}
-        >
-          <SettingText
-            label="Headline"
-            value={settings.creators_title || ''}
-            onChange={(v) => set('creators_title', v)}
-            placeholder="Your talent deserves real opportunities."
-          />
-          <SettingTextArea
-            label="Description"
-            value={settings.creators_desc || ''}
-            onChange={(v) => set('creators_desc', v)}
-            placeholder="Stop guessing. CampaignHub connects you…"
-            rows={2}
-          />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <SettingText
-              label="Primary button"
-              value={settings.creators_btn_primary || ''}
-              onChange={(v) => set('creators_btn_primary', v)}
-              placeholder="Join as creator"
-            />
-            <SettingText
-              label="Dashboard button"
-              value={settings.creators_btn_dashboard || ''}
-              onChange={(v) => set('creators_btn_dashboard', v)}
-              placeholder="Go to dashboard"
-            />
-          </div>
-        </SettingSection>
-
-        {/* Active campaigns */}
-        <SettingSection
-          title="Active campaigns section"
-          icon={<ToggleLeft size={15} className="text-accent" />}
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <SettingText
-              label="Headline"
-              value={settings.active_camp_title || ''}
-              onChange={(v) => set('active_camp_title', v)}
-              placeholder="Active campaigns"
-            />
-            <SettingText
-              label="Button text"
-              value={settings.active_camp_btn || ''}
-              onChange={(v) => set('active_camp_btn', v)}
-              placeholder="View all campaigns"
-            />
-          </div>
-          <SettingText
-            label="Description"
-            value={settings.active_camp_desc || ''}
-            onChange={(v) => set('active_camp_desc', v)}
-            placeholder="Browse open campaigns and start applying."
-          />
-        </SettingSection>
-
-        {/* Bottom CTA */}
-        <SettingSection
-          title="Bottom CTA"
-          icon={<ToggleLeft size={15} className="text-accent" />}
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <SettingText
-              label="CTA headline"
-              value={settings.cta_title || ''}
-              onChange={(v) => set('cta_title', v)}
-              placeholder="Ready to grow your brand?"
-            />
-            <SettingText
-              label="CTA subtext"
-              value={settings.cta_desc || ''}
-              onChange={(v) => set('cta_desc', v)}
-              placeholder="Join thousands of brands…"
-            />
-          </div>
-        </SettingSection>
-
-        {/* Platform stats */}
-        <SettingSection
-          title="Trusted platform statistics"
-          icon={<ToggleLeft size={15} className="text-accent" />}
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="space-y-2">
-                <SettingText
-                  label={`Stat ${i} value`}
-                  value={settings[`stats_val_${i}`] || ''}
-                  onChange={(v) => set(`stats_val_${i}`, v)}
-                  placeholder="2,800+"
-                />
-                <SettingText
-                  label={`Stat ${i} label`}
-                  value={settings[`stats_lbl_${i}`] || ''}
-                  onChange={(v) => set(`stats_lbl_${i}`, v)}
-                  placeholder="Active creators"
-                />
+        <div className="space-y-5 min-w-0">
+          {/* Maintenance */}
+          <div id="site-maintenance">
+            <Panel icon={<Wrench size={15} />} title={t('adm.site.maintenance')} desc={t('adm.site.maintenanceDesc')} tone={on('is_maintenance_mode') ? 'danger' : 'default'}>
+              <div className="space-y-3">
+                <Toggle label={t('adm.site.maintenanceOn')} desc={t('adm.site.maintenanceOnDesc')} value={on('is_maintenance_mode')} onChange={(v) => toggle('is_maintenance_mode', v)} tone={on('is_maintenance_mode') ? 'danger' : undefined} />
+                <Area k="maintenance_message" label={t('adm.site.maintenanceMsg')} ph={t('adm.site.maintenanceMsgPh')} />
               </div>
-            ))}
+            </Panel>
           </div>
-        </SettingSection>
 
-        {/* Contact info */}
-        <SettingSection
-          title="Contact section"
-          icon={<ToggleLeft size={15} className="text-accent" />}
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <SettingText
-              label="Section badge"
-              value={settings.contact_badge || ''}
-              onChange={(v) => set('contact_badge', v)}
-              placeholder="Let's talk"
-            />
-            <SettingText
-              label="Headline"
-              value={settings.contact_title || ''}
-              onChange={(v) => set('contact_title', v)}
-              placeholder="Get in touch"
-            />
-            <SettingText
-              label="Company email"
-              value={settings.contact_email || ''}
-              onChange={(v) => set('contact_email', v)}
-              placeholder="info@campaignhub.com"
-            />
-            <SettingText
-              label="Company phone"
-              value={settings.contact_phone || ''}
-              onChange={(v) => set('contact_phone', v)}
-              placeholder="+1 (555) 123-4567"
-            />
-            <SettingText
-              label="Company location"
-              value={settings.contact_loc || ''}
-              onChange={(v) => set('contact_loc', v)}
-              placeholder="San Francisco, CA"
-            />
-          </div>
-        </SettingSection>
-
-        {/* Newsletter */}
-        <SettingSection
-          title="Newsletter section"
-          icon={<ToggleLeft size={15} className="text-accent" />}
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <SettingText
-              label="Section badge"
-              value={settings.newsletter_badge || ''}
-              onChange={(v) => set('newsletter_badge', v)}
-              placeholder="Stay in the loop"
-            />
-            <SettingText
-              label="Headline"
-              value={settings.newsletter_title || ''}
-              onChange={(v) => set('newsletter_title', v)}
-              placeholder="Never miss an update"
-            />
-            <SettingText
-              label="Button text"
-              value={settings.newsletter_btn || ''}
-              onChange={(v) => set('newsletter_btn', v)}
-              placeholder="Subscribe"
-            />
-          </div>
-          <Separator />
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {[1, 2, 3].map((idx) => (
-              <div key={`news_${idx}`} className="space-y-2">
-                <SettingText
-                  label={`Stat ${idx} value`}
-                  value={settings[`newsletter_stats_${idx}`] || ''}
-                  onChange={(v) => set(`newsletter_stats_${idx}`, v)}
-                />
-                <SettingText
-                  label={`Stat ${idx} label`}
-                  value={settings[`newsletter_lbl_${idx}`] || ''}
-                  onChange={(v) => set(`newsletter_lbl_${idx}`, v)}
-                />
+          {/* Hero */}
+          <div id="site-hero">
+            <Panel icon={<Rocket size={15} />} title={t('adm.site.hero')} desc={t('adm.site.heroDesc')}>
+              <div className="space-y-3">
+                <Text k="hero_title" label={t('adm.site.heroTitle')} ph="Launch campaigns. Find creators. Grow." />
+                <Area k="about_text" label={t('adm.site.heroSub')} ph="The easiest way for brands to connect with talented creators." />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <Text k="hero_btn_primary" label={t('adm.site.btnPrimary')} ph="Get started free" />
+                  <Text k="hero_btn_secondary" label={t('adm.site.btnSecondary')} ph="Log in" />
+                  <Text k="hero_btn_dashboard" label={t('adm.site.btnDashboard')} ph="Go to dashboard" />
+                </div>
+                <Image k="hero_bg_image" label={t('adm.site.heroImage')} />
               </div>
-            ))}
+            </Panel>
           </div>
-        </SettingSection>
 
-        {/* Landing page sections toggles */}
-        <SettingSection
-          title="Landing page sections"
-          description="Toggle entire sections on/off on the public landing page."
-          icon={<ToggleLeft size={15} className="text-accent" />}
-        >
-          <SettingToggle
-            label="For brands section"
-            description="Show the 'For brands' feature cards section"
-            value={settings.for_brands_enabled === 'true'}
-            onChange={(v) => toggle('for_brands_enabled', v)}
-          />
-          <SettingToggle
-            label="For creators section"
-            description="Show the 'For creators' feature cards section"
-            value={settings.for_creators_enabled === 'true'}
-            onChange={(v) => toggle('for_creators_enabled', v)}
-          />
-          <SettingToggle
-            label="Testimonials section"
-            description="Show the testimonials / social proof section"
-            value={settings.testimonials_enabled === 'true'}
-            onChange={(v) => toggle('testimonials_enabled', v)}
-          />
-          <SettingToggle
-            label="Use mock testimonials"
-            description="When disabled, testimonials will use real data (when available)"
-            value={settings.testimonials_mock_enabled === 'true'}
-            onChange={(v) => toggle('testimonials_mock_enabled', v)}
-          />
-          <SettingToggle
-            label="FAQ section"
-            description="Show the frequently asked questions accordion"
-            value={settings.faq_enabled === 'true'}
-            onChange={(v) => toggle('faq_enabled', v)}
-          />
-          <SettingToggle
-            label="Contact section"
-            description="Show the contact us section with email and social links"
-            value={settings.contact_enabled === 'true'}
-            onChange={(v) => toggle('contact_enabled', v)}
-          />
-        </SettingSection>
-
-        {/* Trusted by */}
-        <SettingSection
-          title="Trusted by section"
-          icon={<Type size={15} className="text-accent" />}
-        >
-          <SettingToggle
-            label="Enable trusted by section"
-            description="Show the 'Trusted by industry leaders' banner on the landing page"
-            value={settings.ticker_enabled === 'true'}
-            onChange={(v) => toggle('ticker_enabled', v)}
-          />
-          <SettingTextArea
-            label="Company names (comma separated)"
-            value={settings.ticker_text || ''}
-            onChange={(v) => set('ticker_text', v)}
-            placeholder="Spotify, Epic Games, Gymshark"
-          />
-        </SettingSection>
-
-        {/* Notifications */}
-        <SettingSection
-          title="Live notifications popups"
-          icon={<Bell size={15} className="text-accent" />}
-        >
-          <SettingToggle
-            label="Enable home page notifications"
-            description="Show live activity popups on the bottom right"
-            value={settings.notifications_enabled === 'true'}
-            onChange={(v) => toggle('notifications_enabled', v)}
-          />
-          <SettingToggle
-            label="Use mock notifications"
-            description="If disabled, popups will pull real recent platform activity"
-            value={settings.notifications_mock_enabled === 'true'}
-            onChange={(v) => toggle('notifications_mock_enabled', v)}
-          />
-        </SettingSection>
-
-        {/* Stats real/mock */}
-        <SettingSection
-          title="Landing page stats"
-          icon={<ToggleLeft size={15} className="text-accent" />}
-        >
-          <SettingToggle
-            label="Use real creator count"
-            description='Show actual registered creators instead of the mock "2,847" figure'
-            value={settings.stats_use_real_data === 'true'}
-            onChange={(v) => toggle('stats_use_real_data', v)}
-          />
-        </SettingSection>
-
-        {/* Platform theme */}
-        <SettingSection
-          title="Platform brand identity"
-          icon={<Palette size={15} className="text-accent" />}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-muted text-xs font-medium uppercase tracking-wider">
-              Active:
-            </span>
-            <Chip color="accent" variant="soft" size="sm">
-              <Chip.Label>{activeThemeLabel}</Chip.Label>
-            </Chip>
+          {/* Section toggles */}
+          <div id="site-sections">
+            <Panel icon={<LayoutList size={15} />} title={t('adm.site.sections')} desc={t('adm.site.sectionsDesc')}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Toggle label={t('adm.site.secBrands')} desc={t('adm.site.secBrandsDesc')} value={on('for_brands_enabled')} onChange={(v) => toggle('for_brands_enabled', v)} />
+                <Toggle label={t('adm.site.secCreators')} desc={t('adm.site.secCreatorsDesc')} value={on('for_creators_enabled')} onChange={(v) => toggle('for_creators_enabled', v)} />
+                <Toggle label={t('adm.site.secTesti')} desc={t('adm.site.secTestiDesc')} value={on('testimonials_enabled')} onChange={(v) => toggle('testimonials_enabled', v)} />
+                <Toggle label={t('adm.site.secFaq')} desc={t('adm.site.secFaqDesc')} value={on('faq_enabled')} onChange={(v) => toggle('faq_enabled', v)} />
+                <Toggle label={t('adm.site.secContact')} desc={t('adm.site.secContactDesc')} value={on('contact_enabled')} onChange={(v) => toggle('contact_enabled', v)} />
+                <Toggle label={t('adm.site.secTicker')} desc={t('adm.site.secTickerDesc')} value={on('ticker_enabled')} onChange={(v) => toggle('ticker_enabled', v)} />
+              </div>
+              <div className="mt-3">
+                <Area k="ticker_text" label={t('adm.site.tickerText')} ph="Spotify, Epic Games, Gymshark" rows={2} />
+              </div>
+            </Panel>
           </div>
-          <p className="text-muted text-sm">
-            Select the primary color theme for the entire platform. Changes
-            apply instantly.
-          </p>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {THEMES.map((t) => {
-              const active = settings.platform_theme === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setPlatformTheme(t.id)}
-                  className={`p-4 rounded-xl border flex flex-col items-center gap-2 transition-all ${
-                    active
-                      ? 'border-accent bg-accent-soft'
-                      : 'border-border bg-surface hover:border-accent/40'
-                  }`}
-                >
-                  <div
-                    className="w-12 h-12 rounded-full shadow-overlay flex items-center justify-center"
-                    style={{
-                      background: `linear-gradient(135deg, ${t.lightHex}, ${t.hex})`,
-                    }}
-                  >
-                    {active && (
-                      <Check size={20} className="text-white" strokeWidth={3} />
-                    )}
-                  </div>
-                  <span className="text-foreground text-sm font-medium">
-                    {t.label}
-                  </span>
-                  {active && (
-                    <Chip color="accent" variant="soft" size="sm">
-                      <Chip.Label>Active</Chip.Label>
-                    </Chip>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </SettingSection>
 
-        {/* Sticky save bar */}
-        <div className="sticky bottom-0 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-background/95 backdrop-blur-sm border-t border-border z-10 flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            {status === 'success' && (
-              <Chip color="success" variant="soft" size="md">
-                <Check size={13} />
-                <Chip.Label>Settings saved</Chip.Label>
-              </Chip>
-            )}
-            {status === 'error' && (
-              <Chip color="danger" variant="soft" size="md">
-                <AlertCircle size={13} />
-                <Chip.Label>Save failed</Chip.Label>
-              </Chip>
-            )}
+          {/* Section copy */}
+          <div id="site-copy" className="space-y-5">
+            <Panel icon={<Sparkles size={15} />} title={t('adm.site.aiStudio')} desc={t('adm.site.aiStudioDesc')}>
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Text k="ai_studio_title" label={t('adm.site.blockTitle')} ph="AI Studio" />
+                  <Text k="ai_studio_subtitle" label={t('adm.site.blockSubtitle')} ph="Your personal growth engine" />
+                </div>
+                <Text k="ai_studio_main_title" label={t('adm.site.headline')} ph="Level up with the AI Studio" />
+                <Area k="ai_studio_desc" label={t('adm.site.description')} />
+              </div>
+            </Panel>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <Panel icon={<Handshake size={15} />} title={t('adm.site.forBrands')}>
+                <div className="space-y-3">
+                  <Text k="brands_title" label={t('adm.site.headline')} ph="Everything brands need…" />
+                  <Area k="brands_desc" label={t('adm.site.description')} />
+                </div>
+              </Panel>
+              <Panel icon={<Bot size={15} />} title={t('adm.site.howItWorks')}>
+                <div className="space-y-3">
+                  <Text k="how_it_works_title" label={t('adm.site.headline')} ph="How Campgains Hub works" />
+                  <Area k="how_it_works_desc" label={t('adm.site.description')} />
+                  <Image k="how_it_works_image" label={t('adm.site.sectionImage')} />
+                </div>
+              </Panel>
+            </div>
+            <Panel icon={<Users size={15} />} title={t('adm.site.forCreators')}>
+              <div className="space-y-3">
+                <Text k="creators_title" label={t('adm.site.headline')} ph="Your talent deserves real opportunities." />
+                <Area k="creators_desc" label={t('adm.site.description')} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Text k="creators_btn_primary" label={t('adm.site.btnPrimary')} ph="Join as creator" />
+                  <Text k="creators_btn_dashboard" label={t('adm.site.btnDashboard')} ph="Go to dashboard" />
+                </div>
+              </div>
+            </Panel>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <Panel icon={<Megaphone size={15} />} title={t('adm.site.activeCampaigns')}>
+                <div className="space-y-3">
+                  <Text k="active_camp_title" label={t('adm.site.headline')} ph="Active campaigns" />
+                  <Text k="active_camp_desc" label={t('adm.site.description')} ph="Browse open campaigns and start applying." />
+                  <Text k="active_camp_btn" label={t('adm.site.buttonText')} ph="View all campaigns" />
+                </div>
+              </Panel>
+              <Panel icon={<Rocket size={15} />} title={t('adm.site.bottomCta')}>
+                <div className="space-y-3">
+                  <Text k="cta_title" label={t('adm.site.headline')} ph="Ready to grow your brand?" />
+                  <Text k="cta_desc" label={t('adm.site.description')} ph="Join thousands of brands…" />
+                </div>
+              </Panel>
+            </div>
           </div>
-          <Button
-            type="submit"
-            variant="primary"
-            size="lg"
-            isPending={status === 'loading'}
-          >
-            <Save size={15} /> Save settings
-          </Button>
+
+          {/* Social proof + stats */}
+          <div id="site-proof" className="space-y-5">
+            <Panel icon={<BarChart3 size={15} />} title={t('adm.site.platformStats')} desc={t('adm.site.platformStatsDesc')}>
+              <div className="space-y-3">
+                <Toggle label={t('adm.site.realCount')} desc={t('adm.site.realCountDesc')} value={on('stats_use_real_data')} onChange={(v) => toggle('stats_use_real_data', v)} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="space-y-2 rounded-xl p-3" style={{ background: 'var(--color-cool-gray)' }}>
+                      <Text k={`stats_val_${i}`} label={t('adm.site.statValue', { n: i })} ph="2,800+" />
+                      <Text k={`stats_lbl_${i}`} label={t('adm.site.statLabel', { n: i })} ph="Active creators" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Panel>
+            <Panel icon={<Star size={15} />} title={t('adm.site.testimonials')} desc={t('adm.site.testimonialsDesc')}>
+              <Toggle label={t('adm.site.mockTesti')} desc={t('adm.site.mockTestiDesc')} value={on('testimonials_mock_enabled')} onChange={(v) => toggle('testimonials_mock_enabled', v)} />
+            </Panel>
+            <Panel icon={<Bell size={15} />} title={t('adm.site.popups')} desc={t('adm.site.popupsDesc')}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Toggle label={t('adm.site.popupsOn')} desc={t('adm.site.popupsOnDesc')} value={on('notifications_enabled')} onChange={(v) => toggle('notifications_enabled', v)} />
+                <Toggle label={t('adm.site.popupsMock')} desc={t('adm.site.popupsMockDesc')} value={on('notifications_mock_enabled')} onChange={(v) => toggle('notifications_mock_enabled', v)} />
+              </div>
+            </Panel>
+          </div>
+
+          {/* Contact + newsletter */}
+          <div id="site-contact" className="space-y-5">
+            <Panel icon={<Contact size={15} />} title={t('adm.site.contact')} desc={t('adm.site.contactDesc')}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Text k="contact_badge" label={t('adm.site.badge')} ph="Let's talk" />
+                <Text k="contact_title" label={t('adm.site.headline')} ph="Get in touch" />
+                <Text k="contact_email" label={t('adm.site.companyEmail')} ph="hello@campgainshub.com" type="email" />
+                <Text k="contact_phone" label={t('adm.site.companyPhone')} ph="+251 …" />
+                <Text k="contact_loc" label={t('adm.site.companyLocation')} ph="Addis Ababa, Ethiopia" />
+              </div>
+            </Panel>
+            <Panel icon={<Mail size={15} />} title={t('adm.site.newsletter')}>
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <Text k="newsletter_badge" label={t('adm.site.badge')} ph="Stay in the loop" />
+                  <Text k="newsletter_title" label={t('adm.site.headline')} ph="Never miss an update" />
+                  <Text k="newsletter_btn" label={t('adm.site.buttonText')} ph="Subscribe" />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="space-y-2 rounded-xl p-3" style={{ background: 'var(--color-cool-gray)' }}>
+                      <Text k={`newsletter_stats_${i}`} label={t('adm.site.statValue', { n: i })} />
+                      <Text k={`newsletter_lbl_${i}`} label={t('adm.site.statLabel', { n: i })} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Panel>
+          </div>
+
+          {/* Theme */}
+          <div id="site-theme">
+            <Panel
+              icon={<Palette size={15} />}
+              title={t('adm.site.theme')}
+              desc={t('adm.site.themeDesc')}
+              action={<Chip color="accent" variant="soft" size="sm"><Chip.Label>{THEMES.find((x) => x.id === settings.platform_theme)?.label || 'Default'}</Chip.Label></Chip>}
+            >
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {THEMES.map((th) => {
+                  const active = settings.platform_theme === th.id;
+                  return (
+                    <button
+                      key={th.id}
+                      type="button"
+                      onClick={() => { set('platform_theme', th.id); applyBrandTheme(th.id); }}
+                      className="v-option-tile flex items-center gap-3 p-3 text-left"
+                      data-active={active || undefined}
+                      aria-pressed={active}
+                    >
+                      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full" style={{ background: `linear-gradient(135deg, ${th.lightHex}, ${th.hex})` }}>
+                        {active && <Check size={16} className="text-white" strokeWidth={3} />}
+                      </span>
+                      <span className="v-ink font-medium" style={{ fontSize: 13 }}>{th.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Panel>
+          </div>
+
+          {/* Sticky save bar */}
+          <div className="sticky bottom-3 z-10">
+            <div className="v-talent-card px-4 py-3 flex items-center justify-between gap-3 flex-wrap" style={{ backdropFilter: 'blur(8px)' }}>
+              <div className="v-caption v-quiet inline-flex items-center gap-2" style={{ fontSize: 12.5 }}>
+                <ToggleLeft size={13} />
+                {dirty ? t('adm.site.unsavedN', { n: dirty }) : t('adm.site.allSaved')}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="md" isDisabled={!dirty || saving} onPress={() => setSettings(saved)}>{t('adm.site.discard')}</Button>
+                <Button type="submit" variant="primary" size="md" isPending={saving} isDisabled={!dirty}>
+                  <Save size={14} /> {t('adm.site.save')}
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       </form>
     </PageShell>

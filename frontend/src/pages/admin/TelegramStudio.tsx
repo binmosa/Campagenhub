@@ -1,268 +1,203 @@
-import React, { useEffect, useState } from 'react';
-import {
-  Activity,
-  AlertCircle,
-  Check,
-  Copy,
-  MessageCircle,
-  Send,
-  Settings,
-  Users,
-} from 'lucide-react';
-import {
-  Button,
-  Card,
-  Chip,
-  Label,
-  Separator,
-  TextArea,
-} from '@heroui/react';
-import { KPI, RadioButtonGroup } from '@heroui-pro/react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Activity, Bot, Check, Copy, ExternalLink, Link2, MessageCircle, Radio, Send, Sparkles, Users } from 'lucide-react';
+import { Button, Chip } from '@heroui/react';
+import { useTranslation } from 'react-i18next';
 import api, { serverOrigin } from '../../lib/api';
-import { PageShell } from '../../components/ui';
+import { toast } from '../../lib/toast';
+import { buildTelegramLink, getTelegramBotUsername } from '../../lib/telegram';
+import { fieldClass } from '../talent/shared';
+import { MetricCard, PageShell } from '../../components/ui';
+import { EmptyPanel } from '../../components/common/EmptyPanel';
+import { Field, Panel } from './shared';
 
-const fieldClass =
-  'w-full px-3.5 py-2.5 rounded-lg bg-surface text-foreground text-sm placeholder:text-muted border border-border focus:outline-none focus:border-field-border-focus';
+/**
+ * TelegramStudio — the bot's control room: how many people are reachable,
+ * a broadcast composer with a live preview, and the hooks (webhook URL,
+ * bot link) you need when wiring BotFather.
+ */
+type Target = 'all' | 'creators' | 'brands';
+const MAX = 4096;
 
 const TelegramStudio: React.FC = () => {
-  const [stats, setStats] = useState({ total_subscribers: 0, active_today: 0 });
-  const [loading, setLoading] = useState(true);
-  const [broadcastTarget, setBroadcastTarget] = useState<
-    'all' | 'creators' | 'brands'
-  >('all');
-  const [broadcastMessage, setBroadcastMessage] = useState('');
-  const [broadcastStatus, setBroadcastStatus] = useState<
-    'idle' | 'sending' | 'success' | 'error'
-  >('idle');
-  const [copied, setCopied] = useState(false);
+  const { t } = useTranslation();
+  const [stats, setStats] = useState<{ total_subscribers: number; active_today: number } | null>(null);
+  const [botUsername, setBotUsername] = useState<string>('');
+  const [target, setTarget] = useState<Target>('all');
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [lastSent, setLastSent] = useState<{ target: Target; at: Date } | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => {
-    api
-      .get('/telegram/admin/stats')
-      .then((res) => setStats(res.data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    api.get('/telegram/admin/stats').then((r) => setStats(r.data)).catch(() => setStats({ total_subscribers: 0, active_today: 0 }));
+    getTelegramBotUsername().then(setBotUsername).catch(() => setBotUsername(''));
   }, []);
 
-  const handleBroadcast = async (e: React.FormEvent) => {
+  const webhookUrl = `${serverOrigin}/telegram/webhook`;
+  const botLink = botUsername ? buildTelegramLink(botUsername) : '';
+  const configured = !!botUsername;
+
+  const copy = (text: string, key: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(key);
+      toast.success(t('adm.tg.copied'));
+      setTimeout(() => setCopied(null), 1500);
+    });
+  };
+
+  const send = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!broadcastMessage.trim()) return;
-    setBroadcastStatus('sending');
+    if (!message.trim()) return;
+    setSending(true);
     try {
-      await api.post('/telegram/admin/broadcast', {
-        message: broadcastMessage,
-        target: broadcastTarget,
-      });
-      setBroadcastStatus('success');
-      setBroadcastMessage('');
-      setTimeout(() => setBroadcastStatus('idle'), 3000);
-    } catch {
-      setBroadcastStatus('error');
-      setTimeout(() => setBroadcastStatus('idle'), 3000);
+      await api.post('/telegram/admin/broadcast', { message, target });
+      toast.success(t('adm.tg.sent', { audience: t(`adm.tg.audience.${target}`) }));
+      setLastSent({ target, at: new Date() });
+      setMessage('');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || t('adm.tg.sendFailed'));
+    } finally {
+      setSending(false);
     }
   };
 
-  const webhookUrl = `${serverOrigin}/telegram/webhook`;
-  const copyWebhook = () => {
-    navigator.clipboard.writeText(webhookUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
+  /* Very small Telegram-markdown preview: **bold** _italic_ `code`. */
+  const preview = useMemo(() => {
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return esc(message)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<strong>$1</strong>')
+      .replace(/_(.+?)_/g, '<em>$1</em>')
+      .replace(/`(.+?)`/g, '<code>$1</code>')
+      .replace(/\n/g, '<br/>');
+  }, [message]);
+
+  const kpis = (
+    <div className="grid grid-cols-3 gap-3">
+      <MetricCard label={t('adm.tg.kpiSubs')} value={stats ? stats.total_subscribers : '…'} hint={t('adm.tg.kpiSubsHint')} icon={Users} iconStatus={stats?.total_subscribers ? 'success' : undefined} />
+      <MetricCard label={t('adm.tg.kpiActive')} value={stats ? stats.active_today : '…'} hint={t('adm.tg.kpiActiveHint')} icon={Activity} />
+      <MetricCard
+        label={t('adm.tg.kpiBot')}
+        value={
+          <span className="inline-flex items-center gap-2" style={{ fontSize: 18 }}>
+            <span className={`inline-block h-2.5 w-2.5 rounded-full ${configured ? 'v-pulse-dot' : ''}`} style={{ background: configured ? '#16c784' : '#ffb547' }} />
+            {configured ? t('adm.tg.botOn') : t('adm.tg.botOff')}
+          </span>
+        }
+        hint={configured ? `@${botUsername}` : t('adm.tg.botOffHint')}
+        icon={Bot}
+        iconStatus={configured ? 'success' : 'warning'}
+      />
+    </div>
+  );
 
   return (
     <PageShell
-      title="Telegram studio"
-      description="Manage bot commands, broadcast messages, and track engagement."
+      hero
+      containerSize="wide"
+      title={t('adm.tg.title')}
+      titleAccent={t('adm.tg.titleAccent')}
+      description={t('adm.tg.desc')}
       icon={<MessageCircle size={18} />}
+      actions={
+        botLink ? (
+          <a href={botLink} target="_blank" rel="noreferrer">
+            <Button variant="tertiary" size="md"><ExternalLink size={13} /> {t('adm.tg.openBot')}</Button>
+          </a>
+        ) : undefined
+      }
+      stats={kpis}
     >
-      {/* Metrics */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Total subscribers</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value
-              value={loading ? 0 : stats.total_subscribers}
-              maximumFractionDigits={0}
-            />
-            <KPI.Trend trend="neutral">All time</KPI.Trend>
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Active today</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <KPI.Value
-              value={loading ? 0 : stats.active_today}
-              maximumFractionDigits={0}
-            />
-            <KPI.Trend trend={stats.active_today > 0 ? 'up' : 'neutral'}>
-              Daily reach
-            </KPI.Trend>
-          </KPI.Content>
-        </KPI>
-        <KPI>
-          <KPI.Header>
-            <KPI.Title>Bot connection</KPI.Title>
-          </KPI.Header>
-          <KPI.Content>
-            <div className="inline-flex items-center gap-2 text-success text-base font-semibold">
-              <span className="size-2 rounded-full bg-success animate-pulse" />
-              Healthy
-            </div>
-          </KPI.Content>
-        </KPI>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Broadcast form */}
-        <Card className="lg:col-span-2">
-          <Card.Header>
-            <Card.Title className="inline-flex items-center gap-2 text-base">
-              <Send size={15} className="text-accent" /> Live broadcast engine
-            </Card.Title>
-            <Card.Description>
-              Dispatch an instant push notification to platform users directly
-              inside Telegram.
-            </Card.Description>
-          </Card.Header>
-          <Separator />
-          <Card.Content className="p-5">
-            <form onSubmit={handleBroadcast} className="space-y-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2 space-y-5">
+          <Panel icon={<Send size={15} />} title={t('adm.tg.broadcast')} desc={t('adm.tg.broadcastDesc')}>
+            {stats && stats.total_subscribers === 0 ? (
+              <EmptyPanel size="sm" icon={<Radio size={18} />} title={t('adm.tg.noSubsTitle')} description={t('adm.tg.noSubsDesc')} className="mb-4" />
+            ) : null}
+            <form onSubmit={send} className="space-y-4">
               <div>
-                <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-2">
-                  Target audience
-                </Label>
-                <RadioButtonGroup
-                  aria-label="Target audience"
-                  value={broadcastTarget}
-                  onChange={(v) =>
-                    setBroadcastTarget(v as typeof broadcastTarget)
-                  }
-                  layout="flex"
-                >
-                  <RadioButtonGroup.Item value="all">
-                    <RadioButtonGroup.ItemIcon>
-                      <Users size={14} />
-                    </RadioButtonGroup.ItemIcon>
-                    <RadioButtonGroup.ItemContent>
-                      All users
-                    </RadioButtonGroup.ItemContent>
-                    <RadioButtonGroup.Indicator />
-                  </RadioButtonGroup.Item>
-                  <RadioButtonGroup.Item value="creators">
-                    <RadioButtonGroup.ItemContent>
-                      Only creators
-                    </RadioButtonGroup.ItemContent>
-                    <RadioButtonGroup.Indicator />
-                  </RadioButtonGroup.Item>
-                  <RadioButtonGroup.Item value="brands">
-                    <RadioButtonGroup.ItemContent>
-                      Only brands
-                    </RadioButtonGroup.ItemContent>
-                    <RadioButtonGroup.Indicator />
-                  </RadioButtonGroup.Item>
-                </RadioButtonGroup>
+                <span className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12 }}>{t('adm.tg.target')}</span>
+                <div className="flex items-center gap-1.5 flex-wrap" role="radiogroup" aria-label={t('adm.tg.target')}>
+                  {(['all', 'creators', 'brands'] as Target[]).map((k) => (
+                    <button key={k} type="button" role="radio" aria-checked={target === k} className="v-niche-chip" data-active={target === k || undefined} onClick={() => setTarget(k)}>
+                      {t(`adm.tg.audience.${k}`)}
+                    </button>
+                  ))}
+                </div>
               </div>
-
-              <div>
-                <Label className="text-muted text-xs font-medium uppercase tracking-wider block mb-2">
-                  Message content
-                </Label>
-                <TextArea
-                  value={broadcastMessage}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                    setBroadcastMessage(e.target.value)
-                  }
+              <Field label={t('adm.tg.message')} hint={`${message.length}/${MAX}`}>
+                <textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value.slice(0, MAX))}
+                  rows={6}
                   required
-                  rows={5}
-                  placeholder="Hey everyone! We just dropped a huge new feature for…"
-                  className={`${fieldClass} resize-none`}
+                  placeholder={t('adm.tg.messagePh')}
+                  className={`${fieldClass} resize-y`}
                 />
-                <p className="text-muted text-xs mt-2">
-                  Supports basic Telegram markdown (e.g. **bold** _italic_).
-                </p>
-              </div>
-
-              <Separator />
-
-              <div className="flex items-center justify-between gap-3 flex-wrap">
+              </Field>
+              <p className="v-caption v-quiet" style={{ fontSize: 11.5 }}>{t('adm.tg.markdownHint')}</p>
+              <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
                 <div>
-                  {broadcastStatus === 'success' && (
-                    <Chip color="success" variant="soft" size="md">
-                      <Activity size={13} />
-                      <Chip.Label>Broadcast sent</Chip.Label>
-                    </Chip>
-                  )}
-                  {broadcastStatus === 'error' && (
-                    <Chip color="danger" variant="soft" size="md">
-                      <AlertCircle size={13} />
-                      <Chip.Label>Network error</Chip.Label>
+                  {lastSent && (
+                    <Chip color="success" variant="soft" size="sm">
+                      <Check size={11} />
+                      <Chip.Label>{t('adm.tg.lastSent', { audience: t(`adm.tg.audience.${lastSent.target}`), when: lastSent.at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })}</Chip.Label>
                     </Chip>
                   )}
                 </div>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  isPending={broadcastStatus === 'sending'}
-                  isDisabled={!broadcastMessage.trim()}
-                >
-                  <Send size={13} /> Dispatch message
+                <Button type="submit" variant="primary" isPending={sending} isDisabled={!message.trim()}>
+                  <Send size={13} /> {t('adm.tg.send')}
                 </Button>
               </div>
             </form>
-          </Card.Content>
-        </Card>
+          </Panel>
+        </div>
 
-        {/* Sidebar */}
-        <div className="space-y-4">
-          <Card className="bg-accent-soft border-accent/30">
-            <Card.Content className="p-4">
-              <h3 className="text-foreground text-sm font-semibold mb-2">
-                Did you know?
-              </h3>
-              <p className="text-foreground text-xs leading-relaxed">
-                CampaignHub automatically leverages this Telegram bot when
-                brands click "Broadcast to Telegram" during campaign creation.
-                It matches the brand's target audience with subscribed
-                followers instantly.
-              </p>
-            </Card.Content>
-          </Card>
+        <aside className="space-y-5">
+          {/* Live preview */}
+          <Panel icon={<Sparkles size={15} />} title={t('adm.tg.preview')} desc={t('adm.tg.previewDesc')}>
+            <div className="rounded-2xl p-3" style={{ background: '#e7f0f9' }}>
+              <div className="rounded-2xl rounded-tl-sm px-3.5 py-2.5 bg-white v-hairline" style={{ maxWidth: 300 }}>
+                <div className="v-caption font-medium mb-0.5" style={{ fontSize: 11.5, color: '#2a9df4' }}>Campgains Hub</div>
+                {message.trim() ? (
+                  <div className="v-ink" style={{ fontSize: 13, lineHeight: 1.45, wordBreak: 'break-word' }} dangerouslySetInnerHTML={{ __html: preview }} />
+                ) : (
+                  <div className="v-quiet" style={{ fontSize: 13 }}>{t('adm.tg.previewEmpty')}</div>
+                )}
+                <div className="text-right v-caption v-quiet mt-1" style={{ fontSize: 10 }}>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+              </div>
+            </div>
+          </Panel>
 
-          <Card>
-            <Card.Header>
-              <Card.Title className="inline-flex items-center gap-2 text-sm">
-                <Settings size={14} className="text-accent" /> Essential bot
-                hooks
-              </Card.Title>
-            </Card.Header>
-            <Separator />
-            <Card.Content className="p-4 space-y-3">
+          {/* Hooks */}
+          <Panel icon={<Link2 size={15} />} title={t('adm.tg.hooks')} desc={t('adm.tg.hooksDesc')}>
+            <div className="space-y-3">
               <div>
-                <Label className="text-muted text-[10px] font-medium uppercase tracking-wider block mb-1.5">
-                  Bot webhook URL
-                </Label>
-                <div className="flex items-center gap-2 bg-surface-secondary border border-border p-2 rounded-lg">
-                  <code className="text-accent text-xs truncate flex-1 font-mono">
-                    {webhookUrl}
-                  </code>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    isIconOnly
-                    aria-label="Copy webhook URL"
-                    onPress={copyWebhook}
-                  >
-                    {copied ? <Check size={13} /> : <Copy size={13} />}
+                <span className="v-caption v-quiet font-medium uppercase tracking-wider block mb-1" style={{ fontSize: 10.5 }}>{t('adm.tg.webhook')}</span>
+                <div className="flex items-center gap-2 rounded-lg px-2.5 py-2 v-hairline" style={{ background: 'var(--color-cool-gray)' }}>
+                  <code className="truncate flex-1" style={{ fontSize: 11.5, color: 'var(--color-campaign-purple)' }}>{webhookUrl}</code>
+                  <Button variant="ghost" size="sm" isIconOnly aria-label={t('adm.tg.copyWebhook')} onPress={() => copy(webhookUrl, 'hook')}>
+                    {copied === 'hook' ? <Check size={13} /> : <Copy size={13} />}
                   </Button>
                 </div>
               </div>
-            </Card.Content>
-          </Card>
-        </div>
+              <div>
+                <span className="v-caption v-quiet font-medium uppercase tracking-wider block mb-1" style={{ fontSize: 10.5 }}>{t('adm.tg.botLink')}</span>
+                {botLink ? (
+                  <div className="flex items-center gap-2 rounded-lg px-2.5 py-2 v-hairline" style={{ background: 'var(--color-cool-gray)' }}>
+                    <code className="truncate flex-1" style={{ fontSize: 11.5, color: 'var(--color-campaign-purple)' }}>{botLink}</code>
+                    <Button variant="ghost" size="sm" isIconOnly aria-label={t('adm.tg.copyBotLink')} onPress={() => copy(botLink, 'bot')}>
+                      {copied === 'bot' ? <Check size={13} /> : <Copy size={13} />}
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="v-caption v-quiet" style={{ fontSize: 12 }}>{t('adm.tg.botOffHint')}</p>
+                )}
+              </div>
+              <p className="v-caption v-quiet" style={{ fontSize: 11.5 }}>{t('adm.tg.howUsed')}</p>
+            </div>
+          </Panel>
+        </aside>
       </div>
     </PageShell>
   );

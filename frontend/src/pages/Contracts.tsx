@@ -25,6 +25,8 @@ import {
 import api from '../lib/api';
 import { MetricCard, PageShell } from '../components/ui';
 import { EmptyPanel } from '../components/common/EmptyPanel';
+import { ConfirmModal } from '../components/common/ConfirmModal';
+import { useTranslation } from 'react-i18next';
 import { toast } from '../lib/toast';
 import { Link } from 'react-router-dom';
 import { CheckCircle2 as ActiveIcon, Archive as EndedIcon } from 'lucide-react';
@@ -71,7 +73,10 @@ const ContractCard: React.FC<{ contract: Contract; onChange: () => void }> = ({
   contract,
   onChange,
 }) => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
+  const [confirmEnd, setConfirmEnd] = useState(false);
+  const [ending, setEnding] = useState(false);
   const cfg = STATUS[contract.status] || STATUS.active;
   const text =
     contract.content || contract.contract_content || contract.terms || '';
@@ -88,22 +93,31 @@ const ContractCard: React.FC<{ contract: Contract; onChange: () => void }> = ({
   };
 
   const endContract = async () => {
-    if (
-      !window.confirm(
-        'Are you sure you want to officially end this contract? Both parties will be notified.'
-      )
-    )
-      return;
+    setEnding(true);
     try {
       await api.patch(`/contracts/${contract.id}/end`);
+      toast.success(t('ops.contracts.ended'));
+      setConfirmEnd(false);
       onChange();
     } catch {
-      toast.error('Failed to end contract');
+      toast.error(t('ops.contracts.endFailed'));
+    } finally {
+      setEnding(false);
     }
   };
 
   return (
     <Card className="overflow-hidden">
+      <ConfirmModal
+        open={confirmEnd}
+        tone="danger"
+        pending={ending}
+        title={t('ops.contracts.endTitle')}
+        body={t('ops.contracts.endBody')}
+        confirmLabel={t('ops.contracts.endConfirm')}
+        onConfirm={endContract}
+        onClose={() => setConfirmEnd(false)}
+      />
       {/* Top accent bar */}
       <div
         className="h-1"
@@ -161,7 +175,7 @@ const ContractCard: React.FC<{ contract: Contract; onChange: () => void }> = ({
                 isIconOnly
                 className="!rounded-lg !text-danger hover:!bg-danger-soft"
                 aria-label="End contract"
-                onPress={endContract}
+                onPress={() => setConfirmEnd(true)}
               >
                 <XCircle size={14} />
               </Button>
@@ -246,6 +260,7 @@ const ContractCard: React.FC<{ contract: Contract; onChange: () => void }> = ({
 };
 
 const ContractsPage: React.FC = () => {
+  const { t } = useTranslation();
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'active' | 'ended'>('all');
@@ -286,19 +301,15 @@ const ContractsPage: React.FC = () => {
   return (
     <PageShell
       hero
-      title={role === 'brand' ? 'Team' : 'Your'}
-      titleAccent="contracts"
-      description={
-        role === 'brand'
-          ? 'Every agreement with your creators and managers — terms, payment schedule and status in one place.'
-          : 'Your active and past collaboration agreements, with the payment terms you signed.'
-      }
+      title={role === 'brand' ? t('ops.contracts.titleBrand') : t('ops.contracts.titleOwn')}
+      titleAccent={t('ops.contracts.accent')}
+      description={role === 'brand' ? t('ops.contracts.descBrand') : t('ops.contracts.descOwn')}
       icon={<FileText size={18} />}
       stats={
         <div className="grid grid-cols-3 gap-3">
-          <MetricCard label="Contracts" value={counts.all} hint="all time" icon={FileText} />
-          <MetricCard label="Active" value={counts.active} hint="currently signed" icon={ActiveIcon} iconStatus={counts.active ? 'success' : undefined} />
-          <MetricCard label="Ended" value={counts.ended} hint="completed or terminated" icon={EndedIcon} />
+          <MetricCard label={t('ops.contracts.kAll')} value={counts.all} hint={t('ops.contracts.kAllHint')} icon={FileText} />
+          <MetricCard label={t('ops.contracts.kActive')} value={counts.active} hint={t('ops.contracts.kActiveHint')} icon={ActiveIcon} iconStatus={counts.active ? 'success' : undefined} />
+          <MetricCard label={t('ops.contracts.kEnded')} value={counts.ended} hint={t('ops.contracts.kEndedHint')} icon={EndedIcon} />
         </div>
       }
     >
@@ -309,11 +320,11 @@ const ContractsPage: React.FC = () => {
         onSelectionChange={(k) => setFilter(k as typeof filter)}
         size="md"
       >
-        <Segment.Item id="all">All · {counts.all}</Segment.Item>
+        <Segment.Item id="all">{t('ops.contracts.fAll')} · {counts.all}</Segment.Item>
         <Segment.Separator />
-        <Segment.Item id="active">Active · {counts.active}</Segment.Item>
+        <Segment.Item id="active">{t('ops.contracts.fActive')} · {counts.active}</Segment.Item>
         <Segment.Separator />
-        <Segment.Item id="ended">Ended · {counts.ended}</Segment.Item>
+        <Segment.Item id="ended">{t('ops.contracts.fEnded')} · {counts.ended}</Segment.Item>
       </Segment>
 
       {/* List */}
@@ -329,13 +340,13 @@ const ContractsPage: React.FC = () => {
       ) : filtered.length === 0 ? (
         <EmptyPanel
           icon={<FileText size={22} />}
-          title={filter === 'all' ? 'No contracts yet' : filter === 'active' ? 'No active contracts' : 'No ended contracts'}
+          title={filter === 'all' ? t('ops.contracts.emptyAll') : filter === 'active' ? t('ops.contracts.emptyActive') : t('ops.contracts.emptyEnded')}
           description={
             filter !== 'all' && contracts.length > 0
-              ? 'Switch the filter to see your other agreements.'
+              ? t('ops.contracts.emptyFilterDesc')
               : role === 'brand'
-                ? 'A contract is created the moment you accept an applicant with payment terms, or a creator accepts your invitation.'
-                : 'Contracts appear here once a brand accepts your application or you accept an invitation.'
+                ? t('ops.contracts.emptyBrandDesc')
+                : t('ops.contracts.emptyOwnDesc')
           }
           actions={
             filter !== 'all' && contracts.length > 0 ? (

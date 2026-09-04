@@ -7,3 +7,8 @@ build/
 coverage/
 .nyc_output/
 tailwind_debug.css
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
