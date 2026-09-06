@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn } from 'typeorm';
 import { User } from '../users/user.entity';
+import { Campaign } from '../campaigns/campaign.entity';
 
 export type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired';
 export type InvitationType = 'creator_collab' | 'manager_assign';
@@ -21,6 +22,19 @@ export class Invitation {
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'brand_id' })
   brand: User;
+
+  /** Creator invites are for one campaign: accepting signs the agreement for that brief. */
+  @ManyToOne(() => Campaign, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'campaign_id' })
+  campaign: Campaign | null;
+
+  /** Recurring retainers run until this date. */
+  @Column({ type: 'date', nullable: true })
+  ends_at: string | null;
+
+  /** Manager invites: what they will look after, in the brand's words. */
+  @Column({ type: 'text', nullable: true })
+  scope: string | null;
 
   @Column({ type: 'enum', enum: ['creator_collab', 'manager_assign'] })
   type: InvitationType;

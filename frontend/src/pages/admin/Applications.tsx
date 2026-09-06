@@ -10,6 +10,7 @@ import { APPLICATION_STATUSES, APPLICATION_STATUS_COLOR, normalizeApplicationSta
 import { formatCompact, totalFollowers, verifiedFollowers } from '../../lib/socialLinks';
 import { MetricCard, PageShell } from '../../components/ui';
 import { EmptyPanel } from '../../components/common/EmptyPanel';
+import { PitchVideo } from '../../components/common/PitchVideo';
 import { DirectoryToolbar } from '../../components/common/filters';
 import { StoryAvatar } from '../../components/common/StoryAvatar';
 import { Fact, RowSkeletons, dateShort, userIdentity } from './shared';
@@ -220,7 +221,7 @@ const AdminApplications: React.FC = () => {
                     {open.video_pitch_url && (
                       <div>
                         <div className="v-caption v-quiet font-medium uppercase tracking-wider mb-1" style={{ fontSize: 10.5 }}>{t('apps.video')}</div>
-                        <video src={open.video_pitch_url} controls className="w-full rounded-xl v-hairline" style={{ maxHeight: 360 }} />
+                        <PitchVideo url={open.video_pitch_url} maxHeight={360} />
                       </div>
                     )}
                     {open.notes && (

@@ -35,6 +35,9 @@ type Invitation = {
   id: string;
   status: 'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired' | string;
   type?: 'creator_collab' | 'manager_assign' | string;
+  campaign?: { id: string; title: string } | null;
+  scope?: string | null;
+  ends_at?: string | null;
   message?: string;
   video_link?: string;
   payment_amount?: number | string;
@@ -80,6 +83,7 @@ const InvitationCard: React.FC<{
   onAction: () => void;
   onNegotiate: (id: string) => void;
 }> = ({ inv, mode, onAction, onNegotiate }) => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [pending, setPending] = useState<'accept' | 'decline' | 'cancel' | 'edit' | null>(
     null
@@ -241,6 +245,23 @@ const InvitationCard: React.FC<{
               {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
             </Button>
           </div>
+        </div>
+
+        {/* What kind of invitation this is */}
+        <div className="flex flex-wrap gap-2">
+          <Chip color={isCreatorCollab ? (inv.campaign ? 'accent' : 'default') : 'accent'} variant="soft" size="sm">
+            {inv.campaign ? `${t('invite.kindCampaign')} · ${inv.campaign.title}` : isCreatorCollab ? t('invite.kindRoster') : t('invite.kindManager')}
+          </Chip>
+          {inv.scope && (
+            <Chip variant="soft" size="sm" color="default">
+              {inv.scope.length > 60 ? `${inv.scope.slice(0, 60)}…` : inv.scope}
+            </Chip>
+          )}
+          {inv.ends_at && (
+            <Chip variant="soft" size="sm" color="default">
+              {t('contract.until', { date: new Date(inv.ends_at).toLocaleDateString() })}
+            </Chip>
+          )}
         </div>
 
         {/* Payment chips */}

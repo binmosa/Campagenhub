@@ -8,10 +8,11 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { Contract } from '../contracts/contract.entity';
 import { BrandTeam } from '../invitations/brand-team.entity';
 import { toPublicUser } from '../users/public-user';
+import { ContractsService } from '../contracts/contracts.service';
 
-/** Applicant pipeline: pending → shortlisted → accepted | rejected.
- *  `refunded` is set by the payments flow after a cancelled engagement. */
-export const APPLICATION_STATUSES = ['pending', 'shortlisted', 'accepted', 'rejected', 'refunded'] as const;
+/** Applicant pipeline: pending → shortlisted → offered (contract sent) → accepted | rejected.
+ *  `accepted` is only reached when the creator signs the contract; `refunded` is set by the payments flow. */
+export const APPLICATION_STATUSES = ['pending', 'shortlisted', 'offered', 'accepted', 'rejected', 'refunded'] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
 export const normalizeApplicationStatus = (s?: string | null): ApplicationStatus | undefined => {
@@ -21,6 +22,18 @@ export const normalizeApplicationStatus = (s?: string | null): ApplicationStatus
   if (k === 'declined') return 'rejected';
   return (APPLICATION_STATUSES as readonly string[]).includes(k) ? (k as ApplicationStatus) : undefined;
 };
+
+/** Flatten the contract list: `contract` = the main agreement, `addenda` = extra-work proposals (newest first). */
+const withContracts = (rows: Application[]): Application[] =>
+  rows.map((a: any) => {
+    const list: any[] = Array.isArray(a.contracts) ? a.contracts : [];
+    const { contracts, ...rest } = a;
+    return {
+      ...rest,
+      contract: list.find((c) => (c.kind || 'main') === 'main') || null,
+      addenda: list.filter((c) => c.kind === 'addendum').sort((x, y) => new Date(y.created_at).getTime() - new Date(x.created_at).getTime()),
+    };
+  });
 
 @Injectable()
 export class ApplicationsService {
@@ -34,6 +47,7 @@ export class ApplicationsService {
     @InjectRepository(BrandTeam)
     private teamRepository: Repository<BrandTeam>,
     private notificationsService: NotificationsService,
+    private contractsService: ContractsService,
   ) {}
 
   async applyToCampaign(userId: string, campaignId: string, pitch: string, videoPitchUrl?: string): Promise<Application> {
@@ -42,12 +56,23 @@ export class ApplicationsService {
       throw new BadRequestException('Campaign not found');
     }
 
+    // A written pitch is always required; the video link only when the brief asks for it.
+    const text = String(pitch || '').trim();
+    if (!text) throw new BadRequestException('Write a short pitch — tell the brand why you fit this brief.');
+    const mode = (campaign as any).video_pitch || 'none';
+    let videoUrl = String(videoPitchUrl || '').trim();
+    if (mode === 'none') videoUrl = '';
+    else if (videoUrl && !/^https?:\/\/\S+$/i.test(videoUrl) && !videoUrl.startsWith('/')) {
+      throw new BadRequestException('The video pitch must be a full link starting with http:// or https://.');
+    }
+    if (mode === 'required' && !videoUrl) throw new BadRequestException('This brief requires a link to a short video pitch.');
+
     try {
       const application = this.applicationsRepository.create({
         campaign: { id: campaignId },
         creator: { id: userId },
-        pitch,
-        video_pitch_url: videoPitchUrl,
+        pitch: text.slice(0, 5000),
+        video_pitch_url: videoUrl || undefined,
         status: 'pending',
       });
       return await this.applicationsRepository.save(application);
@@ -79,8 +104,10 @@ export class ApplicationsService {
         .leftJoin('a.creator', 'u')
         .where('u.id = :uid', { uid: user.userId })
         .select(['a', 'c', 'b.id', 'b.account_status', 'bp.id', 'bp.company_name', 'bp.logo_url', 'bp.industry'])
+        .leftJoinAndSelect('a.contracts', 'ct')
         .orderBy('a.created_at', 'DESC')
-        .getMany();
+        .getMany()
+        .then(withContracts);
     }
     if (user.role === UserRole.BRAND) {
       const qb = this.applicationsRepository
@@ -91,11 +118,12 @@ export class ApplicationsService {
         .leftJoin('u.creatorProfile', 'cp')
         .where('b.id = :brandId', { brandId: user.userId })
         .select(['a', 'c', 'u.id', 'u.email', 'u.account_status', 'u.created_at', 'cp'])
+        .leftJoinAndSelect('a.contracts', 'ct')
         .orderBy('a.created_at', 'DESC');
       if (filters.campaignId) qb.andWhere('c.id = :cid', { cid: filters.campaignId });
       const status = normalizeApplicationStatus(filters.status);
       if (status) qb.andWhere('LOWER(a.status) = :st', { st: status });
-      return qb.getMany();
+      return qb.getMany().then(withContracts);
     }
     return [];
   }
@@ -116,9 +144,24 @@ export class ApplicationsService {
       throw new BadRequestException('Not authorized');
     }
 
+    if (status === 'accepted' || status === 'offered') {
+      throw new BadRequestException('Send a contract from the applicant inbox — the application is accepted when the creator signs it.');
+    }
+
     const previous = application.status;
     application.status = status;
     const saved = await this.applicationsRepository.save(application);
+
+    if (status === 'rejected') {
+      const open = await this.contractsRepository.find({ where: { application: { id: applicationId } } });
+      for (const contract of open) {
+        if (!['pending_signature', 'countered'].includes(contract.status)) continue;
+        contract.status = 'rejected';
+        contract.counter = null;
+        contract.history = [...(contract.history || []), { at: new Date().toISOString(), by: 'brand', action: 'withdrawn' }];
+        await this.contractsRepository.save(contract);
+      }
+    }
 
     if (status !== previous) {
       const title = application.campaign.title;
@@ -126,12 +169,7 @@ export class ApplicationsService {
         this.notificationsService
           .createNotification(application.creator.id, type, message, application.id)
           .catch(() => {});
-      if (status === 'accepted') {
-        await notify(
-          'APPLICATION_APPROVED',
-          `Your application for campaign "${title}" has been accepted! You can now view your contract or message the brand.`,
-        );
-      } else if (status === 'shortlisted') {
+      if (status === 'shortlisted') {
         await notify(
           'APPLICATION_SHORTLISTED',
           `Good news — you've been shortlisted for "${title}". The brand is reviewing final candidates.`,
@@ -153,79 +191,15 @@ export class ApplicationsService {
     } as Application;
   }
 
+  /** Brand accepts with terms = sends the contract. The creator still has to sign. */
   async setPaymentSchedule(
     applicationId: string,
     brandId: string,
-    data: { payment_amount: number; currency: string; payment_frequency: string; payment_day: number; notes?: string },
-  ): Promise<Application> {
-    const application = await this.applicationsRepository.findOne({
-      where: { id: applicationId },
-      relations: ['campaign', 'campaign.brand', 'creator'],
-    });
-
-    if (!application) throw new BadRequestException('Application not found');
-    if (application.campaign.brand.id !== brandId) throw new BadRequestException('Not authorized');
-
-    // Persist payment schedule fields onto application (stored as JSON extra or direct columns)
-    application.payment_amount = data.payment_amount;
-    application.currency = data.currency;
-    application.payment_frequency = data.payment_frequency;
-    application.payment_day = data.payment_day;
-    if (data.notes) application.notes = data.notes;
-
-    const saved = await this.applicationsRepository.save(application);
-
-    // 1. Create or update Contract for this application
-    let contract = await this.contractsRepository.findOne({ where: { application: { id: applicationId } } });
-    const terms = `COLLABORATION AGREEMENT\n\nThis agreement is between the Brand and Creator (${application.creator.email}) for campaign "${application.campaign.title}".\n\nPAYMENT TERMS\nCompensation: ${data.currency} ${data.payment_amount} per ${data.payment_frequency}.\nPayment Day: Day ${data.payment_day}\n\nAdditional Notes: ${data.notes || 'None'}`;
-    
-    if (!contract) {
-      contract = this.contractsRepository.create({
-        application: { id: applicationId },
-        status: 'active',
-        terms,
-        payment_amount: data.payment_amount
-      });
-    } else {
-      contract.terms = terms;
-      contract.payment_amount = data.payment_amount;
-      contract.status = 'active'; // Also set to active if it was already created (e.g. pending_signature)
-    }
-    await this.contractsRepository.save(contract);
-
-    // 2. Add Creator to Brand's Team so they show up in "My Team"
-    const existingTeam = await this.teamRepository.findOne({
-      where: { brand: { id: brandId }, member: { id: application.creator.id }, is_active: true }
-    });
-
-    if (!existingTeam) {
-      const team = this.teamRepository.create({
-        brand: { id: brandId } as any,
-        member: { id: application.creator.id } as any,
-        member_type: 'creator',
-        payment_amount: data.payment_amount,
-        payment_frequency: data.payment_frequency as any,
-        payment_day: data.payment_day,
-        currency: data.currency,
-        is_active: true
-      });
-      await this.teamRepository.save(team);
-    } else {
-      existingTeam.payment_amount = data.payment_amount;
-      existingTeam.payment_frequency = data.payment_frequency as any;
-      existingTeam.payment_day = data.payment_day;
-      existingTeam.currency = data.currency;
-      await this.teamRepository.save(existingTeam);
-    }
-
-    await this.notificationsService.createNotification(
-      application.creator.id,
-      'CONTRACT_UPDATED',
-      `Your payment schedule and contract have been finalized for campaign: ${application.campaign.title}.`,
-      application.id,
-    );
-
-    return saved;
+    data: { payment_amount: number; currency: string; payment_frequency: string; payment_day: number; notes?: string; terms?: string; ends_at?: string | null },
+  ): Promise<any> {
+    const { application } = await this.contractsService.offer(brandId, applicationId, data);
+    return application;
   }
+
 }
 

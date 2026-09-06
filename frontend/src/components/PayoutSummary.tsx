@@ -24,7 +24,7 @@ type Account = {
 
 const mask = (n?: string) => (n ? `•••• ${n.slice(-4)}` : '');
 
-export const PayoutSummary: React.FC = () => {
+export const PayoutSummary: React.FC<{ variant?: 'card' | 'bare' }> = ({ variant = 'card' }) => {
   const { t } = useTranslation();
   const [account, setAccount] = useState<Account | undefined>(undefined);
 
@@ -37,8 +37,13 @@ export const PayoutSummary: React.FC = () => {
 
   const mobile = !!account?.mobile_number && !account?.account_number;
 
+  const bare = variant === 'bare';
   return (
-    <section className="v-talent-card p-5 flex flex-col sm:flex-row sm:items-center gap-4" data-testid="payout-summary">
+    <section
+      className={bare ? 'flex-1 flex flex-col gap-3' : 'v-talent-card p-5 flex flex-col sm:flex-row sm:items-center gap-4'}
+      data-testid="payout-summary"
+    >
+      <div className={bare ? 'flex items-start gap-3 flex-1' : 'contents'}>
       <span className="v-hero-icon shrink-0" style={{ width: 40, height: 40, borderRadius: 12 }}>
         {account === undefined ? <Wallet size={17} /> : mobile ? <Smartphone size={17} /> : <Landmark size={17} />}
       </span>
@@ -70,8 +75,9 @@ export const PayoutSummary: React.FC = () => {
           </>
         )}
       </div>
-      <Link to="/dashboard/payments" className="shrink-0">
-        <Button variant={account === null ? 'primary' : 'tertiary'} size="sm">
+      </div>
+      <Link to="/dashboard/payments" className={bare ? 'block mt-auto' : 'shrink-0'}>
+        <Button variant={account === null ? 'primary' : 'tertiary'} size="sm" fullWidth={bare}>
           {account === null ? t('payout.summaryAdd') : t('payout.summaryManage')} <ArrowRight size={12} />
         </Button>
       </Link>

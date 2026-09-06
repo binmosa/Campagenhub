@@ -11,10 +11,11 @@ import { PayoutAccount } from '../invitations/payout-account.entity';
 import { User } from '../users/user.entity';
 import { Campaign } from '../campaigns/campaign.entity';
 import { Contract } from '../contracts/contract.entity';
+import { BrandTeam } from '../invitations/brand-team.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Payout, Application, PaymentTransaction, PayoutAccount, User, Campaign, Contract]),
+    TypeOrmModule.forFeature([Payout, Application, PaymentTransaction, PayoutAccount, User, Campaign, Contract, BrandTeam]),
     NotificationsModule,
     TelegramModule
   ],

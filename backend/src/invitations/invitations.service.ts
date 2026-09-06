@@ -4,6 +4,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { Invitation } from './invitation.entity';
+import { Campaign } from '../campaigns/campaign.entity';
+import { ContractsService } from '../contracts/contracts.service';
 import { BrandTeam } from './brand-team.entity';
 import { User } from '../users/user.entity';
 import { ManagerProfile } from '../managers/manager-profile.entity';
@@ -29,6 +31,9 @@ export class InvitationsService {
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(ManagerProfile) private managerRepo: Repository<ManagerProfile>,
     private notifications: NotificationsService,
+    @InjectRepository(Campaign)
+    private campaignRepo: Repository<Campaign>,
+    private contractsService: ContractsService,
   ) {}
 
   // ─── AI Smart Manager Assignment on Brand Approval ─────────────────────────
@@ -109,7 +114,7 @@ export class InvitationsService {
   // ─── Send Invitation ────────────────────────────────────────────────────────
   async sendInvitation(senderId: string, body: any): Promise<Invitation> {
     const { receiver_id, brand_id, type, message, contract_content,
-            payment_amount, payment_frequency, payment_day, currency, permissions, video_link } = body;
+            payment_amount, payment_frequency, payment_day, currency, permissions, video_link, campaign_id, ends_at, scope } = body;
 
     const sender = await this.userRepo.findOne({ where: { id: senderId } });
     if (!sender) throw new NotFoundException('Sender not found');
@@ -131,6 +136,17 @@ export class InvitationsService {
     const effectiveBrandId = brand_id || (sender.role === 'brand' ? senderId : null);
     const isMgrSending = sender.role === 'manager';
 
+    // A campaign invite must point at one of the brand's own briefs, and only creators get those.
+    let campaign: Campaign | null = null;
+    if (campaign_id) {
+      if ((type || 'creator_collab') !== 'creator_collab') throw new BadRequestException('Only creator invitations belong to a campaign.');
+      campaign = await this.campaignRepo.findOne({ where: { id: campaign_id }, relations: ['brand'] });
+      if (!campaign || campaign.brand?.id !== effectiveBrandId) throw new BadRequestException('Pick one of your own campaigns.');
+      if (receiver.role !== 'creator') throw new BadRequestException('Campaign invitations are for creators.');
+    }
+    const recurring = (payment_frequency || 'monthly') !== 'one_time';
+    const endsAt = recurring && ends_at && /^\d{4}-\d{2}-\d{2}$/.test(String(ends_at)) ? String(ends_at) : null;
+
     const inv = this.invRepo.create({
       sender: { id: senderId } as any,
       receiver: { id: receiver_id } as any,
@@ -142,8 +158,11 @@ export class InvitationsService {
       payment_frequency: payment_frequency || 'monthly',
       payment_day: payment_day || 1,
       currency: currency || 'NGN',
-      permissions,
+      permissions: type === 'manager_assign' ? permissions : undefined,
       video_link,
+      campaign: campaign ? ({ id: campaign.id } as any) : null,
+      ends_at: endsAt,
+      scope: scope ? String(scope).slice(0, 4000) : null,
       payment_approved: !isMgrSending, // requires brand approval if manager sends
       expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     });
@@ -188,7 +207,7 @@ export class InvitationsService {
   async getReceived(userId: string): Promise<Invitation[]> {
     const rows = await this.invRepo.find({
       where: { receiver: { id: userId } },
-      relations: ['sender', 'sender.brandProfile', 'sender.managerProfile', 'brand', 'brand.brandProfile'],
+      relations: ['sender', 'sender.brandProfile', 'sender.managerProfile', 'brand', 'brand.brandProfile', 'campaign'],
       order: { created_at: 'DESC' },
     });
     return rows.map(sanitizeInvitation);
@@ -201,7 +220,7 @@ export class InvitationsService {
         { sender: { id: userId } },
         { brand: { id: userId } },
       ],
-      relations: ['receiver', 'receiver.creatorProfile', 'receiver.managerProfile', 'sender'],
+      relations: ['receiver', 'receiver.creatorProfile', 'receiver.managerProfile', 'sender', 'campaign'],
       order: { created_at: 'DESC' },
     });
     return rows.map(sanitizeInvitation);
@@ -211,7 +230,7 @@ export class InvitationsService {
   async accept(userId: string, invId: string): Promise<BrandTeam> {
     const inv = await this.invRepo.findOne({
       where: { id: invId, receiver: { id: userId } },
-      relations: ['sender', 'receiver', 'brand'],
+      relations: ['sender', 'receiver', 'brand', 'campaign'],
     });
     if (!inv) throw new NotFoundException('Invitation not found');
     if (inv.status !== 'pending') throw new BadRequestException('Invitation is no longer pending');
@@ -227,6 +246,30 @@ export class InvitationsService {
     // Determine brand
     const brandId = inv.brand?.id || inv.sender?.id;
     const memberType = inv.type === 'manager_assign' ? 'manager' : 'creator';
+
+    // A campaign invite: accepting it signs the collaboration agreement for that brief —
+    // application, contract, tasks and the team row all come from the contracts flow.
+    if (inv.type === 'creator_collab' && inv.campaign?.id) {
+      const contract = await this.contractsService.signFromInvitation({
+        campaignId: inv.campaign.id,
+        creatorId: userId,
+        brandId,
+        payment_amount: Number(inv.payment_amount) || 0,
+        currency: inv.currency || 'USD',
+        payment_frequency: inv.payment_frequency || 'one_time',
+        payment_day: inv.payment_day,
+        ends_at: inv.ends_at,
+        message: inv.message,
+        offeredAt: inv.created_at,
+      });
+      const row = await this.teamRepo.findOne({ where: { brand: { id: brandId }, member: { id: userId }, is_active: true } });
+      if (row && !row.invitation_id) {
+        row.invitation_id = inv.id;
+        await this.teamRepo.save(row);
+      }
+      await this.notifications.createNotification(brandId, 'invitation_accepted', `✅ ${inv.receiver?.email} accepted your campaign invitation — the agreement for "${inv.campaign.title || 'the campaign'}" is signed.`, inv.id);
+      return (row || ({ id: inv.id, contract_id: contract.id } as any)) as BrandTeam;
+    }
 
     // Create team membership
     const team = this.teamRepo.create({

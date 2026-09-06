@@ -42,3 +42,22 @@ test.describe('authentication', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 });
+
+test.describe('expired session', () => {
+  test.use({ ignoreConsole: [/401/] });
+
+  test('a stale token sends you back to sign in with a reason', async ({ page }) => {
+    await page.context().addInitScript(() => {
+      // seed once — the app clears the token itself and must not find it again on /login
+      if (sessionStorage.getItem('e2e-stale-seeded')) return;
+      sessionStorage.setItem('e2e-stale-seeded', '1');
+      localStorage.setItem('token', 'stale.token.value');
+      localStorage.setItem('role', 'creator');
+      localStorage.setItem('onboarding_completed', 'true');
+    });
+    await page.goto('/dashboard/campaigns');
+    await expect(page).toHaveURL(/\/login\?expired=1/);
+    await expect(page.getByRole('alert')).toContainText(/session expired/i);
+    expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull();
+  });
+});

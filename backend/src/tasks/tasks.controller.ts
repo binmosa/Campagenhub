@@ -5,7 +5,14 @@ import { toPublicUser } from '../users/public-user';
 
 /** Task rows carry two User relations — strip them to their public shape. */
 const sanitizeTask = (task: any): any =>
-  task ? { ...task, assignedBy: toPublicUser(task.assignedBy), assignedTo: toPublicUser(task.assignedTo) } : task;
+  task
+    ? {
+        ...task,
+        assignedBy: toPublicUser(task.assignedBy),
+        assignedTo: toPublicUser(task.assignedTo),
+        campaign: task.campaign ? { id: task.campaign.id, title: task.campaign.title, platform: task.campaign.platform, cover_image: task.campaign.cover_image, status: task.campaign.status } : task.campaign ?? null,
+      }
+    : task;
 
 @Controller('api/tasks')
 @UseGuards(JwtAuthGuard)
@@ -13,7 +20,7 @@ export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
   @Post()
-  async create(@Request() req: any, @Body() body: { contract_id: string; title: string; description?: string; assigned_to: string | string[]; due_date?: string }) {
+  async create(@Request() req: any, @Body() body: { contract_id: string; title: string; description?: string; assigned_to: string | string[]; due_date?: string; campaign_id?: string | null; platform?: string | null }) {
     return this.tasksService.createTask(req.user.userId, body);
   }
 
@@ -47,15 +54,4 @@ export class TasksController {
     return this.tasksService.deleteTask(req.user.userId, id);
   }
 
-  @Patch(':id/ai-review')
-  async updateAiReview(@Request() req: any, @Param('id') id: string, @Body() body: { review: string }) {
-    // Basic auth check: ensures user is authenticated, ideally tasksService would verify ownership
-    await this.tasksService.setAiReview(id, body.review);
-    return { success: true };
-  }
-
-  @Post(':id/reanalyze')
-  async reanalyze(@Request() req: any, @Param('id') id: string) {
-    return this.tasksService.reanalyzeTask(req.user.userId, id);
-  }
 }

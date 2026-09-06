@@ -10,11 +10,14 @@ import { PayoutAccountsController } from './payout-accounts.controller';
 import { User } from '../users/user.entity';
 import { ManagerProfile } from '../managers/manager-profile.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ContractsModule } from '../contracts/contracts.module';
+import { Campaign } from '../campaigns/campaign.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Invitation, BrandTeam, PayoutAccount, User, ManagerProfile]),
+    TypeOrmModule.forFeature([Invitation, BrandTeam, PayoutAccount, User, ManagerProfile, Campaign]),
     NotificationsModule,
+    ContractsModule,
   ],
   providers: [InvitationsService, PayoutAccountsService],
   controllers: [InvitationsController, PayoutAccountsController],

@@ -1,8 +1,8 @@
 import React from 'react';
-import { ExternalLink, FileText, Globe, Image as ImageIcon, ScrollText, Users, Video } from 'lucide-react';
+import { ExternalLink, FileText, Globe, Image as ImageIcon, ScrollText, Video, Users, ListChecks } from 'lucide-react';
 import { Chip } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
-import { isOpenTargeting, parseMediaLinks, parseTargeting, type MediaLink, type Targeting } from '../../lib/catalog';
+import { isOpenTargeting, parseMediaLinks, parseTargeting, type MediaLink, type Targeting, parseCampaignTasks } from '../../lib/catalog';
 
 /**
  * BriefDetails — the structured parts of a campaign that creators (and
@@ -35,8 +35,9 @@ export const BriefDetails: React.FC<{ campaign: any; compact?: boolean; classNam
   const tg = parseTargeting(campaign?.targeting);
   const media = parseMediaLinks(campaign?.media_links);
   const script: string = campaign?.script || '';
+  const tasks = parseCampaignTasks(campaign?.tasks);
   const open = isOpenTargeting(tg);
-  if (open && media.length === 0 && !script.trim()) return null;
+  if (open && media.length === 0 && !script.trim() && tasks.length === 0 && !campaign?.video_pitch) return null;
 
   const chips = targetingChips(tg, t);
 
@@ -83,6 +84,39 @@ export const BriefDetails: React.FC<{ campaign: any; compact?: boolean; classNam
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {tasks.length > 0 && (
+        <div>
+          <div className="v-caption v-quiet font-medium uppercase tracking-wider mb-1.5 inline-flex items-center gap-1.5" style={{ fontSize: 10.5 }}>
+            <ListChecks size={11} /> {t('board.deliverables', { count: tasks.length })}
+          </div>
+          <ol className="space-y-1">
+            {tasks.map((task, i) => (
+              <li key={task.key} className="flex items-start gap-2 v-body v-ink" style={{ fontSize: 13 }}>
+                <span className="v-caption v-quiet tabular-nums shrink-0 mt-0.5" style={{ fontSize: 11 }}>{i + 1}.</span>
+                <span className="min-w-0">
+                  <span className="font-medium">{task.title}</span>
+                  {(task.platform || task.due_days) && (
+                    <span className="v-caption v-quiet"> · {[task.platform, task.due_days ? t('board.dueDays', { count: task.due_days }) : ''].filter(Boolean).join(' · ')}</span>
+                  )}
+                  {task.description && !compact && <span className="block v-caption v-quiet" style={{ fontSize: 12 }}>{task.description}</span>}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {(campaign?.video_pitch === 'optional' || campaign?.video_pitch === 'required') && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="v-caption v-quiet font-medium uppercase tracking-wider inline-flex items-center gap-1.5" style={{ fontSize: 10.5 }}>
+            <Video size={11} /> {t('board.howToApply')}
+          </span>
+          <Chip size="sm" variant="soft" color={campaign.video_pitch === 'required' ? 'warning' : 'default'}>
+            <Chip.Label>{campaign.video_pitch === 'required' ? t('board.videoPitchChip') : t('board.videoPitchOptChip')}</Chip.Label>
+          </Chip>
         </div>
       )}
 

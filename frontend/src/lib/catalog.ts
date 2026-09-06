@@ -43,7 +43,7 @@ export const CAMPAIGN_STATUSES = ['draft', 'active', 'paused', 'closed'] as cons
 export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
 
 /** Applicant pipeline — mirrors backend APPLICATION_STATUSES. */
-export const APPLICATION_STATUSES = ['pending', 'shortlisted', 'accepted', 'rejected', 'refunded'] as const;
+export const APPLICATION_STATUSES = ['pending', 'shortlisted', 'offered', 'accepted', 'rejected', 'refunded'] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
 /** Deliverable formats a brief can ask for (stored as a single string). */
@@ -85,6 +85,30 @@ export type Targeting = {
   cities: TargetCity[];
 };
 export type MediaLink = { type: MediaType; url: string; label?: string };
+
+/** A deliverable the brand defines on the brief; copied onto the creator as a task when a contract locks in. */
+export type CampaignTask = { key: string; title: string; description?: string; platform?: string; due_days?: number };
+
+export const parseCampaignTasks = (raw: unknown): CampaignTask[] => {
+  let v: any = raw;
+  if (typeof v === 'string') {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((t) => t && typeof t.title === 'string' && t.title.trim())
+    .map((t, i) => ({
+      key: String(t.key || `t${i + 1}`),
+      title: String(t.title).trim(),
+      ...(t.description ? { description: String(t.description) } : {}),
+      ...(t.platform ? { platform: String(t.platform) } : {}),
+      ...(Number.isFinite(Number(t.due_days)) && Number(t.due_days) > 0 ? { due_days: Math.round(Number(t.due_days)) } : {}),
+    }));
+};
 
 export const EMPTY_TARGETING: Targeting = { gender: 'all', age_groups: [], countries: [], cities: [] };
 
@@ -162,6 +186,7 @@ export const CAMPAIGN_STATUS_COLOR: Record<CampaignStatus, 'success' | 'warning'
 export const APPLICATION_STATUS_COLOR: Record<ApplicationStatus, 'success' | 'warning' | 'danger' | 'default' | 'accent'> = {
   pending: 'warning',
   shortlisted: 'accent',
+  offered: 'warning',
   accepted: 'success',
   rejected: 'danger',
   refunded: 'default',

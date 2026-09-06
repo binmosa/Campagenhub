@@ -11,6 +11,8 @@ import {
   Plus,
   ScrollText,
   Send,
+  Video,
+  ListChecks,
   Sparkles,
   Trash2,
   Users,
@@ -28,8 +30,10 @@ import {
   MEDIA_TYPES,
   OBJECTIVES,
   normalizeCampaignStatus,
+  parseCampaignTasks,
   parseMediaLinks,
   parseTargeting,
+  type CampaignTask,
   type MediaLink,
   type Targeting,
 } from '../../lib/catalog';
@@ -67,6 +71,9 @@ export type CampaignFormValues = {
   media_links: MediaLink[];
   script: string;
   script_required: boolean;
+  video_pitch: 'none' | 'optional' | 'required';
+  tasks: CampaignTask[];
+  tasks_public: boolean;
   deadline: string;
   cover_image: string;
   budget: string;
@@ -85,6 +92,9 @@ export const EMPTY_CAMPAIGN_FORM: CampaignFormValues = {
   media_links: [],
   script: '',
   script_required: false,
+  video_pitch: 'none',
+  tasks: [],
+  tasks_public: true,
   deadline: '',
   cover_image: '',
   budget: '',
@@ -106,6 +116,9 @@ export const campaignToForm = (c: any): CampaignFormValues => ({
   media_links: parseMediaLinks(c?.media_links),
   script: c?.script || '',
   script_required: !!c?.script_required,
+  video_pitch: c?.video_pitch === 'optional' || c?.video_pitch === 'required' ? c.video_pitch : 'none',
+  tasks: parseCampaignTasks(c?.tasks),
+  tasks_public: c?.tasks_public !== false,
   deadline: c?.deadline ? String(c.deadline).slice(0, 10) : '',
   cover_image: c?.cover_image || '',
   budget: c?.budget != null && c.budget !== '' ? String(Number(c.budget)) : '',
@@ -159,6 +172,7 @@ export const CampaignWizard: React.FC<{
   const [generating, setGenerating] = useState(false);
   const [rates, setRates] = useState<Record<string, number>>({ USD: 1 });
   const [mediaDraft, setMediaDraft] = useState<MediaLink>({ type: 'video', url: '', label: '' });
+  const [taskDraft, setTaskDraft] = useState<{ title: string; platform: string; due_days: string; description: string }>({ title: '', platform: '', due_days: '7', description: '' });
   const locations = useTalentLocations();
 
   const isEdit = !!editing;
@@ -316,6 +330,24 @@ export const CampaignWizard: React.FC<{
   };
   const removeMedia = (i: number) => set('media_links', form.media_links.filter((_, idx) => idx !== i));
 
+  const addTask = () => {
+    const title = taskDraft.title.trim();
+    if (!title) return;
+    const days = Number(taskDraft.due_days);
+    set('tasks', [
+      ...form.tasks,
+      {
+        key: `t${Date.now().toString(36)}`,
+        title,
+        ...(taskDraft.description.trim() ? { description: taskDraft.description.trim() } : {}),
+        ...(taskDraft.platform ? { platform: taskDraft.platform } : {}),
+        ...(Number.isFinite(days) && days > 0 ? { due_days: Math.round(days) } : {}),
+      },
+    ]);
+    setTaskDraft({ title: '', platform: taskDraft.platform, due_days: taskDraft.due_days, description: '' });
+  };
+  const removeTask = (i: number) => set('tasks', form.tasks.filter((_, idx) => idx !== i));
+
   const generateContract = async () => {
     setGenerating(true);
     setError('');
@@ -362,6 +394,9 @@ export const CampaignWizard: React.FC<{
       media_links: form.media_links,
       script: form.script,
       script_required: form.script_required && !!form.script.trim(),
+      video_pitch: form.video_pitch,
+      tasks: form.tasks,
+      tasks_public: form.tasks_public,
       deadline: form.deadline || null,
       budget: budgetNum,
       currency: form.currency,
@@ -701,6 +736,117 @@ export const CampaignWizard: React.FC<{
                     />
                   </button>
 
+                  <Field label={t('wizard.tasks')} hint={t('wizard.tasksHint')}>
+                    {form.tasks.length > 0 && (
+                      <ol className="space-y-1.5 mb-3" data-testid="wizard-tasks">
+                        {form.tasks.map((task, i) => (
+                          <li key={task.key} className="flex items-center gap-3 rounded-xl px-3 py-2" style={{ background: 'rgba(244,242,255,0.55)', border: '1px solid var(--color-cool-gray)' }}>
+                            <span className="v-caption v-quiet tabular-nums shrink-0" style={{ fontSize: 11 }}>{i + 1}.</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="v-ink font-medium truncate" style={{ fontSize: 13 }}>{task.title}</div>
+                              <div className="v-caption v-quiet truncate" style={{ fontSize: 11 }}>
+                                {[task.platform, task.due_days ? t('wizard.taskDueDays', { count: task.due_days }) : '', task.description].filter(Boolean).join(' · ')}
+                              </div>
+                            </div>
+                            <button type="button" className="v-shell-btn shrink-0" style={{ width: 28, height: 28 }} aria-label={t('wizard.removeTask')} onClick={() => removeTask(i)}>
+                              <Trash2 size={12} />
+                            </button>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                    <div className="grid grid-cols-2 sm:grid-cols-[1fr_150px_110px_auto] gap-2 items-start">
+                      <input
+                        className={`${fieldClass} col-span-2 sm:col-span-1`}
+                        value={taskDraft.title}
+                        onChange={(e) => setTaskDraft({ ...taskDraft, title: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addTask();
+                          }
+                        }}
+                        placeholder={t('wizard.taskTitlePh')}
+                        aria-label={t('wizard.taskTitle')}
+                      />
+                      <select className={fieldClass} value={taskDraft.platform} onChange={(e) => setTaskDraft({ ...taskDraft, platform: e.target.value })} aria-label={t('wizard.taskPlatform')}>
+                        <option value="">{t('wizard.taskAnyPlatform')}</option>
+                        {form.platforms.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min={1}
+                        max={365}
+                        className={fieldClass}
+                        value={taskDraft.due_days}
+                        onChange={(e) => setTaskDraft({ ...taskDraft, due_days: e.target.value })}
+                        placeholder="7"
+                        aria-label={t('wizard.taskDue')}
+                        title={t('wizard.taskDue')}
+                      />
+                      <Button variant="tertiary" size="md" onPress={addTask} isDisabled={!taskDraft.title.trim()} className="col-span-2 sm:col-auto">
+                        <Plus size={13} /> {t('wizard.addTask')}
+                      </Button>
+                    </div>
+                    <input
+                      className={`${fieldClass} mt-2`}
+                      value={taskDraft.description}
+                      onChange={(e) => setTaskDraft({ ...taskDraft, description: e.target.value })}
+                      placeholder={t('wizard.taskDescPh')}
+                      aria-label={t('wizard.taskDesc')}
+                    />
+                    <button
+                      type="button"
+                      className="v-option-tile mt-3"
+                      data-active={form.tasks_public || undefined}
+                      aria-pressed={form.tasks_public}
+                      onClick={() => set('tasks_public', !form.tasks_public)}
+                    >
+                      <ListChecks size={15} style={{ color: 'var(--color-campaign-purple)' }} />
+                      <span className="flex-1">
+                        <span className="block">{t('wizard.tasksPublic')}</span>
+                        <span className="block v-caption v-quiet font-normal" style={{ fontSize: 11 }}>{t('wizard.tasksPublicHint')}</span>
+                      </span>
+                      <span
+                        className="size-4 rounded-full border-2 shrink-0"
+                        style={{
+                          borderColor: form.tasks_public ? 'var(--color-campaign-purple)' : 'var(--color-fog)',
+                          background: form.tasks_public ? 'var(--color-campaign-purple)' : 'transparent',
+                        }}
+                      />
+                    </button>
+                  </Field>
+
+                  <Field label={t('wizard.pitchMode')} hint={t('wizard.pitchModeHint')}>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="radiogroup" aria-label={t('wizard.pitchMode')}>
+                      {(
+                        [
+                          { value: 'none', label: t('wizard.pitchText'), hint: t('wizard.pitchTextHint'), icon: <ScrollText size={15} /> },
+                          { value: 'optional', label: t('wizard.pitchVideoOptional'), hint: t('wizard.pitchVideoOptionalHint'), icon: <Video size={15} /> },
+                          { value: 'required', label: t('wizard.pitchVideoRequired'), hint: t('wizard.pitchVideoRequiredHint'), icon: <Video size={15} /> },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={form.video_pitch === opt.value}
+                          className="v-option-tile items-start"
+                          data-active={form.video_pitch === opt.value || undefined}
+                          onClick={() => set('video_pitch', opt.value)}
+                        >
+                          <span style={{ color: 'var(--color-campaign-purple)' }}>{opt.icon}</span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block">{opt.label}</span>
+                            <span className="block v-caption v-quiet font-normal" style={{ fontSize: 11 }}>{opt.hint}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+
                   <Field label={t('wizard.cover')} hint={t('wizard.coverHint')}>
                     {form.cover_image ? (
                       <div className="relative rounded-xl overflow-hidden v-hairline" style={{ maxHeight: 200 }}>
@@ -880,7 +1026,7 @@ export const CampaignWizard: React.FC<{
                       <div>
                         <div className="v-quiet">{t('wizard.assets')}</div>
                         <div className="v-ink font-medium">
-                          {t('wizard.mediaN', { n: form.media_links.length })} · {form.script.trim() ? (form.script_required ? t('wizard.scriptMust') : t('wizard.scriptGuide')) : t('wizard.noScript')}
+                          {t('wizard.tasksN', { count: form.tasks.length })} · {t('wizard.mediaN', { n: form.media_links.length })} · {form.script.trim() ? (form.script_required ? t('wizard.scriptMust') : t('wizard.scriptGuide')) : t('wizard.noScript')} · {form.video_pitch === 'required' ? t('wizard.pitchSummaryRequired') : form.video_pitch === 'optional' ? t('wizard.pitchSummaryOptional') : t('wizard.pitchSummaryText')}
                         </div>
                       </div>
                       <div>

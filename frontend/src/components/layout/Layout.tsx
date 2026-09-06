@@ -5,6 +5,7 @@ import {
   BarChart2,
   Brain,
   Briefcase,
+  Send,
   ChevronRight,
   ClipboardList,
   DollarSign,
@@ -80,6 +81,7 @@ const NAV_BY_ROLE: Record<string, NavGroup[]> = {
       items: [
         { key: 'dashboard', path: '/dashboard', icon: LayoutDashboard, end: true },
         { key: 'campaigns', path: '/dashboard/campaigns', icon: Briefcase },
+        { key: 'myApplications', path: '/dashboard/applications', icon: Send },
         { key: 'invitations', path: '/dashboard/invitations', icon: Mail },
         { key: 'workspace', path: '/dashboard/workspace', icon: ClipboardList },
         { key: 'offers', path: '/dashboard/offers', icon: ShoppingBag },
@@ -96,7 +98,6 @@ const NAV_BY_ROLE: Record<string, NavGroup[]> = {
       key: 'tools',
       items: [
         { key: 'messages', path: '/dashboard/messages', icon: MessageSquare },
-        { key: 'aiStudio', path: '/dashboard/ai', icon: Brain },
         { key: 'profile', path: '/dashboard/profile', icon: User },
       ],
     },

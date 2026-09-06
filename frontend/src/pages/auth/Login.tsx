@@ -24,7 +24,7 @@ const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => (new URLSearchParams(window.location.search).get('expired') ? 'expired' : ''));
   const [settings, setSettings] = useState<any>({});
   const navigate = useNavigate();
 
@@ -252,7 +252,7 @@ const Login: React.FC = () => {
                   className="h-2 w-2 rounded-full shrink-0 animate-pulse"
                   style={{ background: '#ff5a5f' }}
                 />
-                {error}
+                {error === 'expired' ? t('auth.sessionExpired') : error}
               </motion.div>
             )}
 

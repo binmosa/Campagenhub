@@ -5,6 +5,8 @@ import {
   ArrowRight,
   Award,
   Building2,
+  CheckCircle2,
+  Circle,
   ClipboardList,
   DollarSign,
   FileText,
@@ -23,8 +25,10 @@ import api from '../../lib/api';
 import { formatBudget, postedLabel } from '../../lib/campaignFormat';
 import { MetricCard, PageShell } from '../../components/ui';
 import { EmptyPanel } from '../../components/common/EmptyPanel';
-import { TalentCard, TalentCardSkeleton } from '../../components/common/TalentCard';
-import { accentFor, type Talent } from '../talent/shared';
+import { DashPanel, PanelEmpty, PanelRow, PanelRows, PanelRowsSkeleton } from '../../components/common/DashPanel';
+import { StoryAvatar } from '../../components/common/StoryAvatar';
+import PayoutSummary from '../../components/PayoutSummary';
+import type { Talent } from '../talent/shared';
 
 /**
  * ManagerDashboard — a manager's book of business: brands who hired them
@@ -152,9 +156,17 @@ const ManagerDashboard: React.FC = () => {
   const rating = Math.min(5, Math.max(0, Number(profile?.rating) || 5));
   const completeness = useMemo(() => {
     const p = profile || {};
-    const checks = [p.full_name || p.first_name, p.avatar_url, p.bio, p.specialty, p.services, p.country || p.location, Number(p.experience_years) > 0];
-    const done = checks.filter(Boolean).length;
-    return { done, total: checks.length, pct: Math.round((done / checks.length) * 100) };
+    const items = [
+      { key: 'cdash.chkName', done: !!(p.full_name || p.first_name) },
+      { key: 'cdash.chkAvatar', done: !!p.avatar_url },
+      { key: 'cdash.chkBio', done: !!p.bio },
+      { key: 'mdash.chkSpecialty', done: !!p.specialty },
+      { key: 'mdash.chkServices', done: Array.isArray(p.services) ? p.services.length > 0 : !!p.services },
+      { key: 'cdash.chkLocation', done: !!(p.country || p.location) },
+      { key: 'mdash.chkExperience', done: Number(p.experience_years) > 0 },
+    ];
+    const done = items.filter((i) => i.done).length;
+    return { items, done, total: items.length, pct: Math.round((done / items.length) * 100) };
   }, [profile]);
 
   const attention = useMemo(() => {
@@ -258,201 +270,222 @@ const ManagerDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* Home grid — every block is a DashPanel so both columns share one frame
+          and each row stretches its two panels to the same height. */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <section className="lg:col-span-2 space-y-5">
-          {/* Brand clients */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 16, letterSpacing: '-0.015em' }}>
-                <Building2 size={15} style={{ color: 'var(--color-campaign-purple)' }} /> {t('mdash.clients')}
-              </h2>
-              <Link to="/dashboard/invitations">
-                <Button variant="ghost" size="sm">
-                  {t('dash.seeAll')} <ArrowRight size={11} />
-                </Button>
-              </Link>
-            </div>
-            {loading ? (
-              <div className="v-talent-card p-4" aria-hidden>
-                <div className="v-skel h-4 w-1/3 mb-2" />
-                <div className="v-skel h-3 w-2/3" />
-              </div>
-            ) : clients.length === 0 ? (
-              <EmptyPanel
-                icon={<Building2 size={22} />}
-                title={t('mdash.noClientsTitle')}
-                description={t('mdash.noClientsDesc')}
-                actions={
-                  <Link to="/dashboard/profile">
-                    <Button variant="primary"><Pencil size={13} /> {t('cdash.editProfile')}</Button>
-                  </Link>
-                }
-              />
-            ) : (
-              <ul className="v-talent-card divide-y divide-border">
-                {clients.slice(0, 5).map((inv) => {
-                  const name = brandName(inv) || t('side.roleBrand');
-                  const logo = inv?.sender?.brandProfile?.logo_url || inv?.brand?.brandProfile?.logo_url;
-                  const accent = accentFor(name);
-                  return (
-                    <li key={inv.id} className="flex items-center gap-3 px-4 py-3">
-                      <span className="v-story-ring" style={{ padding: 2 }}>
-                        {logo ? (
-                          <img src={logo} alt="" className="h-9 w-9 object-cover" />
-                        ) : (
-                          <span className="inline-flex h-9 w-9 items-center justify-center text-sm font-medium text-white" style={{ background: accent.from }}>{name[0]?.toUpperCase()}</span>
-                        )}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="v-ink font-medium truncate" style={{ fontSize: 13.5 }}>{name}</div>
-                        <div className="v-caption v-quiet truncate" style={{ fontSize: 11.5 }}>
-                          {t('mdash.since', { when: postedLabel(inv.created_at) })}
-                          {inv.payment_amount ? ` · ${formatBudget(inv.payment_amount, inv.currency || 'USD')}${inv.payment_frequency ? ` / ${t(`apps.freq.${inv.payment_frequency}`, { defaultValue: inv.payment_frequency })}` : ''}` : ''}
-                        </div>
-                      </div>
+        {/* Row 1 — brand clients · reputation */}
+        <DashPanel
+          className="lg:col-span-2"
+          icon={<Building2 size={15} />}
+          title={t('mdash.clients')}
+          meta={clients.length ? t('mdash.clientsCount', { count: clients.length }) : undefined}
+          action={
+            <Link to="/dashboard/invitations">
+              <Button variant="ghost" size="sm">
+                {t('dash.seeAll')} <ArrowRight size={11} />
+              </Button>
+            </Link>
+          }
+        >
+          {loading ? (
+            <PanelRowsSkeleton n={3} />
+          ) : clients.length === 0 ? (
+            <PanelEmpty
+              icon={<Building2 size={16} />}
+              title={t('mdash.noClientsTitle')}
+              desc={t('mdash.noClientsDesc')}
+              action={
+                <Link to="/dashboard/profile">
+                  <Button variant="primary" size="sm">
+                    <Pencil size={12} /> {t('cdash.editProfile')}
+                  </Button>
+                </Link>
+              }
+            />
+          ) : (
+            <PanelRows>
+              {clients.slice(0, 4).map((inv) => {
+                const name = brandName(inv) || t('side.roleBrand');
+                const logo = inv?.sender?.brandProfile?.logo_url || inv?.brand?.brandProfile?.logo_url;
+                const terms = inv.payment_amount
+                  ? `${formatBudget(inv.payment_amount, inv.currency || 'USD')}${inv.payment_frequency ? ` / ${t(`apps.freq.${inv.payment_frequency}`, { defaultValue: inv.payment_frequency })}` : ''}`
+                  : '';
+                return (
+                  <PanelRow
+                    key={inv.id}
+                    leading={<StoryAvatar src={logo} name={name} seed={inv?.sender?.id || name} size={36} />}
+                    title={name}
+                    sub={[t('mdash.since', { when: postedLabel(inv.created_at) }), terms].filter(Boolean).join(' · ')}
+                    trailing={
                       <Chip color={INV_COLOR[inv.status] || 'default'} variant="soft" size="sm">
                         <Chip.Label>{t(`appStatus.${inv.status}`, { defaultValue: inv.status })}</Chip.Label>
                       </Chip>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-
-          {/* Creator roster */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 16, letterSpacing: '-0.015em' }}>
-                <Users size={15} style={{ color: 'var(--color-campaign-purple)' }} /> {t('mdash.roster')}
-              </h2>
-              <Link to="/dashboard/talent">
-                <Button variant="ghost" size="sm">
-                  {t('dash.findTalent')} <ArrowRight size={11} />
-                </Button>
-              </Link>
-            </div>
-            {loading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[0, 1].map((i) => <TalentCardSkeleton key={i} />)}
-              </div>
-            ) : roster.length === 0 ? (
-              <EmptyPanel
-                icon={<Users size={22} />}
-                title={t('mdash.noRosterTitle')}
-                description={t('mdash.noRosterDesc')}
-                actions={
-                  <Link to="/dashboard/talent">
-                    <Button variant="primary"><Star size={13} /> {t('dash.findTalent')}</Button>
-                  </Link>
-                }
-              />
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {roster.slice(0, 4).map((tal, i) => (
-                  <TalentCard
-                    key={tal.id}
-                    talent={tal}
-                    index={i}
-                    canInvite={false}
-                    loggedIn
-                    viewerIsCreator={false}
-                    onInvite={() => {}}
-                    actions={
-                      <Link to="/dashboard/messages">
-                        <Button variant="ghost" size="sm" className="!px-2.5">
-                          <MessageSquare size={11} /> {t('side.messages')}
-                        </Button>
-                      </Link>
                     }
                   />
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
+                );
+              })}
+            </PanelRows>
+          )}
+        </DashPanel>
 
-        <aside className="space-y-5">
-          {/* Reputation */}
-          <div className="v-talent-card p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 15 }}>
-                <Award size={14} style={{ color: 'var(--color-campaign-purple)' }} /> {t('mdash.reputation')}
-              </h2>
-              <span className="inline-flex items-center gap-1 v-ink font-medium tabular-nums" style={{ fontSize: 18 }}>
-                <Star size={14} className="fill-warning text-warning" /> {rating.toFixed(1)}
-              </span>
+        <DashPanel
+          icon={<Award size={15} />}
+          title={t('mdash.reputation')}
+          meta={
+            <span className="inline-flex items-center gap-1 v-ink font-medium" style={{ fontSize: 17 }}>
+              <Star size={14} className="fill-warning text-warning" /> {rating.toFixed(1)}
+            </span>
+          }
+        >
+          <p className="v-caption v-quiet" style={{ fontSize: 12 }}>{t('mdash.reputationHint')}</p>
+          <dl className="mt-3 grid grid-cols-2 gap-2 v-caption" style={{ fontSize: 12 }}>
+            <div className="rounded-lg p-2.5" style={{ background: 'var(--color-cool-gray)' }}>
+              <dt className="v-quiet">{t('mprof.experience')}</dt>
+              <dd className="v-ink font-medium">{Number(profile?.experience_years) > 0 ? t('talent.years', { n: Number(profile.experience_years) }) : '—'}</dd>
             </div>
-            <p className="v-caption v-quiet" style={{ fontSize: 12 }}>{t('mdash.reputationHint')}</p>
-            <dl className="mt-3 grid grid-cols-2 gap-2 v-caption" style={{ fontSize: 12 }}>
-              <div className="rounded-lg p-2.5" style={{ background: 'var(--color-cool-gray)' }}>
-                <dt className="v-quiet">{t('mprof.experience')}</dt>
-                <dd className="v-ink font-medium">{Number(profile?.experience_years) > 0 ? t('talent.years', { n: Number(profile.experience_years) }) : '—'}</dd>
-              </div>
-              <div className="rounded-lg p-2.5" style={{ background: 'var(--color-cool-gray)' }}>
-                <dt className="v-quiet">{t('mdash.brandsServed')}</dt>
-                <dd className="v-ink font-medium tabular-nums">{clients.length}</dd>
-              </div>
-            </dl>
-          </div>
+            <div className="rounded-lg p-2.5" style={{ background: 'var(--color-cool-gray)' }}>
+              <dt className="v-quiet">{t('mdash.brandsServed')}</dt>
+              <dd className="v-ink font-medium tabular-nums">{clients.length}</dd>
+            </div>
+          </dl>
+        </DashPanel>
 
-          {/* Profile completeness */}
-          <div className="v-talent-card p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 15 }}>
-                <Users size={14} style={{ color: 'var(--color-campaign-purple)' }} /> {t('cdash.profile')}
-              </h2>
-              <span className="v-text-signature font-medium tabular-nums" style={{ fontSize: 18 }}>{completeness.pct}%</span>
-            </div>
-            <div className="h-2 rounded-full overflow-hidden mb-2.5" style={{ background: 'var(--color-cool-gray)' }}>
-              <div className="h-full rounded-full" style={{ width: `${completeness.pct}%`, background: 'var(--gradient-signature)' }} />
-            </div>
-            <p className="v-caption v-quiet mb-3" style={{ fontSize: 12 }}>
-              {completeness.pct >= 100 ? t('cdash.profileDone') : t('cdash.profileHint', { n: completeness.total - completeness.done, count: completeness.total - completeness.done })}
-            </p>
-            <Link to="/dashboard/profile">
-              <Button variant={completeness.pct >= 100 ? 'tertiary' : 'primary'} size="sm" fullWidth>
-                <Pencil size={12} /> {t('cdash.editProfile')}
+        {/* Row 2 — creator roster · profile strength */}
+        <DashPanel
+          className="lg:col-span-2"
+          icon={<Users size={15} />}
+          title={t('mdash.roster')}
+          meta={roster.length ? t('mdash.rosterCount', { count: roster.length }) : undefined}
+          action={
+            <Link to="/dashboard/talent">
+              <Button variant="ghost" size="sm">
+                {t('dash.findTalent')} <ArrowRight size={11} />
               </Button>
             </Link>
-          </div>
+          }
+        >
+          {loading ? (
+            <PanelRowsSkeleton n={3} />
+          ) : roster.length === 0 ? (
+            <PanelEmpty
+              icon={<Users size={16} />}
+              title={t('mdash.noRosterTitle')}
+              desc={t('mdash.noRosterDesc')}
+              action={
+                <Link to="/dashboard/talent">
+                  <Button variant="primary" size="sm">
+                    <Star size={12} /> {t('dash.findTalent')}
+                  </Button>
+                </Link>
+              }
+            />
+          ) : (
+            <PanelRows>
+              {roster.slice(0, 4).map((tal) => (
+                <PanelRow
+                  key={tal.id}
+                  leading={<StoryAvatar src={tal.avatar_url} name={tal.full_name || tal.username || ''} seed={tal.id} size={36} />}
+                  title={tal.full_name || tal.username || '—'}
+                  sub={[tal.username ? `@${tal.username}` : '', tal.category, tal.location].filter(Boolean).join(' · ')}
+                  trailing={
+                    <Link to="/dashboard/messages">
+                      <Button variant="tertiary" size="sm">
+                        <MessageSquare size={11} /> {t('mdash.message')}
+                      </Button>
+                    </Link>
+                  }
+                />
+              ))}
+            </PanelRows>
+          )}
+        </DashPanel>
 
-          {/* Contracts */}
-          <div className="v-talent-card p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 15 }}>
-                <FileText size={14} style={{ color: 'var(--color-campaign-purple)' }} /> {t('side.contracts')}
-              </h2>
-              <Link to="/dashboard/contracts">
-                <Button variant="ghost" size="sm">
-                  {t('dash.seeAll')} <ArrowRight size={11} />
-                </Button>
-              </Link>
-            </div>
-            {!loading && contracts.length === 0 ? (
-              <p className="v-caption v-quiet" style={{ fontSize: 12 }}>{t('cdash.noContracts')}</p>
-            ) : (
-              <ul className="divide-y divide-border">
-                {contracts.slice(0, 3).map((c) => {
-                  const active = ['active', 'approved'].includes(String(c.status));
-                  return (
-                    <li key={c.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
-                      <div className="min-w-0 flex-1">
-                        <div className="v-ink font-medium truncate" style={{ fontSize: 13 }}>{c.title || c.application?.campaign?.title || brandName(c.invitation) || '—'}</div>
-                        <div className="v-caption v-quiet tabular-nums" style={{ fontSize: 11 }}>
-                          {c.payment_amount ? formatBudget(c.payment_amount, c.currency || 'USD') : postedLabel(c.created_at)}
-                        </div>
-                      </div>
-                      <Chip color={active ? 'success' : c.status === 'pending_signature' ? 'warning' : 'default'} variant="soft" size="sm">
-                        <Chip.Label>{t(`contractStatus.${c.status}`, { defaultValue: String(c.status).replace('_', ' ') })}</Chip.Label>
-                      </Chip>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+        <DashPanel
+          icon={<Users size={15} />}
+          title={t('cdash.profile')}
+          meta={
+            <span className="v-text-signature font-medium" style={{ fontSize: 17 }}>
+              {completeness.pct}%
+            </span>
+          }
+        >
+          <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--color-cool-gray)' }}>
+            <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${completeness.pct}%`, background: 'var(--gradient-signature)' }} />
           </div>
-        </aside>
+          <p className="v-caption v-quiet mt-2 mb-3" style={{ fontSize: 12 }}>
+            {completeness.pct >= 100 ? t('cdash.profileDone') : t('cdash.profileHint', { n: completeness.total - completeness.done, count: completeness.total - completeness.done })}
+          </p>
+          <ul className="grid grid-cols-2 gap-x-3 gap-y-1.5 mb-4">
+            {completeness.items.map((it) => (
+              <li key={it.key} className="flex items-center gap-1.5 min-w-0" style={{ fontSize: 12.5 }}>
+                {it.done ? (
+                  <CheckCircle2 size={14} className="shrink-0" style={{ color: 'var(--color-signal-green)' }} />
+                ) : (
+                  <Circle size={14} className="shrink-0 v-quiet" />
+                )}
+                <span className={`truncate ${it.done ? 'v-ink' : 'v-quiet'}`}>{t(it.key)}</span>
+              </li>
+            ))}
+          </ul>
+          <Link to="/dashboard/profile" className="block mt-auto">
+            <Button variant={completeness.pct >= 100 ? 'tertiary' : 'primary'} size="sm" fullWidth>
+              <Pencil size={12} /> {t('cdash.editProfile')}
+            </Button>
+          </Link>
+        </DashPanel>
+
+        {/* Row 3 — contracts · payout account */}
+        <DashPanel
+          className="lg:col-span-2"
+          icon={<FileText size={15} />}
+          title={t('side.contracts')}
+          action={
+            <Link to="/dashboard/contracts">
+              <Button variant="ghost" size="sm">
+                {t('dash.seeAll')} <ArrowRight size={11} />
+              </Button>
+            </Link>
+          }
+        >
+          {loading ? (
+            <PanelRowsSkeleton n={2} />
+          ) : contracts.length === 0 ? (
+            <PanelEmpty icon={<FileText size={16} />} title={t('cdash.noContractsTitle')} desc={t('cdash.noContracts')} />
+          ) : (
+            <PanelRows>
+              {contracts.slice(0, 3).map((c) => {
+                const active = ['active', 'approved'].includes(String(c.status));
+                const campaign = c.application?.campaign?.title;
+                const partner = c.opponent_name || brandName(c.invitation) || (c.opponent_email ? String(c.opponent_email).split('@')[0] : '');
+                const freq = c.payment_frequency ? t(`apps.freq.${c.payment_frequency}`, { defaultValue: String(c.payment_frequency).replace('_', ' ') }) : '';
+                return (
+                  <PanelRow
+                    key={c.id}
+                    leading={<StoryAvatar src={c.opponent_avatar} name={partner} seed={c.opponent_id || partner} size={36} />}
+                    title={campaign || c.title || '—'}
+                    sub={[partner, freq, postedLabel(c.created_at)].filter(Boolean).join(' · ')}
+                    trailing={
+                      <>
+                        {c.payment_amount != null && (
+                          <span className="v-ink font-medium tabular-nums hidden sm:inline" style={{ fontSize: 13, color: '#0b6e3e' }}>
+                            {formatBudget(c.payment_amount, c.currency || 'USD')}
+                          </span>
+                        )}
+                        <Chip color={active ? 'success' : c.status === 'pending_signature' ? 'warning' : 'default'} variant="soft" size="sm">
+                          <Chip.Label>{t(`contractStatus.${c.status}`, { defaultValue: String(c.status).replace('_', ' ') })}</Chip.Label>
+                        </Chip>
+                      </>
+                    }
+                  />
+                );
+              })}
+            </PanelRows>
+          )}
+        </DashPanel>
+
+        <DashPanel icon={<DollarSign size={15} />} title={t('cdash.payout')}>
+          <PayoutSummary variant="bare" />
+        </DashPanel>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

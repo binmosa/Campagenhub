@@ -22,6 +22,7 @@ const targetFor = (n: Notification): string => {
   if (type === 'new_message') return '/dashboard/messages';
   if (['invitation', 'payment_approval', 'negotiation_updated', 'invitation_accepted', 'invitation_declined'].includes(type))
     return `/dashboard/invitations?inviteId=${n.reference_id || ''}`;
+  if (type.startsWith('task_')) return '/dashboard/workspace';
   if (type.startsWith('application_')) return '/dashboard/applications';
   if (type.startsWith('contract_')) return '/dashboard/contracts';
   if (type.includes('payment') || type.includes('payout')) return '/dashboard/payments';

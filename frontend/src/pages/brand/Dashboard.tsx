@@ -21,11 +21,12 @@ import {
 import { Button, Chip } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
-import { formatBudget } from '../../lib/campaignFormat';
+import { formatBudget, postedLabel } from '../../lib/campaignFormat';
+import { APPLICATION_STATUS_COLOR, CAMPAIGN_STATUS_COLOR, normalizeApplicationStatus, normalizeCampaignStatus } from '../../lib/catalog';
 import { MetricCard, PageShell } from '../../components/ui';
-import CampaignCard, { CampaignCardSkeleton } from '../../components/common/CampaignCard';
 import { EmptyPanel } from '../../components/common/EmptyPanel';
-import { accentFor } from '../talent/shared';
+import { DashPanel, PanelEmpty, PanelRow, PanelRows, PanelRowsSkeleton } from '../../components/common/DashPanel';
+import { StoryAvatar } from '../../components/common/StoryAvatar';
 
 /**
  * BrandDashboard — the brand's overview: KPIs with 12-week sparklines,
@@ -34,7 +35,7 @@ import { accentFor } from '../talent/shared';
  */
 type Stats = {
   campaigns: { total: number; by_status: Record<string, number>; closing_soon: number };
-  applications: { total: number; pending: number; shortlisted: number; accepted: number; rejected: number; other: number };
+  applications: { total: number; pending: number; shortlisted: number; offered?: number; accepted: number; rejected: number; other: number };
   budget: { committed_usd: number; active_usd: number };
   series: { weeks: string[]; campaigns: number[]; applications: number[]; accepted: number[] };
 };
@@ -54,6 +55,7 @@ const BrandDashboard: React.FC = () => {
   const [stats, setStats] = useState<Stats | null>(null);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [team, setTeam] = useState<any[]>([]);
+  const [applications, setApplications] = useState<any[]>([]);
   const [pendingInvites, setPendingInvites] = useState(0);
   const [brandName, setBrandName] = useState('');
   const [loading, setLoading] = useState(true);
@@ -67,13 +69,15 @@ const BrandDashboard: React.FC = () => {
       api.get('/invitations/team').catch(() => ({ data: [] })),
       api.get('/invitations/sent').catch(() => ({ data: [] })),
       api.get('/brands/profile').catch(() => ({ data: null })),
+      api.get('/applications').catch(() => ({ data: [] })),
     ])
-      .then(([st, camps, teamRes, invRes, prof]) => {
+      .then(([st, camps, teamRes, invRes, prof, apps]) => {
         setStats(st.data);
         setCampaigns(Array.isArray(camps.data) ? camps.data : []);
         setTeam(Array.isArray(teamRes.data) ? teamRes.data : []);
         setPendingInvites((invRes.data || []).filter((i: any) => i.status === 'pending').length);
         setBrandName(prof.data?.company_name || '');
+        setApplications(Array.isArray(apps.data) ? apps.data : []);
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
@@ -102,6 +106,7 @@ const BrandDashboard: React.FC = () => {
     const rows = [
       { key: 'pending', n: a?.pending || 0, color: '#ffb547' },
       { key: 'shortlisted', n: a?.shortlisted || 0, color: '#6c63ff' },
+      { key: 'offered', n: (a as any)?.offered || 0, color: '#00d4c7' },
       { key: 'accepted', n: a?.accepted || 0, color: '#16c784' },
       { key: 'rejected', n: a?.rejected || 0, color: '#c4cad8' },
     ];
@@ -208,178 +213,210 @@ const BrandDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* Home grid — every block is a DashPanel so both columns share one frame
+          and each row stretches its two panels to the same height. */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Recent campaigns */}
-        <section className="lg:col-span-2">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 16, letterSpacing: '-0.015em' }}>
-              <Megaphone size={15} style={{ color: 'var(--color-campaign-purple)' }} /> {t('dash.recentCampaigns')}
-            </h2>
+        {/* Row 1 — recent campaigns · applicant pipeline */}
+        <DashPanel
+          className="lg:col-span-2"
+          icon={<Megaphone size={15} />}
+          title={t('dash.recentCampaigns')}
+          action={
             <Link to="/dashboard/campaigns">
               <Button variant="ghost" size="sm">
                 {t('dash.seeAll')} <ArrowRight size={11} />
               </Button>
             </Link>
-          </div>
+          }
+        >
           {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {Array.from({ length: 2 }).map((_, i) => (
-                <CampaignCardSkeleton key={i} />
-              ))}
-            </div>
+            <PanelRowsSkeleton n={3} />
           ) : recent.length === 0 ? (
-            <EmptyPanel
-              icon={<Megaphone size={22} />}
+            <PanelEmpty
+              icon={<Megaphone size={16} />}
               title={t('dash.noCampaignsTitle')}
-              description={t('dash.noCampaignsDesc')}
-              actions={
+              desc={t('dash.noCampaignsDesc')}
+              action={
                 <Link to="/dashboard/campaigns?new=1">
-                  <Button variant="primary">
+                  <Button variant="primary" size="sm">
                     <Plus size={13} /> {t('dash.createFirst')}
                   </Button>
                 </Link>
               }
             />
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {recent.map((camp, i) => (
-                <CampaignCard
-                  key={camp.id}
-                  camp={camp}
-                  index={i}
-                  applied={false}
-                  loggedIn
-                  isCreator={false}
-                  onApply={() => {}}
-                  variant="owner"
-                  onOpen={(c) => navigate(`/dashboard/applications?campaign=${c.id}`)}
-                  actions={
-                    <Button
-                      variant={Number(camp.pending_count) > 0 ? 'primary' : 'tertiary'}
-                      size="sm"
-                      onPress={() => navigate(`/dashboard/applications?campaign=${camp.id}`)}
-                    >
-                      <Users size={11} />{' '}
-                      {Number(camp.pending_count) > 0
-                        ? t('dash.reviewN', { n: Number(camp.pending_count) })
-                        : t('dash.applicantsN', { n: Number(camp.applicants_count) || 0 })}
-                    </Button>
-                  }
-                />
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Pipeline + team */}
-        <aside className="space-y-5">
-          <div className="v-talent-card p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 15 }}>
-                <Users size={14} style={{ color: 'var(--color-campaign-purple)' }} /> {t('dash.pipeline')}
-              </h2>
-              <span className="v-caption v-quiet tabular-nums" style={{ fontSize: 11.5 }}>
-                {t('dash.pipelineTotal', { n: funnel.total })}
-              </span>
-            </div>
-            {funnel.total === 0 && !loading ? (
-              <EmptyPanel
-                size="sm"
-                icon={<Users size={18} />}
-                title={t('dash.noApplicantsTitle')}
-                description={t('dash.noApplicantsDesc')}
-              />
-            ) : (
-              <ul className="space-y-2.5">
-                {funnel.rows.map((r) => (
-                  <li key={r.key}>
-                    <div className="flex items-center justify-between v-caption mb-1" style={{ fontSize: 12 }}>
-                      <span className="v-ink font-medium">{t(`appStatus.${r.key}`)}</span>
-                      <span className="v-quiet tabular-nums">{r.n}</span>
-                    </div>
-                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--color-cool-gray)' }}>
-                      <div
-                        className="h-full rounded-full transition-[width] duration-500"
-                        style={{
-                          width: `${Math.max(r.n ? 6 : 0, (r.n / funnel.max) * 100)}%`,
-                          background: r.key === 'shortlisted' ? 'var(--gradient-signature)' : r.color,
-                        }}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <Link to="/dashboard/applications" className="block mt-3">
-              <Button variant="tertiary" size="sm" fullWidth>
-                {t('dash.openInbox')} <ArrowRight size={11} />
-              </Button>
-            </Link>
-          </div>
-
-          <div className="v-talent-card p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 15 }}>
-                <Star size={14} style={{ color: 'var(--color-campaign-purple)' }} /> {t('dash.team')}
-              </h2>
-              <Link to="/dashboard/my-team">
-                <Button variant="ghost" size="sm">
-                  {t('dash.manage')} <ArrowRight size={11} />
-                </Button>
-              </Link>
-            </div>
-            {!loading && team.length === 0 ? (
-              <EmptyPanel
-                size="sm"
-                icon={<Users size={18} />}
-                title={t('dash.noTeamTitle')}
-                description={t('dash.noTeamDesc')}
-                actions={
-                  <Link to="/dashboard/talent">
-                    <Button variant="primary" size="sm">
-                      <Star size={12} /> {t('dash.browseTalent')}
-                    </Button>
-                  </Link>
-                }
-              />
-            ) : (
-              <ul className="divide-y divide-border">
-                {team.slice(0, 5).map((m) => {
-                  const name = memberName(m);
-                  const avatar = memberAvatar(m);
-                  const accent = accentFor(String(m.member?.id || name));
-                  return (
-                    <li key={m.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                      <span className="v-story-ring" style={{ padding: 2 }}>
-                        {avatar ? (
-                          <img src={avatar} alt="" className="h-8 w-8 object-cover" />
-                        ) : (
-                          <span
-                            className="inline-flex h-8 w-8 items-center justify-center text-xs font-medium text-white"
-                            style={{ background: accent.from }}
-                          >
-                            {name[0]?.toUpperCase()}
+            <PanelRows>
+              {recent.map((camp) => {
+                const st = normalizeCampaignStatus(camp.status);
+                const pending = Number(camp.pending_count) || 0;
+                const sub = [camp.platform, postedLabel(camp.created_at), t('dash.applicantsN', { n: Number(camp.applicants_count) || 0 })].filter(Boolean).join(' · ');
+                return (
+                  <PanelRow
+                    key={camp.id}
+                    leading={
+                      camp.cover_image ? (
+                        <img src={camp.cover_image} alt="" className="h-9 w-9 rounded-[11px] object-cover" />
+                      ) : (
+                        <span className="v-hero-icon" style={{ width: 36, height: 36, borderRadius: 11 }}>
+                          <Megaphone size={15} />
+                        </span>
+                      )
+                    }
+                    title={camp.title}
+                    sub={sub}
+                    trailing={
+                      <>
+                        {camp.budget != null && (
+                          <span className="v-ink font-medium tabular-nums hidden sm:inline" style={{ fontSize: 13, color: '#0b6e3e' }}>
+                            {formatBudget(camp.budget, camp.currency || 'USD')}
                           </span>
                         )}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="v-ink font-medium truncate" style={{ fontSize: 13 }}>{name}</div>
-                        <div className="v-caption v-quiet capitalize" style={{ fontSize: 11 }}>
-                          {m.member_type === 'manager' ? t('talent.managerFallback') : t('talent.creatorFallback')}
-                        </div>
-                      </div>
-                      {m.payment_amount ? (
+                        <Chip color={CAMPAIGN_STATUS_COLOR[st]} variant="soft" size="sm">
+                          <Chip.Label>{t(`status.${st}`, { defaultValue: st })}</Chip.Label>
+                        </Chip>
+                        <Button variant={pending > 0 ? 'primary' : 'tertiary'} size="sm" onPress={() => navigate(`/dashboard/applications?campaign=${camp.id}`)}>
+                          <Users size={11} /> {pending > 0 ? t('dash.reviewN', { n: pending }) : t('dash.viewApplicants')}
+                        </Button>
+                      </>
+                    }
+                  />
+                );
+              })}
+            </PanelRows>
+          )}
+        </DashPanel>
+
+        <DashPanel icon={<Users size={15} />} title={t('dash.pipeline')} meta={t('dash.pipelineTotal', { n: funnel.total })}>
+          {funnel.total === 0 && !loading ? (
+            <PanelEmpty icon={<Users size={16} />} title={t('dash.noApplicantsTitle')} desc={t('dash.noApplicantsDesc')} />
+          ) : (
+            <ul className="space-y-2.5">
+              {funnel.rows.map((r) => (
+                <li key={r.key}>
+                  <div className="flex items-center justify-between v-caption mb-1" style={{ fontSize: 12 }}>
+                    <span className="v-ink font-medium">{t(`appStatus.${r.key}`)}</span>
+                    <span className="v-quiet tabular-nums">{r.n}</span>
+                  </div>
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--color-cool-gray)' }}>
+                    <div
+                      className="h-full rounded-full transition-[width] duration-500"
+                      style={{
+                        width: `${Math.max(r.n ? 6 : 0, (r.n / funnel.max) * 100)}%`,
+                        background: r.key === 'shortlisted' ? 'var(--gradient-signature)' : r.color,
+                      }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Link to="/dashboard/applications" className="block mt-auto pt-4">
+            <Button variant="tertiary" size="sm" fullWidth>
+              {t('dash.openInbox')} <ArrowRight size={11} />
+            </Button>
+          </Link>
+        </DashPanel>
+
+        {/* Row 2 — latest applicants · team */}
+        <DashPanel
+          className="lg:col-span-2"
+          icon={<Briefcase size={15} />}
+          title={t('dash.latestApplicants')}
+          meta={stats?.applications?.pending ? t('dash.toReviewN', { count: stats.applications.pending }) : undefined}
+          action={
+            <Link to="/dashboard/applications">
+              <Button variant="ghost" size="sm">
+                {t('dash.seeAll')} <ArrowRight size={11} />
+              </Button>
+            </Link>
+          }
+        >
+          {loading ? (
+            <PanelRowsSkeleton n={3} />
+          ) : applications.length === 0 ? (
+            <PanelEmpty icon={<Briefcase size={16} />} title={t('dash.noApplicantsTitle')} desc={t('dash.noRecentApplicantsDesc')} />
+          ) : (
+            <PanelRows>
+              {[...applications]
+                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                .slice(0, 4)
+                .map((a) => {
+                  const st = normalizeApplicationStatus(a.status);
+                  const cp = a.creator?.creatorProfile || {};
+                  const name = cp.full_name || a.creator?.email?.split('@')[0] || '—';
+                  const sub = [a.campaign?.title, cp.category, postedLabel(a.created_at)].filter(Boolean).join(' · ');
+                  return (
+                    <PanelRow
+                      key={a.id}
+                      leading={<StoryAvatar src={cp.avatar_url} name={name} seed={a.creator?.id || name} size={36} />}
+                      title={name}
+                      sub={sub}
+                      trailing={
+                        <>
+                          <Chip color={APPLICATION_STATUS_COLOR[st]} variant="soft" size="sm">
+                            <Chip.Label>{t(`appStatus.${st}`)}</Chip.Label>
+                          </Chip>
+                          <Button variant={st === 'pending' ? 'primary' : 'tertiary'} size="sm" onPress={() => navigate(`/dashboard/applications?campaign=${a.campaign?.id || ''}`)}>
+                            {t('dash.review')}
+                          </Button>
+                        </>
+                      }
+                    />
+                  );
+                })}
+            </PanelRows>
+          )}
+        </DashPanel>
+
+        <DashPanel
+          icon={<Star size={15} />}
+          title={t('dash.team')}
+          action={
+            <Link to="/dashboard/my-team">
+              <Button variant="ghost" size="sm">
+                {t('dash.manage')} <ArrowRight size={11} />
+              </Button>
+            </Link>
+          }
+        >
+          {loading ? (
+            <PanelRowsSkeleton n={3} />
+          ) : team.length === 0 ? (
+            <PanelEmpty
+              icon={<Users size={16} />}
+              title={t('dash.noTeamTitle')}
+              desc={t('dash.noTeamDesc')}
+              action={
+                <Link to="/dashboard/talent">
+                  <Button variant="primary" size="sm">
+                    <Star size={12} /> {t('dash.browseTalent')}
+                  </Button>
+                </Link>
+              }
+            />
+          ) : (
+            <PanelRows>
+              {team.slice(0, 5).map((m) => {
+                const name = memberName(m);
+                return (
+                  <PanelRow
+                    key={m.id}
+                    leading={<StoryAvatar src={memberAvatar(m)} name={name} seed={String(m.member?.id || name)} size={36} />}
+                    title={name}
+                    sub={m.member_type === 'manager' ? t('talent.managerFallback') : t('talent.creatorFallback')}
+                    trailing={
+                      m.payment_amount ? (
                         <Chip color="success" variant="soft" size="sm">
                           <Chip.Label className="tabular-nums">{formatBudget(m.payment_amount, m.currency || 'USD')}</Chip.Label>
                         </Chip>
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </aside>
+                      ) : undefined
+                    }
+                  />
+                );
+              })}
+            </PanelRows>
+          )}
+        </DashPanel>
       </div>
 
       {/* Quick links */}

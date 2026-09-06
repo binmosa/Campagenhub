@@ -10,6 +10,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { TelegramService } from '../telegram/telegram.service';
 import { PayoutAccount } from '../invitations/payout-account.entity';
 import { User } from '../users/user.entity';
+import { BrandTeam } from '../invitations/brand-team.entity';
 import { EmailService } from '../email/email.service';
 import axios from 'axios';
 import * as https from 'https';
@@ -45,6 +46,8 @@ export class PaymentService {
     private campaignsRepository: Repository<Campaign>,
     @InjectRepository(Contract)
     private contractsRepository: Repository<Contract>,
+    @InjectRepository(BrandTeam)
+    private teamRepository: Repository<BrandTeam>,
     @InjectRepository(PayoutAccount)
     private payoutAccountRepo: Repository<PayoutAccount>,
     @InjectRepository(User)
@@ -265,6 +268,36 @@ export class PaymentService {
     return created;
   }
 
+
+  /**
+   * What the brand agreed to pay this person: every active agreement (main +
+   * extra work) they signed together, or the team retainer when there is no
+   * contract. A payment may exceed it (bonus) but never fall below it.
+   */
+  async agreedMinimumFor(brandId: string, payeeId: string): Promise<number> {
+    const contracts = await this.contractsRepository
+      .createQueryBuilder('contract')
+      .innerJoin('contract.application', 'application')
+      .innerJoin('application.campaign', 'campaign')
+      .innerJoin('campaign.brand', 'brand')
+      .innerJoin('application.creator', 'creator')
+      .where('brand.id = :brandId', { brandId })
+      .andWhere('creator.id = :payeeId', { payeeId })
+      .andWhere('contract.status IN (:...statuses)', { statuses: ['active', 'approved'] })
+      .getMany();
+    const fromContracts = contracts.reduce((sum, c) => sum + (Number(c.payment_amount) || 0), 0);
+    if (fromContracts > 0) return Math.round(fromContracts * 100) / 100;
+    const row = await this.teamRepository.findOne({ where: { brand: { id: brandId }, member: { id: payeeId }, is_active: true } });
+    return Math.round((Number(row?.payment_amount) || 0) * 100) / 100;
+  }
+
+  private async assertNotBelowAgreed(brandId: string, payeeId: string, amount: number) {
+    const agreed = await this.agreedMinimumFor(brandId, payeeId);
+    if (agreed > 0 && amount + 0.005 < agreed) {
+      throw new BadRequestException(`The agreed amount is ${agreed.toLocaleString('en-US')} — you can pay more as a bonus, but not less.`);
+    }
+  }
+
   async initiatePayment(data: {
     amount: number;
     currency: string;
@@ -286,6 +319,8 @@ export class PaymentService {
       if (!payeeUser) {
         throw new BadRequestException('Selected payee account was not found. Re-open team/contracts and select again.');
       }
+
+      if (data.userId) await this.assertNotBelowAgreed(data.userId, data.payeeId, Number(data.amount));
 
       const resolvedCampaignId = await this.resolveCampaignIdForPayment(data);
       if (!resolvedCampaignId) {
@@ -342,71 +377,7 @@ export class PaymentService {
         throw new BadRequestException('Unable to create payment transaction. Please refresh and try again.');
       }
 
-      if (method === 'paypal') {
-        return this.initiatePaypalPayment(data, txRef, transaction);
-      }
-
-      if (method === 'telebirr') {
-        return this.initiateTelebirrPayment(data, txRef, transaction);
-      }
-
-      // Default: Flutterwave Standard Hosted Payment
-      try {
-        const payload = {
-          tx_ref: txRef,
-          amount: data.amount.toString(),
-          currency: data.currency || 'USD',
-          redirect_url: data.redirectUrl,
-          customer: {
-            email: data.email,
-            name: data.name,
-          },
-          customizations: {
-            title: 'CampaignHub Payment',
-            description: `Payment for campaign: ${data.campaignTitle}`,
-            logo: '',
-          },
-          meta: {
-            applicationId: data.applicationId,
-          },
-        };
-
-        const response = await axios.post('https://api.flutterwave.com/v3/payments', payload, {
-          headers: {
-            Authorization: `Bearer ${this.flwSecretKey}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        // Update transaction status
-        transaction.status = 'processing';
-        transaction.provider_response = JSON.stringify(response.data);
-        await this.transactionsRepository.save(transaction);
-
-        return {
-          txRef,
-          status: 'redirect',
-          paymentLink: response.data?.data?.link || null,
-          data: payload,
-        };
-      } catch (error) {
-        // Fallback: return checkout payload for frontend inline JS checkout
-        return {
-          txRef,
-          status: 'checkout',
-          data: {
-            tx_ref: txRef,
-            amount: data.amount,
-            currency: data.currency || 'USD',
-            redirect_url: data.redirectUrl,
-            customer: { email: data.email, name: data.name },
-            customizations: {
-              title: 'CampaignHub Payment',
-              description: `Payment for campaign: ${data.campaignTitle}`,
-            },
-          },
-        };
-      }
+      return this.launchCheckout(data, txRef, transaction, method);
     } catch (e: any) {
       if (e instanceof BadRequestException) throw e;
       const safeMessage =
@@ -416,6 +387,175 @@ export class PaymentService {
       // eslint-disable-next-line no-console
       console.error('[PaymentsService][initiate] unexpected failure', safeMessage);
       throw new BadRequestException(safeMessage);
+    }
+  }
+
+
+  /** Hands the recorded transaction to the chosen provider and returns what the client needs to continue. */
+  private async launchCheckout(
+    data: { amount: number; currency: string; email: string; name: string; campaignTitle: string; applicationId?: string; redirectUrl: string },
+    txRef: string,
+    transaction: PaymentTransaction,
+    method: string,
+  ) {
+    if (method === 'paypal') {
+      return this.initiatePaypalPayment(data, txRef, transaction);
+    }
+
+    if (method === 'telebirr') {
+      return this.initiateTelebirrPayment(data, txRef, transaction);
+    }
+
+    // Default: Flutterwave Standard Hosted Payment
+    try {
+      const payload = {
+        tx_ref: txRef,
+        amount: data.amount.toString(),
+        currency: data.currency || 'USD',
+        redirect_url: data.redirectUrl,
+        customer: {
+          email: data.email,
+          name: data.name,
+        },
+        customizations: {
+          title: 'CampaignHub Payment',
+          description: `Payment for campaign: ${data.campaignTitle}`,
+          logo: '',
+        },
+        meta: {
+          applicationId: data.applicationId,
+        },
+      };
+
+      const response = await axios.post('https://api.flutterwave.com/v3/payments', payload, {
+        headers: {
+          Authorization: `Bearer ${this.flwSecretKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      // Update transaction status
+      transaction.status = 'processing';
+      transaction.provider_response = JSON.stringify(response.data);
+      await this.transactionsRepository.save(transaction);
+
+      return {
+        txRef,
+        status: 'redirect',
+        paymentLink: response.data?.data?.link || null,
+        data: payload,
+      };
+    } catch (error) {
+      // Fallback: return checkout payload for frontend inline JS checkout
+      return {
+        txRef,
+        status: 'checkout',
+        data: {
+          tx_ref: txRef,
+          amount: data.amount,
+          currency: data.currency || 'USD',
+          redirect_url: data.redirectUrl,
+          customer: { email: data.email, name: data.name },
+          customizations: {
+            title: 'CampaignHub Payment',
+            description: `Payment for campaign: ${data.campaignTitle}`,
+          },
+        },
+      };
+    }
+  }
+
+  /**
+   * One checkout for several people. The parent transaction carries the
+   * total; a child transaction per payee is recorded now and completed with
+   * the parent, so each person gets their own payout request.
+   */
+  async initiateBulk(data: {
+    userId: string;
+    email: string;
+    name: string;
+    items: { payeeId: string; amount: number; applicationId?: string; campaignId?: string; note?: string }[];
+    paymentMethod?: string;
+    redirectUrl: string;
+    currency?: string;
+  }) {
+    const items = Array.isArray(data.items) ? data.items : [];
+    if (items.length === 0) throw new BadRequestException('Select at least one person to pay.');
+    if (items.length > 50) throw new BadRequestException('Pay at most 50 people in one batch.');
+    const method = (data.paymentMethod || 'flutterwave').toLowerCase();
+    const currency = data.currency || 'USD';
+
+    const resolved: { payeeId: string; amount: number; campaignId: string; applicationId?: string; note?: string; name: string }[] = [];
+    for (const it of items) {
+      const amount = Number(it.amount);
+      if (!it.payeeId) throw new BadRequestException('Every item needs a payee.');
+      if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Every amount must be greater than zero.');
+      const payee = await this.userRepo.findOne({ where: { id: it.payeeId } as any });
+      if (!payee) throw new BadRequestException('A selected payee account was not found.');
+      await this.assertNotBelowAgreed(data.userId, it.payeeId, amount);
+      const campaignId = await this.resolveCampaignIdForPayment({ campaignId: it.campaignId, applicationId: it.applicationId, userId: data.userId, payeeId: it.payeeId });
+      if (!campaignId) throw new BadRequestException(`No campaign could be resolved for ${payee.email}.`);
+      const campaign = await this.campaignsRepository.findOne({ where: { id: campaignId } as any, relations: ['brand'] });
+      if (!campaign || campaign.brand?.id !== data.userId) throw new BadRequestException('Unauthorized campaign access');
+      resolved.push({ payeeId: it.payeeId, amount, campaignId, applicationId: it.applicationId, note: it.note, name: payee.email });
+    }
+    const total = Math.round(resolved.reduce((sum, r) => sum + r.amount, 0) * 100) / 100;
+    const stamp = Date.now();
+    const batchRef = `CAMPHUB-BATCH-${stamp}`;
+
+    const parent = this.transactionsRepository.create({
+      tx_ref: batchRef,
+      amount: total,
+      currency,
+      payment_method: method,
+      status: 'initiated',
+      is_batch: true,
+      batch_ref: batchRef,
+      payer: { id: data.userId } as any,
+      campaign: { id: resolved[0].campaignId } as any,
+      note: `${resolved.length} payees`,
+    });
+    await this.transactionsRepository.save(parent);
+    for (const [n, r] of resolved.entries()) {
+      const child = this.transactionsRepository.create({
+        tx_ref: `${batchRef}-${n + 1}`,
+        amount: r.amount,
+        currency,
+        payment_method: method,
+        status: 'initiated',
+        is_batch: false,
+        batch_ref: batchRef,
+        note: r.note || null,
+        payer: { id: data.userId } as any,
+        payee: { id: r.payeeId } as any,
+        campaign: { id: r.campaignId } as any,
+      });
+      await this.transactionsRepository.save(child);
+    }
+
+    const result = await this.launchCheckout(
+      { amount: total, currency, email: data.email, name: data.name, campaignTitle: `Batch payment to ${resolved.length} people`, applicationId: batchRef, redirectUrl: data.redirectUrl },
+      batchRef,
+      parent,
+      method,
+    );
+    return { ...result, batchRef, total, count: resolved.length };
+  }
+
+  /** When a batch parent completes, every child completes with it and gets its own payout request. */
+  private async completeBatch(parent: PaymentTransaction, transfer: 'flutterwave' | 'telebirr' | null) {
+    if (!parent?.is_batch) return;
+    const children = await this.transactionsRepository.find({ where: { batch_ref: parent.tx_ref, is_batch: false } as any, relations: ['payee', 'campaign'] });
+    for (const child of children) {
+      if (child.status === 'completed') continue;
+      child.status = 'completed';
+      child.provider_reference = parent.provider_reference;
+      await this.transactionsRepository.save(child);
+      if (child.payee) {
+        await this.ensurePayoutRequestForTransaction(child);
+        if (transfer === 'flutterwave') await this.triggerFlutterwaveTransfer(child.payee.id, child.amount, `Payout for ${child.tx_ref}`);
+        if (transfer === 'telebirr') await this.triggerTelebirrTransfer(child.payee.id, child.amount, `Payout for ${child.tx_ref}`);
+      }
     }
   }
 
@@ -466,7 +606,9 @@ export class PaymentService {
           transaction.provider_response = JSON.stringify(txData);
           await this.transactionsRepository.save(transaction);
           
-          if (transaction.status === 'completed' && transaction.payee) {
+          if (transaction.status === 'completed' && transaction.is_batch) {
+            await this.completeBatch(transaction, 'flutterwave');
+          } else if (transaction.status === 'completed' && transaction.payee) {
              await this.ensurePayoutRequestForTransaction(transaction);
              await this.triggerFlutterwaveTransfer(transaction.payee.id, transaction.amount, `Payout for ${transaction.tx_ref}`);
           }
@@ -483,7 +625,9 @@ export class PaymentService {
       });
 
       if (localTx) {
-        if (localTx.status === 'completed' && localTx.payee) {
+        if (localTx.status === 'completed' && localTx.is_batch) {
+          await this.completeBatch(localTx, null);
+        } else if (localTx.status === 'completed' && localTx.payee) {
           await this.ensurePayoutRequestForTransaction(localTx);
         }
         return {
@@ -527,7 +671,8 @@ export class PaymentService {
     await this.transactionsRepository.save(tx);
 
     if (tx.status === 'completed') {
-      await this.ensurePayoutRequestForTransaction(tx);
+      if (tx.is_batch) await this.completeBatch(tx, null);
+      else await this.ensurePayoutRequestForTransaction(tx);
     }
 
     return { ok: true, tx_ref: tx.tx_ref, status: tx.status };
@@ -552,7 +697,9 @@ export class PaymentService {
 
     // If payment completed, queue payout request for admin/finance review
     if (transaction.status === 'completed') {
-      if (transaction.payee) {
+      if (transaction.is_batch) {
+        await this.completeBatch(transaction, 'flutterwave');
+      } else if (transaction.payee) {
          await this.ensurePayoutRequestForTransaction(transaction);
          await this.triggerFlutterwaveTransfer(transaction.payee.id, transaction.amount, `Payout for ${txRef}`);
       }
@@ -1015,7 +1162,9 @@ export class PaymentService {
 
       // Trigger automatic payout via Telebirr Business Transfer (if completed)
       if (transaction.status === 'completed') {
-        if (transaction.payee) {
+        if (transaction.is_batch) {
+          await this.completeBatch(transaction, 'telebirr');
+        } else if (transaction.payee) {
           await this.ensurePayoutRequestForTransaction(transaction);
           await this.triggerTelebirrTransfer(transaction.payee.id, transaction.amount, `Payout for ${outTradeNo}`);
         }

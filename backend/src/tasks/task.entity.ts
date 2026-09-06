@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from '../users/user.entity';
+import { Campaign } from '../campaigns/campaign.entity';
 
 @Entity('tasks')
 export class Task {
@@ -8,6 +9,25 @@ export class Task {
 
   @Column({ type: 'varchar' })
   contract_id: string; // Can be a Contract.id or an Invitation.id (team contract)
+
+  /** The campaign this deliverable belongs to (null for team/invitation contracts). */
+  @ManyToOne(() => Campaign, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'campaign_id' })
+  campaign: Campaign | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  application_id: string | null;
+
+  /** Where the deliverable is published, e.g. Instagram / TikTok. */
+  @Column({ type: 'varchar', nullable: true })
+  platform: string | null;
+
+  /** 'brief' = copied from the campaign's task list at lock-in, 'manual' = assigned in the workspace. */
+  @Column({ type: 'varchar', default: 'manual' })
+  source: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  template_key: string | null;
 
   @Column({ type: 'varchar' })
   title: string;
@@ -19,7 +39,7 @@ export class Task {
   status: string;
 
   @Column({ type: 'varchar', nullable: true })
-  post_link: string;
+  post_link: string | null;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'assigned_by' })

@@ -35,6 +35,7 @@ export class PayoutAccountsController {
     const hasMobileMoney = !!(account?.account_type === 'mobile_money' && account?.mobile_number);
     return {
       has_bank: hasSavedBank || hasMobileMoney,
+      account_type: hasMobileMoney ? 'mobile_money' : hasSavedBank ? 'bank' : null,
       bank_verified: hasVerifiedBank,
       bank_name: account?.bank_name || null,
       account_name: account?.account_name || null,

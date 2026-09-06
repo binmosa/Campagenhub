@@ -71,6 +71,19 @@ export class Campaign {
   @Column({ type: 'boolean', default: false })
   script_required: boolean;
 
+  /** How creators apply: 'none' = written pitch only, 'optional' / 'required' = also a pasted video link. */
+  @Column({ type: 'varchar', length: 12, default: 'none' })
+  video_pitch: string;
+
+  /** Deliverables the brand defines up front (JSON): [{ key, title, description?, platform?, due_days? }].
+   *  Copied onto the creator as real tasks the moment a contract locks in. */
+  @Column({ type: 'text', nullable: true })
+  tasks: string;
+
+  /** Show the task list in the public brief (creators see it before applying). */
+  @Column({ type: 'boolean', default: true })
+  tasks_public: boolean;
+
   /** Content orientation, e.g. Photo / Video / Story / Reel */
   @Column({ nullable: true })
   content_type: string;

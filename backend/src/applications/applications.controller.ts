@@ -61,6 +61,8 @@ export class ApplicationsController {
       payment_frequency: string;
       payment_day: number;
       notes?: string;
+      terms?: string;
+      ends_at?: string | null;
     },
   ) {
     return this.applicationsService.setPaymentSchedule(id, req.user.brandId, body);

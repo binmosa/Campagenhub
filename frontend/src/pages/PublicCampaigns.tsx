@@ -8,7 +8,6 @@ import {
   FileText,
   Layers,
   Search as SearchIcon,
-  Star,
   Video,
   Zap,
 } from 'lucide-react';
@@ -30,8 +29,6 @@ import {
   OptionRows,
   PlatformChipRow,
 } from '../components/common/filters';
-import { VideoPitchRecorder } from '../components/common/VideoPitchRecorder';
-import { PitchModal } from '../components/common/PitchModal';
 
 /**
  * PublicCampaigns — the open-briefs marketplace, built for creators.
@@ -115,12 +112,11 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
 
   const [selectedCampaign, setSelectedCampaign] = useState<any>(null);
   const [pitch, setPitch] = useState('');
-  const [videoBase64, setVideoBase64] = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState('');
   const [applyStatus, setApplyStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [applyError, setApplyError] = useState('');
   const [appliedCampaignIds, setAppliedCampaignIds] = useState<string[]>([]);
   const [viewingContract, setViewingContract] = useState<string | null>(null);
-  const [showPitchGenerator, setShowPitchGenerator] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const offsetRef = useRef(0);
@@ -233,7 +229,7 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
       }
       setSelectedCampaign(camp);
       setPitch('');
-      setVideoBase64(null);
+      setVideoUrl('');
       setApplyStatus('idle');
       setApplyError('');
     },
@@ -246,33 +242,33 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
     setApplyStatus('loading');
     setApplyError('');
 
-    try {
-      let videoUrl = '';
-      if (videoBase64) {
-        try {
-          const uploadRes = await api.post('/uploads', {
-            file: videoBase64,
-            filename: `pitch-${Date.now()}.webm`,
-          });
-          if (uploadRes.data.error) throw new Error(uploadRes.data.error);
-          videoUrl = uploadRes.data.url;
-        } catch (uploadErr: any) {
-          setApplyError(
-            t('board.videoUploadFailed', { reason: uploadErr.message || t('board.fileTooLarge') }),
-          );
-          setApplyStatus('error');
-          return;
-        }
-      }
+    const mode = selectedCampaign.video_pitch || 'none';
+    const link = videoUrl.trim();
+    if (!pitch.trim()) {
+      setApplyError(t('board.errPitch'));
+      setApplyStatus('error');
+      return;
+    }
+    if (mode !== 'none' && link && !/^https?:\/\/\S+$/i.test(link)) {
+      setApplyError(t('board.errVideoUrl'));
+      setApplyStatus('error');
+      return;
+    }
+    if (mode === 'required' && !link) {
+      setApplyError(t('board.errVideoRequired'));
+      setApplyStatus('error');
+      return;
+    }
 
+    try {
       await api.post('/applications', {
         campaignId: selectedCampaign.id,
-        pitch,
-        videoPitchUrl: videoUrl,
+        pitch: pitch.trim(),
+        videoPitchUrl: mode === 'none' ? '' : link,
       });
       setApplyStatus('success');
       setPitch('');
-      setVideoBase64(null);
+      setVideoUrl('');
       setAppliedCampaignIds((prev) => [...prev, selectedCampaign.id]);
       setTimeout(() => {
         setSelectedCampaign(null);
@@ -557,38 +553,39 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
 
                     <form id="campaign-apply-form" onSubmit={submitApplication} className="space-y-5">
                       <div>
-                        <label className="v-caption v-quiet font-medium uppercase tracking-wider flex items-center gap-1.5 mb-2">
-                          <Video size={12} style={{ color: 'var(--color-campaign-purple)' }} />
-                          {t('board.videoPitch')}
+                        <label htmlFor="apply-pitch" className="v-caption v-quiet font-medium uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                          <Layers size={12} style={{ color: 'var(--color-campaign-purple)' }} /> {t('board.writtenPitch')}
                         </label>
-                        <VideoPitchRecorder
-                          onRecordingComplete={(b64) => setVideoBase64(b64)}
-                          maxDuration={60}
-                        />
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <label className="v-caption v-quiet font-medium uppercase tracking-wider flex items-center gap-1.5">
-                            <Layers size={12} /> {t('board.writtenPitch')}
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => setShowPitchGenerator(true)}
-                            className="v-caption font-medium flex items-center gap-1"
-                            style={{ color: 'var(--color-campaign-purple)' }}
-                          >
-                            <Star size={11} fill="currentColor" /> {t('board.aiPitchGen')}
-                          </button>
-                        </div>
                         <textarea
+                          id="apply-pitch"
                           value={pitch}
                           onChange={(e) => setPitch(e.target.value)}
                           placeholder={t('board.pitchPh')}
-                          className={`${fieldClass} resize-none h-24`}
+                          className={`${fieldClass} resize-none h-28`}
                           style={fieldStyle}
                         />
+                        <p className="v-caption v-quiet mt-1.5" style={{ fontSize: 11.5 }}>{t('board.pitchHint')}</p>
                       </div>
+
+                      {(selectedCampaign.video_pitch === 'optional' || selectedCampaign.video_pitch === 'required') && (
+                        <div>
+                          <label htmlFor="apply-video" className="v-caption v-quiet font-medium uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                            <Video size={12} style={{ color: 'var(--color-campaign-purple)' }} />
+                            {selectedCampaign.video_pitch === 'required' ? t('board.videoPitchRequired') : t('board.videoPitchOptional')}
+                          </label>
+                          <input
+                            id="apply-video"
+                            type="text"
+                            inputMode="url"
+                            value={videoUrl}
+                            onChange={(e) => setVideoUrl(e.target.value)}
+                            placeholder={t('board.videoPitchPh')}
+                            className={fieldClass}
+                            style={fieldStyle}
+                          />
+                          <p className="v-caption v-quiet mt-1.5" style={{ fontSize: 11.5 }}>{t('board.videoPitchHint')}</p>
+                        </div>
+                      )}
 
                       {applyError && (
                         <div
@@ -633,13 +630,6 @@ const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }
           </Modal.Container>
         </Modal.Backdrop>
       </Modal>
-
-      {showPitchGenerator && selectedCampaign && (
-        <PitchModal
-          onClose={() => setShowPitchGenerator(false)}
-          defaultCampaignName={selectedCampaign.title}
-        />
-      )}
 
       {/* ─── Contract modal ──────────────────────────────────────── */}
       <Modal isOpen={!!viewingContract} onOpenChange={(open) => !open && setViewingContract(null)}>

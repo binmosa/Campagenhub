@@ -1,27 +1,47 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
+import { Contract } from '../contracts/contract.entity';
 import { Task } from './task.entity';
 import { NotificationsService } from '../notifications/notifications.service';
-import { AiService } from '../ai/ai.service';
 
 @Injectable()
 export class TasksService {
   constructor(
     @InjectRepository(Task)
     private tasksRepo: Repository<Task>,
+    @InjectRepository(Contract)
+    private contractsRepo: Repository<Contract>,
     private notificationsService: NotificationsService,
-    private aiService: AiService,
   ) {}
 
-  async createTask(userId: string, data: { contract_id: string; title: string; description?: string; assigned_to: string | string[]; due_date?: string }): Promise<Task | Task[]> {
+  async createTask(
+    userId: string,
+    data: { contract_id: string; title: string; description?: string; assigned_to: string | string[]; due_date?: string; campaign_id?: string | null; platform?: string | null },
+  ): Promise<Task | Task[]> {
     const assignees = Array.isArray(data.assigned_to) ? data.assigned_to : [data.assigned_to];
     const savedTasks = [];
+    if (!data.title || !String(data.title).trim()) throw new BadRequestException('Give the task a title.');
+
+    // Tasks live under the campaign the contract was signed for.
+    let campaignId: string | null = data.campaign_id || null;
+    let applicationId: string | null = null;
+    if (data.contract_id) {
+      const contract = await this.contractsRepo.findOne({ where: { id: data.contract_id }, relations: ['application', 'application.campaign'] });
+      if (contract?.application) {
+        applicationId = contract.application.id;
+        campaignId = campaignId || contract.application.campaign?.id || null;
+      }
+    }
 
     for (const assigneeId of assignees) {
       const task = this.tasksRepo.create({
         contract_id: data.contract_id,
-        title: data.title,
+        campaign: campaignId ? ({ id: campaignId } as any) : null,
+        application_id: applicationId,
+        platform: data.platform ? String(data.platform).slice(0, 40) : null,
+        source: 'manual',
+        title: String(data.title).trim().slice(0, 200),
         description: data.description || undefined,
         assignedBy: { id: userId } as any,
         assignedTo: { id: assigneeId } as any,
@@ -45,7 +65,7 @@ export class TasksService {
   async getTasksForContract(userId: string, contractId: string): Promise<Task[]> {
     return this.tasksRepo.find({
       where: { contract_id: contractId },
-      relations: ['assignedBy', 'assignedTo'],
+      relations: ['assignedBy', 'assignedTo', 'campaign'],
       order: { created_at: 'DESC' },
     });
   }
@@ -53,7 +73,7 @@ export class TasksService {
   async getMyTasks(userId: string): Promise<Task[]> {
     return this.tasksRepo.find({
       where: { assignedTo: { id: userId } },
-      relations: ['assignedBy', 'assignedTo'],
+      relations: ['assignedBy', 'assignedTo', 'campaign'],
       order: { created_at: 'DESC' },
     });
   }
@@ -86,7 +106,7 @@ export class TasksService {
     // 3. Find tasks where user is assigner OR linked to these contexts
     return this.tasksRepo.find({
       where,
-      relations: ['assignedBy', 'assignedTo'],
+      relations: ['assignedBy', 'assignedTo', 'campaign'],
       order: { created_at: 'DESC' },
     });
   }
@@ -124,27 +144,32 @@ export class TasksService {
       throw new BadRequestException('Unauthorized');
     }
 
+    // Who may do what: the creator starts, submits, withdraws or changes a link
+    // until the brand approves; the brand approves, sends back or resets.
+    // Approved work is locked for everyone.
+    const isAssignee = task.assignedTo?.id === userId;
+    if (task.status === 'reviewed') throw new BadRequestException('This task was approved and is locked.');
+    if (isAssignee && !['in_progress', 'completed'].includes(status)) {
+      throw new BadRequestException('Creators can start a task, submit a link, or withdraw a submission.');
+    }
+    if (!isAssignee && !['pending', 'in_progress', 'reviewed'].includes(status)) {
+      throw new BadRequestException('Brands can approve, send back, or reset a task.');
+    }
+    if (!isAssignee && postLink !== undefined && postLink !== task.post_link) {
+      throw new BadRequestException('Only the creator can change the submitted link.');
+    }
+
     task.status = status;
     if (postLink !== undefined) {
-      task.post_link = postLink;
+      task.post_link = postLink || null;
     }
     await this.tasksRepo.save(task);
 
-    const finalLink = postLink || task.post_link;
-
-    // If it's a new link submission OR marking as completed, run AI asynchronously
-    if (finalLink && (status === 'completed' || status === 'reviewed')) {
-      this.aiService.analyzePostLink(finalLink, task.title).then(review => {
-        if (review) {
-          this.setAiReview(taskId, review);
-        }
-      }).catch(e => console.error('[Tasks] AI Analysis failed:', e.message));
-    }
-
     // Notify the other party
     const notifyId = task.assignedTo.id === userId ? task.assignedBy.id : task.assignedTo.id;
-    let notifMsg = `Task "${task.title}" status changed to ${status}`;
-    if (postLink) notifMsg = `Content submitted for task "${task.title}". 🤖 AI bot is actively watching.`;
+    const label: Record<string, string> = { pending: 'moved back to to-do', in_progress: 'started', completed: 'submitted for review', reviewed: 'approved' };
+    let notifMsg = `Task "${task.title}" was ${label[status] || `set to ${status}`}.`;
+    if (postLink) notifMsg = `${task.assignedTo?.email?.split('@')[0] || 'The creator'} submitted a link for "${task.title}" — open your workspace to review and approve it.`;
 
     await this.notificationsService.createNotification(
       notifyId,
@@ -152,61 +177,6 @@ export class TasksService {
       notifMsg,
       taskId,
     );
-
-    return task;
-  }
-
-  async setAiReview(taskId: string, review: string): Promise<void> {
-    await this.tasksRepo.update(taskId, { ai_review: review });
-  }
-
-  async reanalyzeTask(userId: string, taskId: string): Promise<Task> {
-    const task = await this.tasksRepo.findOne({
-      where: { id: taskId },
-      relations: ['assignedTo', 'assignedBy'],
-    });
-    if (!task) throw new BadRequestException(`Task ${taskId} not found`);
-    // Check permissions
-    let authorized = false;
-    if (task.assignedTo?.id === userId || task.assignedBy?.id === userId) {
-      authorized = true;
-    } else if (task.contract_id) {
-      // Check if user is associated with the contract/invitation
-      const invCount = await this.tasksRepo.manager.query(
-        'SELECT count(id) FROM invitations WHERE id = $1 AND (brand_id = $2 OR sender_id = $2)',
-        [task.contract_id, userId]
-      );
-      if (parseInt(invCount[0].count) > 0) authorized = true;
-      else {
-        const contCount = await this.tasksRepo.manager.query(
-          `SELECT count(c.id) FROM contracts c 
-           INNER JOIN applications a ON a.id = c.application_id 
-           INNER JOIN campaigns camp ON camp.id = a.campaign_id 
-           WHERE c.id = $1 AND camp.brand_id = $2`,
-          [task.contract_id, userId]
-        );
-        if (parseInt(contCount[0].count) > 0) authorized = true;
-      }
-    }
-
-    if (!authorized) {
-      throw new BadRequestException(`Unauthorized: You are not assigned to or managing task ${taskId}`);
-    }
-
-    if (!task.post_link) {
-      throw new BadRequestException(`No post link found in database for task ${taskId}. Please submit a link first.`);
-    }
-
-    // Clear old review, run fresh analysis
-    task.ai_review = '🔄 Re-analyzing...';
-    await this.tasksRepo.save(task);
-
-    this.aiService.analyzePostLink(task.post_link, task.title).then(review => {
-      this.setAiReview(taskId, review);
-    }).catch(e => {
-      console.error('[Tasks] Re-analysis failed:', e.message);
-      this.setAiReview(taskId, '❌ Re-analysis failed: ' + e.message);
-    });
 
     return task;
   }
@@ -241,6 +211,9 @@ export class TasksService {
     const task = await this.tasksRepo.findOne({ where: { id: taskId }, relations: ['assignedBy'] });
     if (!task) throw new BadRequestException('Task not found');
     if (task.assignedBy.id !== userId) throw new BadRequestException('Only the assigner can delete tasks');
+    if (task.status !== 'pending') {
+      throw new BadRequestException('Only tasks nobody has started can be deleted. Submitted work can be withdrawn by the creator; approved work is locked.');
+    }
     await this.tasksRepo.remove(task);
   }
 }

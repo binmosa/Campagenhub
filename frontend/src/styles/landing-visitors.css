@@ -530,6 +530,12 @@ html[lang='am'] {
     rgba(11, 23, 54, 0.08) 0 16px 32px -16px,
     rgba(108, 99, 255, 0.10) 0 18px 40px -16px;
 }
+/* Section panels on the home pages share the card frame but stay put. */
+.landing-visitors .v-talent-card.v-static:hover {
+  transform: none;
+  border-color: var(--color-cool-gray);
+  box-shadow: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .landing-visitors .v-talent-card {
     transition: none;

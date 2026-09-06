@@ -96,6 +96,8 @@ const OfferModal: React.FC<{
   );
   const [saving, setSaving] = useState(false);
   const [showPitch, setShowPitch] = useState(false);
+  // AI helpers are switched off for creators for now
+  const aiAllowed = (localStorage.getItem('role') || 'creator').toLowerCase() !== 'creator';
 
   useEffect(() => {
     if (isOpen) {
@@ -163,13 +165,15 @@ const OfferModal: React.FC<{
                     <label className="text-muted text-xs font-medium uppercase tracking-wider">
                       Description
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => setShowPitch(true)}
-                      className="text-accent text-xs font-medium inline-flex items-center gap-1"
-                    >
-                      <Sparkles size={11} /> AI pitch gen
-                    </button>
+                    {aiAllowed && (
+                      <button
+                        type="button"
+                        onClick={() => setShowPitch(true)}
+                        className="text-accent text-xs font-medium inline-flex items-center gap-1"
+                      >
+                        <Sparkles size={11} /> AI pitch gen
+                      </button>
+                    )}
                   </div>
                   <textarea
                     rows={3}

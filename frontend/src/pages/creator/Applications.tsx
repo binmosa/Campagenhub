@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   Briefcase,
@@ -14,6 +14,8 @@ import {
   Send,
   Sparkles,
   Star,
+  ArrowLeftRight,
+  ListChecks,
 } from 'lucide-react';
 import { Button, Chip, Modal } from '@heroui/react';
 import { Segment } from '@heroui-pro/react';
@@ -56,10 +58,12 @@ const usdOf = (c: any): number => {
   return 0;
 };
 
-const CreatorApplications: React.FC = () => {
+/** `initialTab` is the view when the URL carries no `?tab=` — the Campaigns route opens on the board, the My applications route on the list. */
+const CreatorApplications: React.FC<{ initialTab?: Tab }> = ({ initialTab = 'browse' }) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const [tab, setTab] = useState<Tab>(() => (params.get('tab') === 'browse' ? 'browse' : params.get('tab') === 'applications' ? 'applications' : 'browse'));
+  const [tab, setTab] = useState<Tab>(() => (params.get('tab') === 'browse' ? 'browse' : params.get('tab') === 'applications' ? 'applications' : initialTab));
   const [status, setStatus] = useState<StatusFilter>(() => {
     const s = params.get('status');
     return s && (APPLICATION_STATUSES as readonly string[]).includes(s) ? (s as ApplicationStatus) : 'all';
@@ -78,6 +82,7 @@ const CreatorApplications: React.FC = () => {
   const [submitPending, setSubmitPending] = useState(false);
   const [chatApp, setChatApp] = useState<any | null>(null);
   const [contractApp, setContractApp] = useState<any | null>(null);
+  const [contractView, setContractView] = useState<string | undefined>(undefined);
 
   const load = () => {
     setError(false);
@@ -103,7 +108,7 @@ const CreatorApplications: React.FC = () => {
   }, [tab, status]);
 
   const counts = useMemo(() => {
-    const c: Record<StatusFilter, number> = { all: applications.length, pending: 0, shortlisted: 0, accepted: 0, rejected: 0, refunded: 0 };
+    const c: Record<StatusFilter, number> = { all: applications.length, pending: 0, shortlisted: 0, offered: 0, accepted: 0, rejected: 0, refunded: 0 };
     for (const a of applications) c[normalizeApplicationStatus(a.status)]++;
     return c;
   }, [applications]);
@@ -189,6 +194,7 @@ const CreatorApplications: React.FC = () => {
                   <Segment.Item id="all">{t('dash.all')} · {counts.all}</Segment.Item>
                   <Segment.Item id="pending">{t('appStatus.pending')} · {counts.pending}</Segment.Item>
                   <Segment.Item id="shortlisted">{t('appStatus.shortlisted')} · {counts.shortlisted}</Segment.Item>
+                  <Segment.Item id="offered">{t('appStatus.offered')} · {counts.offered}</Segment.Item>
                   <Segment.Item id="accepted">{t('appStatus.accepted')} · {counts.accepted}</Segment.Item>
                   <Segment.Item id="rejected">{t('appStatus.rejected')} · {counts.rejected}</Segment.Item>
                 </Segment>
@@ -225,6 +231,9 @@ const CreatorApplications: React.FC = () => {
               {visible.map((app, i) => {
                 const s = normalizeApplicationStatus(app.status);
                 const accepted = s === 'accepted';
+                const contract = app.contract || null;
+                const offered = s === 'offered' || (!!contract && ['pending_signature', 'countered'].includes(String(contract.status)));
+                const extra = (app.addenda || []).find((a: any) => ['pending_signature', 'countered'].includes(String(a.status)));
                 return (
                   <CampaignCard
                     key={app.id}
@@ -236,13 +245,32 @@ const CreatorApplications: React.FC = () => {
                     onApply={() => {}}
                     onOpen={() => setDetailApp(app)}
                     corner={
-                      <Chip color={APPLICATION_STATUS_COLOR[s]} variant="soft" size="sm" className="shrink-0">
-                        {s === 'shortlisted' && <Star size={10} />}
-                        <Chip.Label>{t(`appStatus.${s}`)}</Chip.Label>
-                      </Chip>
+                      <span className="inline-flex items-center gap-1 shrink-0">
+                        <Chip color={APPLICATION_STATUS_COLOR[s]} variant="soft" size="sm">
+                          {s === 'shortlisted' && <Star size={10} />}
+                          <Chip.Label>{t(`appStatus.${s}`)}</Chip.Label>
+                        </Chip>
+                        {contract?.status === 'countered' && (
+                          <Chip color="warning" variant="soft" size="sm">
+                            <ArrowLeftRight size={10} />
+                            <Chip.Label>{t('capps.counterSent')}</Chip.Label>
+                          </Chip>
+                        )}
+                        {extra && (
+                          <Chip color="warning" variant="soft" size="sm">
+                            <Chip.Label>{extra.status === 'countered' ? t('capps.counterSent') : t('capps.extraProposed')}</Chip.Label>
+                          </Chip>
+                        )}
+                      </span>
                     }
                     actions={
                       <div className="flex items-center gap-1">
+                        {offered && contract?.payment_amount != null && (
+                          <span className="v-ink font-medium tabular-nums mr-1" style={{ fontSize: 12.5, color: '#0b6e3e' }}>
+                            {formatBudget(contract.payment_amount, contract.currency || app.currency || 'USD')}
+                            {contract.payment_frequency && contract.payment_frequency !== 'one_time' ? ` / ${t(`apps.freq.${contract.payment_frequency}`, { defaultValue: contract.payment_frequency })}` : ''}
+                          </span>
+                        )}
                         <Button variant="ghost" size="sm" isIconOnly aria-label={t('apps.message')} onPress={() => setChatApp(app)}>
                           <MessageSquare size={13} />
                         </Button>
@@ -251,9 +279,17 @@ const CreatorApplications: React.FC = () => {
                             <FileText size={13} />
                           </Button>
                         )}
-                        {accepted ? (
-                          <Button variant="primary" size="sm" onPress={() => { setSubmittingApp(app); setContentLink(''); setSubmitError(''); }}>
-                            <Link2 size={11} /> {t('capps.submit')}
+                        {offered ? (
+                          <Button variant="primary" size="sm" onPress={() => { setContractView(undefined); setContractApp(app); }}>
+                            <FileText size={11} /> {t('capps.reviewContract')}
+                          </Button>
+                        ) : extra ? (
+                          <Button variant="primary" size="sm" onPress={() => { setContractView(extra.id); setContractApp(app); }}>
+                            <FileText size={11} /> {t('capps.reviewProposal')}
+                          </Button>
+                        ) : accepted ? (
+                          <Button variant="primary" size="sm" onPress={() => navigate(`/dashboard/workspace?contract=${contract?.id || ''}`)}>
+                            <ListChecks size={11} /> {t('capps.openTasks')}
                           </Button>
                         ) : (
                           <Button variant="tertiary" size="sm" onPress={() => setDetailApp(app)}>
@@ -323,8 +359,18 @@ const CreatorApplications: React.FC = () => {
                       <MessageSquare size={13} /> {t('apps.message')}
                     </Button>
                     {normalizeApplicationStatus(detailApp.status) === 'accepted' && (
+                      <>
+                        <Button variant="tertiary" onPress={() => { setSubmittingApp(detailApp); setContentLink(''); setSubmitError(''); setDetailApp(null); }}>
+                          <Link2 size={13} /> {t('capps.submit')}
+                        </Button>
+                        <Button variant="primary" onPress={() => navigate(`/dashboard/workspace?contract=${detailApp.contract?.id || ''}`)}>
+                          <ListChecks size={13} /> {t('capps.openTasks')}
+                        </Button>
+                      </>
+                    )}
+                    {(normalizeApplicationStatus(detailApp.status) === 'offered') && (
                       <Button variant="primary" onPress={() => { setContractApp(detailApp); setDetailApp(null); }}>
-                        <FileText size={13} /> {t('apps.contract')}
+                        <FileText size={13} /> {normalizeApplicationStatus(detailApp.status) === 'offered' ? t('capps.reviewContract') : t('apps.contract')}
                       </Button>
                     )}
                   </Modal.Footer>
@@ -389,7 +435,7 @@ const CreatorApplications: React.FC = () => {
         />
       )}
       {contractApp && (
-        <ContractManager applicationId={contractApp.id} isBrand={false} application={contractApp} onClose={() => setContractApp(null)} />
+        <ContractManager applicationId={contractApp.id} isBrand={false} application={contractApp} contractId={contractView} onClose={() => { setContractApp(null); setContractView(undefined); }} onChanged={load} />
       )}
     </PageShell>
   );

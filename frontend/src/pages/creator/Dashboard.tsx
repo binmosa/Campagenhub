@@ -6,6 +6,7 @@ import {
   BarChart3,
   Briefcase,
   CheckCircle2,
+  Circle,
   ClipboardList,
   DollarSign,
   FileText,
@@ -24,8 +25,10 @@ import api from '../../lib/api';
 import { formatBudget, postedLabel } from '../../lib/campaignFormat';
 import { APPLICATION_STATUS_COLOR, normalizeApplicationStatus } from '../../lib/catalog';
 import { MetricCard, PageShell } from '../../components/ui';
-import CampaignCard, { CampaignCardSkeleton } from '../../components/common/CampaignCard';
 import { EmptyPanel } from '../../components/common/EmptyPanel';
+import { DashPanel, PanelEmpty, PanelRow, PanelRows, PanelRowsSkeleton } from '../../components/common/DashPanel';
+import { StoryAvatar } from '../../components/common/StoryAvatar';
+import PayoutSummary from '../../components/PayoutSummary';
 
 /**
  * CreatorDashboard — the creator's overview: application funnel with
@@ -97,7 +100,7 @@ const CreatorDashboard: React.FC = () => {
   const appliedIds = useMemo(() => applications.map((a) => a.campaign?.id).filter(Boolean), [applications]);
 
   const funnel = useMemo(() => {
-    const f = { total: applications.length, pending: 0, shortlisted: 0, accepted: 0, rejected: 0 };
+    const f = { total: applications.length, pending: 0, shortlisted: 0, offered: 0, accepted: 0, rejected: 0 };
     for (const a of applications) {
       const s = normalizeApplicationStatus(a.status);
       if (s === 'refunded') f.rejected++;
@@ -136,9 +139,19 @@ const CreatorDashboard: React.FC = () => {
 
   const completeness = useMemo(() => {
     const p = profile || {};
-    const checks = [p.full_name || p.first_name, p.username, p.bio, p.avatar_url, p.category, p.country, p.social_links];
-    const done = checks.filter(Boolean).length;
-    return { done, total: checks.length, pct: Math.round((done / checks.length) * 100) };
+    const sl = p.social_links;
+    const hasSocials = Array.isArray(sl) ? sl.length > 0 : sl && typeof sl === 'object' ? Object.keys(sl).length > 0 : !!sl;
+    const items = [
+      { key: 'chkName', done: !!(p.full_name || p.first_name) },
+      { key: 'chkHandle', done: !!p.username },
+      { key: 'chkBio', done: !!p.bio },
+      { key: 'chkAvatar', done: !!p.avatar_url },
+      { key: 'chkNiches', done: !!p.category },
+      { key: 'chkLocation', done: !!p.country },
+      { key: 'chkSocials', done: hasSocials },
+    ];
+    const done = items.filter((i) => i.done).length;
+    return { items, done, total: items.length, pct: Math.round((done / items.length) * 100) };
   }, [profile]);
 
   const attention = useMemo(() => {
@@ -150,7 +163,7 @@ const CreatorDashboard: React.FC = () => {
     if (openTasks.length)
       items.push({ key: 'tasks', n: openTasks.length, label: t('cdash.attnTasks'), to: '/dashboard/workspace', icon: <ClipboardList size={15} />, tone: '#ff7a45' });
     if (funnel.shortlisted)
-      items.push({ key: 'short', n: funnel.shortlisted, label: t('cdash.attnShortlisted'), to: '/dashboard/campaigns?tab=applications&status=shortlisted', icon: <Star size={15} />, tone: '#00d4c7' });
+      items.push({ key: 'short', n: funnel.shortlisted, label: t('cdash.attnShortlisted'), to: '/dashboard/applications?status=shortlisted', icon: <Star size={15} />, tone: '#00d4c7' });
     return items;
   }, [pendingInvites, awaitingSignature, openTasks, funnel.shortlisted, t]);
 
@@ -247,193 +260,256 @@ const CreatorDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* Home grid — every block is a DashPanel so both columns share one frame
+          and each row stretches its two panels to the same height. */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <section className="lg:col-span-2 space-y-5">
-          {/* Picked for you */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 16, letterSpacing: '-0.015em' }}>
-                <Sparkles size={15} style={{ color: 'var(--color-campaign-purple)' }} />
-                {profile?.country ? t('cdash.pickedIn', { country: profile.country }) : t('cdash.picked')}
-              </h2>
-              <Link to="/dashboard/campaigns?tab=browse">
-                <Button variant="ghost" size="sm">
-                  {t('dash.seeAll')} <ArrowRight size={11} />
-                </Button>
-              </Link>
-            </div>
-            {loading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[0, 1].map((i) => (
-                  <CampaignCardSkeleton key={i} />
-                ))}
-              </div>
-            ) : picked.length === 0 ? (
-              <EmptyPanel
-                icon={<Megaphone size={22} />}
-                title={t('cdash.noBriefsTitle')}
-                description={t('cdash.noBriefsDesc')}
-                actions={
-                  <Link to="/dashboard/campaigns?tab=browse">
-                    <Button variant="primary">{t('cdash.browse')}</Button>
-                  </Link>
-                }
-              />
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {picked.slice(0, 2).map((camp, i) => (
-                  <CampaignCard
-                    key={camp.id}
-                    camp={camp}
-                    index={i}
-                    applied={appliedIds.includes(camp.id)}
-                    loggedIn
-                    isCreator
-                    onApply={() => navigate('/dashboard/campaigns?tab=browse')}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Recent applications */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 16, letterSpacing: '-0.015em' }}>
-                <Briefcase size={15} style={{ color: 'var(--color-campaign-purple)' }} /> {t('cdash.recentApps')}
-              </h2>
-              <Link to="/dashboard/campaigns?tab=applications">
-                <Button variant="ghost" size="sm">
-                  {t('dash.seeAll')} <ArrowRight size={11} />
-                </Button>
-              </Link>
-            </div>
-            {!loading && applications.length === 0 ? (
-              <EmptyPanel
-                size="sm"
-                icon={<Briefcase size={18} />}
-                title={t('cdash.noAppsTitle')}
-                description={t('cdash.noAppsDesc')}
-              />
-            ) : (
-              <ul className="v-talent-card divide-y divide-border">
-                {applications.slice(0, 4).map((a) => {
-                  const s = normalizeApplicationStatus(a.status);
-                  const brand = a.campaign?.brand?.brandProfile?.company_name || a.campaign?.brand?.email?.split('@')[0] || '';
-                  return (
-                    <li key={a.id} className="flex items-center gap-3 px-4 py-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="v-ink font-medium truncate" style={{ fontSize: 13.5 }}>{a.campaign?.title || '—'}</div>
-                        <div className="v-caption v-quiet truncate" style={{ fontSize: 11.5 }}>
-                          {brand}{brand && a.created_at ? ' · ' : ''}{postedLabel(a.created_at)}
-                        </div>
-                      </div>
-                      {a.campaign?.budget != null && (
-                        <span className="v-ink font-medium tabular-nums hidden sm:inline" style={{ fontSize: 13, color: '#0b6e3e' }}>
-                          {formatBudget(a.campaign.budget, a.campaign.currency || 'USD')}
-                        </span>
-                      )}
-                      <Chip color={APPLICATION_STATUS_COLOR[s]} variant="soft" size="sm">
-                        <Chip.Label>{t(`appStatus.${s}`)}</Chip.Label>
-                      </Chip>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </section>
-
-        <aside className="space-y-5">
-          {/* Funnel */}
-          <div className="v-talent-card p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 15 }}>
-                <BarChart3 size={14} style={{ color: 'var(--color-campaign-purple)' }} /> {t('cdash.funnel')}
-              </h2>
-              <span className="v-caption v-quiet tabular-nums" style={{ fontSize: 11.5 }}>{t('dash.pipelineTotal', { n: funnel.total })}</span>
-            </div>
-            {funnel.total === 0 && !loading ? (
-              <p className="v-caption v-quiet" style={{ fontSize: 12 }}>{t('cdash.noAppsDesc')}</p>
-            ) : (
-              <ul className="space-y-2.5">
-                {(['pending', 'shortlisted', 'accepted', 'rejected'] as const).map((k) => {
-                  const n = funnel[k];
-                  const max = Math.max(1, funnel.pending, funnel.shortlisted, funnel.accepted, funnel.rejected);
-                  const color = k === 'pending' ? '#ffb547' : k === 'accepted' ? '#16c784' : k === 'rejected' ? '#c4cad8' : 'var(--gradient-signature)';
-                  return (
-                    <li key={k}>
-                      <div className="flex items-center justify-between v-caption mb-1" style={{ fontSize: 12 }}>
-                        <span className="v-ink font-medium">{t(`appStatus.${k}`)}</span>
-                        <span className="v-quiet tabular-nums">{n}</span>
-                      </div>
-                      <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--color-cool-gray)' }}>
-                        <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${Math.max(n ? 6 : 0, (n / max) * 100)}%`, background: color }} />
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-
-          {/* Profile completeness */}
-          <div className="v-talent-card p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 15 }}>
-                <Users size={14} style={{ color: 'var(--color-campaign-purple)' }} /> {t('cdash.profile')}
-              </h2>
-              <span className="v-text-signature font-medium tabular-nums" style={{ fontSize: 18 }}>{completeness.pct}%</span>
-            </div>
-            <div className="h-2 rounded-full overflow-hidden mb-2.5" style={{ background: 'var(--color-cool-gray)' }}>
-              <div className="h-full rounded-full" style={{ width: `${completeness.pct}%`, background: 'var(--gradient-signature)' }} />
-            </div>
-            <p className="v-caption v-quiet mb-3" style={{ fontSize: 12 }}>
-              {completeness.pct >= 100 ? t('cdash.profileDone') : t('cdash.profileHint', { n: completeness.total - completeness.done, count: completeness.total - completeness.done })}
-            </p>
-            <Link to="/dashboard/profile">
-              <Button variant={completeness.pct >= 100 ? 'tertiary' : 'primary'} size="sm" fullWidth>
-                <Pencil size={12} /> {t('cdash.editProfile')}
+        {/* Row 1 — briefs picked for you · profile strength */}
+        <DashPanel
+          className="lg:col-span-2"
+          icon={<Sparkles size={15} />}
+          title={profile?.country ? t('cdash.pickedIn', { country: profile.country }) : t('cdash.picked')}
+          action={
+            <Link to="/dashboard/campaigns?tab=browse">
+              <Button variant="ghost" size="sm">
+                {t('dash.seeAll')} <ArrowRight size={11} />
               </Button>
             </Link>
-          </div>
+          }
+        >
+          {loading ? (
+            <PanelRowsSkeleton n={3} />
+          ) : picked.length === 0 ? (
+            <PanelEmpty
+              icon={<Megaphone size={16} />}
+              title={t('cdash.noBriefsTitle')}
+              desc={t('cdash.noBriefsDesc')}
+              action={
+                <Link to="/dashboard/campaigns?tab=browse">
+                  <Button variant="primary" size="sm">{t('cdash.browse')}</Button>
+                </Link>
+              }
+            />
+          ) : (
+            <PanelRows>
+              {picked.slice(0, 3).map((camp) => {
+                const bp = camp.brand?.brandProfile || {};
+                const company = bp.company_name || camp.brand?.email?.split('@')[0] || '';
+                const applied = appliedIds.includes(camp.id);
+                const sub = [company, camp.platform, postedLabel(camp.created_at), t('cdash.appliedN', { count: Number(camp.applicants_count) || 0 })]
+                  .filter(Boolean)
+                  .join(' · ');
+                return (
+                  <PanelRow
+                    key={camp.id}
+                    leading={<StoryAvatar src={bp.logo_url} name={company} seed={camp.brand?.id || company} size={36} />}
+                    title={camp.title}
+                    sub={sub}
+                    trailing={
+                      <>
+                        {camp.budget != null && (
+                          <span className="v-ink font-medium tabular-nums hidden sm:inline" style={{ fontSize: 13, color: '#0b6e3e' }}>
+                            {formatBudget(camp.budget, camp.currency || 'USD')}
+                          </span>
+                        )}
+                        {applied ? (
+                          <Chip color="success" variant="soft" size="sm">
+                            <CheckCircle2 size={11} />
+                            <Chip.Label>{t('cdash.applied')}</Chip.Label>
+                          </Chip>
+                        ) : (
+                          <Button variant="primary" size="sm" onPress={() => navigate('/dashboard/campaigns?tab=browse')}>
+                            {t('cdash.apply')}
+                          </Button>
+                        )}
+                      </>
+                    }
+                  />
+                );
+              })}
+              {picked.length < 3 && (
+                <PanelRow
+                  className="mt-auto"
+                  leading={
+                    <span className="v-hero-icon" style={{ width: 36, height: 36, borderRadius: 11 }}>
+                      <Megaphone size={15} />
+                    </span>
+                  }
+                  title={t('cdash.moreBriefsTitle')}
+                  sub={t('cdash.moreBriefsDesc')}
+                  trailing={
+                    <Link to="/dashboard/campaigns?tab=browse">
+                      <Button variant="tertiary" size="sm">
+                        {t('cdash.browseAll')} <ArrowRight size={11} />
+                      </Button>
+                    </Link>
+                  }
+                />
+              )}
+            </PanelRows>
+          )}
+        </DashPanel>
 
-          {/* Contracts */}
-          <div className="v-talent-card p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 15 }}>
-                <FileText size={14} style={{ color: 'var(--color-campaign-purple)' }} /> {t('side.contracts')}
-              </h2>
-              <Link to="/dashboard/contracts">
-                <Button variant="ghost" size="sm">
-                  {t('dash.seeAll')} <ArrowRight size={11} />
-                </Button>
-              </Link>
-            </div>
-            {!loading && contracts.length === 0 ? (
-              <p className="v-caption v-quiet" style={{ fontSize: 12 }}>{t('cdash.noContracts')}</p>
-            ) : (
-              <ul className="divide-y divide-border">
-                {contracts.slice(0, 3).map((c) => {
-                  const active = ['active', 'approved'].includes(String(c.status));
-                  return (
-                    <li key={c.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
-                      <div className="min-w-0 flex-1">
-                        <div className="v-ink font-medium truncate" style={{ fontSize: 13 }}>{c.title || c.application?.campaign?.title || '—'}</div>
-                        <div className="v-caption v-quiet tabular-nums" style={{ fontSize: 11 }}>
-                          {c.payment_amount ? formatBudget(c.payment_amount, c.currency || 'USD') : postedLabel(c.created_at)}
-                        </div>
-                      </div>
-                      <Chip color={active ? 'success' : c.status === 'pending_signature' ? 'warning' : 'default'} variant="soft" size="sm">
-                        <Chip.Label>{t(`contractStatus.${c.status}`, { defaultValue: String(c.status).replace('_', ' ') })}</Chip.Label>
-                      </Chip>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+        <DashPanel
+          icon={<Users size={15} />}
+          title={t('cdash.profile')}
+          meta={
+            <span className="v-text-signature font-medium" style={{ fontSize: 17 }}>
+              {completeness.pct}%
+            </span>
+          }
+        >
+          <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--color-cool-gray)' }}>
+            <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${completeness.pct}%`, background: 'var(--gradient-signature)' }} />
           </div>
-        </aside>
+          <p className="v-caption v-quiet mt-2 mb-3" style={{ fontSize: 12 }}>
+            {completeness.pct >= 100 ? t('cdash.profileDone') : t('cdash.profileHint', { n: completeness.total - completeness.done, count: completeness.total - completeness.done })}
+          </p>
+          <ul className="grid grid-cols-2 gap-x-3 gap-y-1.5 mb-4">
+            {completeness.items.map((it) => (
+              <li key={it.key} className="flex items-center gap-1.5 min-w-0" style={{ fontSize: 12.5 }}>
+                {it.done ? (
+                  <CheckCircle2 size={14} className="shrink-0" style={{ color: 'var(--color-signal-green)' }} />
+                ) : (
+                  <Circle size={14} className="shrink-0 v-quiet" />
+                )}
+                <span className={`truncate ${it.done ? 'v-ink' : 'v-quiet'}`}>{t(`cdash.${it.key}`)}</span>
+              </li>
+            ))}
+          </ul>
+          <Link to="/dashboard/profile" className="block mt-auto">
+            <Button variant={completeness.pct >= 100 ? 'tertiary' : 'primary'} size="sm" fullWidth>
+              <Pencil size={12} /> {t('cdash.editProfile')}
+            </Button>
+          </Link>
+        </DashPanel>
+
+        {/* Row 2 — recent applications · pipeline */}
+        <DashPanel
+          className="lg:col-span-2"
+          icon={<Briefcase size={15} />}
+          title={t('cdash.recentApps')}
+          action={
+            <Link to="/dashboard/applications">
+              <Button variant="ghost" size="sm">
+                {t('dash.seeAll')} <ArrowRight size={11} />
+              </Button>
+            </Link>
+          }
+        >
+          {loading ? (
+            <PanelRowsSkeleton n={3} />
+          ) : applications.length === 0 ? (
+            <PanelEmpty icon={<Briefcase size={16} />} title={t('cdash.noAppsTitle')} desc={t('cdash.noAppsDesc')} />
+          ) : (
+            <PanelRows>
+              {applications.slice(0, 4).map((a) => {
+                const s = normalizeApplicationStatus(a.status);
+                const bp = a.campaign?.brand?.brandProfile || {};
+                const brand = bp.company_name || a.campaign?.brand?.email?.split('@')[0] || '';
+                return (
+                  <PanelRow
+                    key={a.id}
+                    leading={<StoryAvatar src={bp.logo_url} name={brand} seed={a.campaign?.brand?.id || brand} size={36} />}
+                    title={a.campaign?.title || '—'}
+                    sub={[brand, postedLabel(a.created_at)].filter(Boolean).join(' · ')}
+                    trailing={
+                      <>
+                        {a.campaign?.budget != null && (
+                          <span className="v-ink font-medium tabular-nums hidden sm:inline" style={{ fontSize: 13, color: '#0b6e3e' }}>
+                            {formatBudget(a.campaign.budget, a.campaign.currency || 'USD')}
+                          </span>
+                        )}
+                        <Chip color={APPLICATION_STATUS_COLOR[s]} variant="soft" size="sm">
+                          <Chip.Label>{t(`appStatus.${s}`)}</Chip.Label>
+                        </Chip>
+                      </>
+                    }
+                  />
+                );
+              })}
+            </PanelRows>
+          )}
+        </DashPanel>
+
+        <DashPanel icon={<BarChart3 size={15} />} title={t('cdash.funnel')} meta={t('dash.pipelineTotal', { n: funnel.total })}>
+          {funnel.total === 0 && !loading ? (
+            <PanelEmpty icon={<BarChart3 size={16} />} title={t('cdash.noAppsTitle')} desc={t('cdash.noAppsDesc')} />
+          ) : (
+            <ul className="space-y-2.5">
+              {(['pending', 'shortlisted', 'offered', 'accepted', 'rejected'] as const).map((k) => {
+                const n = funnel[k];
+                const max = Math.max(1, funnel.pending, funnel.shortlisted, funnel.offered, funnel.accepted, funnel.rejected);
+                const color = k === 'pending' ? '#ffb547' : k === 'offered' ? '#00d4c7' : k === 'accepted' ? '#16c784' : k === 'rejected' ? '#c4cad8' : 'var(--gradient-signature)';
+                return (
+                  <li key={k}>
+                    <div className="flex items-center justify-between v-caption mb-1" style={{ fontSize: 12 }}>
+                      <span className="v-ink font-medium">{t(`appStatus.${k}`)}</span>
+                      <span className="v-quiet tabular-nums">{n}</span>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--color-cool-gray)' }}>
+                      <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${Math.max(n ? 6 : 0, (n / max) * 100)}%`, background: color }} />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </DashPanel>
+
+        {/* Row 3 — contracts · payout account */}
+        <DashPanel
+          className="lg:col-span-2"
+          icon={<FileText size={15} />}
+          title={t('side.contracts')}
+          action={
+            <Link to="/dashboard/contracts">
+              <Button variant="ghost" size="sm">
+                {t('dash.seeAll')} <ArrowRight size={11} />
+              </Button>
+            </Link>
+          }
+        >
+          {loading ? (
+            <PanelRowsSkeleton n={2} avatar={false} />
+          ) : contracts.length === 0 ? (
+            <PanelEmpty icon={<FileText size={16} />} title={t('cdash.noContractsTitle')} desc={t('cdash.noContracts')} />
+          ) : (
+            <PanelRows>
+              {contracts.slice(0, 3).map((c) => {
+                const active = ['active', 'approved'].includes(String(c.status));
+                const campaign = c.application?.campaign?.title;
+                const partner = c.opponent_name || (c.opponent_email ? String(c.opponent_email).split('@')[0] : '');
+                const freq = c.payment_frequency ? t(`apps.freq.${c.payment_frequency}`, { defaultValue: String(c.payment_frequency).replace('_', ' ') }) : '';
+                return (
+                  <PanelRow
+                    key={c.id}
+                    leading={
+                      <StoryAvatar src={c.opponent_avatar} name={partner} seed={c.opponent_id || partner} size={36} />
+                    }
+                    title={campaign || c.title || '—'}
+                    sub={[partner, freq, postedLabel(c.created_at)].filter(Boolean).join(' · ')}
+                    trailing={
+                      <>
+                        {c.payment_amount != null && (
+                          <span className="v-ink font-medium tabular-nums hidden sm:inline" style={{ fontSize: 13, color: '#0b6e3e' }}>
+                            {formatBudget(c.payment_amount, c.currency || 'USD')}
+                          </span>
+                        )}
+                        <Chip color={active ? 'success' : c.status === 'pending_signature' ? 'warning' : 'default'} variant="soft" size="sm">
+                          <Chip.Label>{t(`contractStatus.${c.status}`, { defaultValue: String(c.status).replace('_', ' ') })}</Chip.Label>
+                        </Chip>
+                      </>
+                    }
+                  />
+                );
+              })}
+            </PanelRows>
+          )}
+        </DashPanel>
+
+        <DashPanel icon={<DollarSign size={15} />} title={t('cdash.payout')}>
+          <PayoutSummary variant="bare" />
+        </DashPanel>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -441,7 +517,7 @@ const CreatorDashboard: React.FC = () => {
           { to: '/dashboard/workspace', icon: <ClipboardList size={16} />, title: t('side.workspace'), desc: t('cdash.qlWorkspace') },
           { to: '/dashboard/messages', icon: <MessageSquare size={16} />, title: t('side.messages'), desc: t('dash.qlMessagesDesc') },
           { to: '/dashboard/payments', icon: <DollarSign size={16} />, title: t('side.payments'), desc: t('cdash.qlPayments') },
-          { to: '/dashboard/ai', icon: <Sparkles size={16} />, title: t('side.aiStudio'), desc: t('cdash.qlAi') },
+          { to: '/dashboard/invitations', icon: <Mail size={16} />, title: t('side.invitations'), desc: t('cdash.qlInvites') },
         ].map((q) => (
           <Link key={q.to} to={q.to} className="v-talent-card p-4 flex items-center gap-3">
             <span className="v-hero-icon" style={{ width: 36, height: 36, borderRadius: 11 }}>{q.icon}</span>

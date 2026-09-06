@@ -47,6 +47,29 @@ export class PaymentController {
     }
   }
 
+  /** One checkout for several payees; the system records and releases each share separately. */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.BRAND)
+  @Post('initiate-bulk')
+  async initiateBulk(
+    @Request() req: any,
+    @Body() body: { items: { payeeId: string; amount: number; applicationId?: string; campaignId?: string; note?: string }[]; paymentMethod?: string; redirectUrl?: string; currency?: string },
+  ) {
+    try {
+      return await this.paymentService.initiateBulk({
+        userId: req.user.brandId || req.user.userId,
+        email: req.user.email,
+        name: 'CampaignHub Brand',
+        items: body.items,
+        paymentMethod: body.paymentMethod || 'flutterwave',
+        redirectUrl: body.redirectUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard/payments?payment=completed`,
+        currency: body.currency || 'USD',
+      });
+    } catch (e: any) {
+      throw new BadRequestException(e?.response?.data?.message || e?.message || 'Batch payment could not be started.');
+    }
+  }
+
   @Post('verify')
   async verifyPayment(@Body() body: { transactionId?: string; txRef?: string }) {
     return this.paymentService.verifyPayment(body.transactionId, body.txRef);

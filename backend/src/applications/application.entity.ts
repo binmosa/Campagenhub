@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Unique } from 'typeorm';
+import { OneToMany, Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Unique } from 'typeorm';
 import { User } from '../users/user.entity';
 import { Campaign } from '../campaigns/campaign.entity';
 
@@ -39,6 +39,10 @@ export class Application {
 
   @Column({ type: 'varchar', nullable: true })
   video_pitch_url: string;
+
+  /** The agreements for this application: the main one plus extra-work addenda (FK lives on contracts). */
+  @OneToMany('Contract', 'application')
+  contracts?: any[];
 
   @CreateDateColumn()
   created_at: Date;

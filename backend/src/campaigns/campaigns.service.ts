@@ -46,7 +46,7 @@ export const normalizeCampaignStatus = (s?: string | null): CampaignStatus | und
  *  is server-owned and silently dropped from client payloads. */
 const WRITABLE_FIELDS = [
   'title', 'description', 'budget', 'currency', 'platform', 'platforms',
-  'target_audience', 'targeting', 'media_links', 'script', 'script_required',
+  'target_audience', 'targeting', 'media_links', 'script', 'script_required', 'video_pitch', 'tasks', 'tasks_public',
   'content_type', 'objective', 'deadline', 'cover_image',
   'contract_template', 'post_to_telegram', 'status',
 ] as const;
@@ -151,6 +151,25 @@ const normalizeAssets = (data: any): void => {
   }
   if (data.script !== undefined) data.script = data.script == null ? null : String(data.script).slice(0, 20000);
   if (data.script_required !== undefined) data.script_required = !!data.script_required;
+  if (data.video_pitch !== undefined) data.video_pitch = ['optional', 'required'].includes(String(data.video_pitch)) ? String(data.video_pitch) : 'none';
+  if (data.tasks !== undefined) {
+    const list = parseJson<any[]>(data.tasks, []);
+    const clean = (Array.isArray(list) ? list : [])
+      .filter((t) => t && typeof t.title === 'string' && t.title.trim())
+      .map((t, i) => {
+        const days = Number(t.due_days);
+        return {
+          key: String(t.key || `t${i + 1}`).slice(0, 40),
+          title: t.title.trim().slice(0, 200),
+          ...(t.description ? { description: String(t.description).slice(0, 4000) } : {}),
+          ...(t.platform ? { platform: String(t.platform).slice(0, 40) } : {}),
+          ...(Number.isFinite(days) && days > 0 ? { due_days: Math.min(365, Math.round(days)) } : {}),
+        };
+      })
+      .slice(0, 30);
+    data.tasks = JSON.stringify(clean);
+  }
+  if (data.tasks_public !== undefined) data.tasks_public = !!data.tasks_public;
 };
 
 /** Parse the JSON columns for API consumers (strings in the DB, objects out). */
@@ -162,11 +181,15 @@ export const hydrateCampaign = <T extends Record<string, any>>(c: T): T => {
     const list = parseJson<any[]>(out.media_links, []);
     out.media_links = Array.isArray(list) ? list : [];
   }
+  if ('tasks' in out) {
+    const list = parseJson<any[]>(out.tasks, []);
+    out.tasks = Array.isArray(list) ? list : [];
+  }
   return out;
 };
 
 const ASSET_COLUMNS = [
-  'c.targeting', 'c.target_countries', 'c.media_links', 'c.script', 'c.script_required',
+  'c.targeting', 'c.target_countries', 'c.media_links', 'c.script', 'c.script_required', 'c.video_pitch', 'c.tasks', 'c.tasks_public',
 ];
 
 /** Safe select list for a brand's own campaigns (all statuses). */
@@ -443,10 +466,14 @@ export class CampaignsService implements OnModuleInit {
 
     const { entities, raw } = await qb.offset(offset).limit(limit).getRawAndEntities();
 
-    const items = entities.map((c, i) => ({
-      ...hydrateCampaign(c),
-      applicants_count: Number(raw[i]?.applicants_count) || 0,
-    }));
+    const items = entities.map((c, i) => {
+      const h = hydrateCampaign(c);
+      return {
+        ...h,
+        tasks: c.tasks_public ? h.tasks : [],
+        applicants_count: Number(raw[i]?.applicants_count) || 0,
+      };
+    });
     await this.attachTranslations(items, filters.lang);
 
     return { items, total, limit, offset, hasMore: offset + items.length < total };
@@ -536,8 +563,9 @@ export class CampaignsService implements OnModuleInit {
 
     const [item] = this.withCounts([campaign], raw);
     if (!isOwner) {
-      // Non-owners never need the private Telegram flag.
+      // Non-owners never need the private Telegram flag, nor a task list the brand keeps for after signing.
       delete item.post_to_telegram;
+      if (!item.tasks_public) item.tasks = [];
       await this.attachTranslations([item], lang);
     }
     return item;
@@ -589,7 +617,7 @@ export class CampaignsService implements OnModuleInit {
       }
     }
 
-    const funnel = { total: apps.length, pending: 0, shortlisted: 0, accepted: 0, rejected: 0, other: 0 };
+    const funnel = { total: apps.length, pending: 0, shortlisted: 0, offered: 0, accepted: 0, rejected: 0, other: 0 };
     for (const a of apps) {
       const s = (a.status || '').toLowerCase();
       if (s in funnel && s !== 'total' && s !== 'other') (funnel as any)[s]++;
@@ -838,6 +866,8 @@ export class CampaignsService implements OnModuleInit {
     if (!campaign) throw new NotFoundException('Campaign not found');
     if (campaign.brand.id !== brandId) throw new UnauthorizedException('Not authorized');
 
+    // tasks point at contracts by plain id (no FK) — drop them with the campaign so nothing is orphaned
+    await this.campaignsRepository.manager.query('DELETE FROM tasks WHERE campaign_id = $1', [campaignId]);
     await this.campaignsRepository.remove(campaign);
     await this.translationsService.removeEntity('campaign', campaignId);
   }

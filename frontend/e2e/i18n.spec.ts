@@ -9,7 +9,7 @@ import type { Role } from './accounts';
 const PAGES: Record<Role, string[]> = {
   admin: ['/dashboard', '/dashboard/users', '/dashboard/campaigns', '/dashboard/applications', '/dashboard/payouts', '/dashboard/roles', '/dashboard/support', '/dashboard/site-control', '/dashboard/telegram', '/dashboard/profile'],
   brand: ['/dashboard', '/dashboard/campaigns', '/dashboard/applications', '/dashboard/profile', '/dashboard/workspace', '/dashboard/offers', '/dashboard/contracts', '/dashboard/payments', '/dashboard/messages', '/dashboard/analytics', '/dashboard/ai', '/dashboard/my-team'],
-  creator: ['/dashboard', '/dashboard/campaigns', '/dashboard/profile', '/dashboard/payments', '/dashboard/invitations', '/dashboard/workspace', '/dashboard/offers', '/dashboard/contracts'],
+  creator: ['/dashboard', '/dashboard/campaigns', '/dashboard/applications', '/dashboard/profile', '/dashboard/payments', '/dashboard/invitations', '/dashboard/workspace', '/dashboard/offers', '/dashboard/contracts'],
   manager: ['/dashboard', '/dashboard/profile', '/dashboard/invitations', '/dashboard/offers', '/dashboard/messages'],
   support: ['/dashboard'],
   finance: ['/dashboard'],

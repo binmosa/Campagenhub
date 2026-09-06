@@ -166,6 +166,7 @@ const ApplicationsRouter = () => {
   const role = (localStorage.getItem('role') || 'creator').toLowerCase().trim();
   if (role === 'admin') return <AdminApplications />;
   if (role === 'brand') return <BrandApplications />;
+  if (role === 'creator') return <CreatorApplications initialTab="applications" />;
   return <div className="text-center p-10 text-slate-500">Not available for this role.</div>;
 };
 
@@ -224,6 +225,8 @@ const AiRouter = () => {
   if (role === 'support' || role === 'finance') {
     return <div className="text-center p-10 text-slate-500 font-bold uppercase tracking-widest text-sm">Not available for this role.</div>;
   }
+  // AI Studio is switched off for creators for now — no nav entry, and deep links go home.
+  if (role === 'creator') return <Navigate to="/dashboard" replace />;
   return <AiHub />;
 };
 

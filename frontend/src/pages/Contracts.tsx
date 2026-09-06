@@ -9,6 +9,7 @@ import {
   Download,
   FileText,
   XCircle,
+  ListChecks,
 } from 'lucide-react';
 import {
   Avatar,
@@ -39,6 +40,7 @@ type Contract = {
   monthly_payment?: number | string;
   payment_amount?: number | string;
   payment_frequency?: string;
+  ends_at?: string | null;
   payment_day?: number;
   currency?: string;
   next_payment_date?: string;
@@ -58,6 +60,8 @@ const STATUS: Record<
   active: { label: 'Active', color: 'success' },
   approved: { label: 'Active', color: 'success' },
   pending_signature: { label: 'Awaiting signature', color: 'warning' },
+  countered: { label: 'Counter-offer', color: 'warning' },
+  rejected: { label: 'Declined', color: 'danger' },
   ended: { label: 'Ended', color: 'default' },
   terminated: { label: 'Terminated', color: 'danger' },
 };
@@ -163,11 +167,19 @@ const ContractCard: React.FC<{ contract: Contract; onChange: () => void }> = ({
                   : 'Collaboration'}
                 {contract.created_at &&
                   ` · ${new Date(contract.created_at).toLocaleDateString()}`}
+                {contract.ends_at && ` · ${t('contract.until', { date: new Date(contract.ends_at).toLocaleDateString() })}`}
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {contract.status === 'active' && (
+              <Link to={`/dashboard/workspace?contract=${contract.id}`}>
+                <Button variant="tertiary" size="sm" className="!rounded-lg">
+                  <ListChecks size={13} /> {t('capps.openTasks')}
+                </Button>
+              </Link>
+            )}
             {contract.status === 'active' && (
               <Button
                 variant="ghost"

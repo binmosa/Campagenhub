@@ -17,11 +17,17 @@ import {
   Users,
   Video,
   XCircle,
+  RefreshCw,
+  Send,
+  ArrowLeftRight,
+  ListChecks,
+  PlusCircle,
+  Plus,
 } from 'lucide-react';
 import { Button, Chip, Modal } from '@heroui/react';
 import { Segment } from '@heroui-pro/react';
 import { useTranslation } from 'react-i18next';
-import api, { serverOrigin } from '../../lib/api';
+import api from '../../lib/api';
 import { formatBudget, postedLabel } from '../../lib/campaignFormat';
 import {
   APPLICATION_STATUSES,
@@ -34,9 +40,11 @@ import {
 } from '../../lib/catalog';
 import { ChatWindow } from '../../components/chat/ChatWindow';
 import { ContractManager } from '../../components/contracts/ContractManager';
+import { toast } from '../../lib/toast';
 import { MetricCard, PageShell } from '../../components/ui';
 import { EmptyPanel } from '../../components/common/EmptyPanel';
 import { BriefDetails } from '../../components/common/BriefDetails';
+import { PitchVideo } from '../../components/common/PitchVideo';
 import FacetPopover from '../../components/common/FacetPopover';
 import { Notice } from '../../components/common/Notice';
 import SearchSelect from '../../components/common/SearchSelect';
@@ -73,11 +81,6 @@ const toTalent = (app: any): Talent => {
   };
 };
 
-const videoSrc = (url?: string | null): string | null => {
-  if (!url) return null;
-  return url.startsWith('/') ? `${serverOrigin}${url}` : url;
-};
-
 const creatorName = (app: any) => toTalent(app).full_name || app.creator?.email || 'Creator';
 
 /* ── Payment terms (accept + schedule) ───────────────────────────── */
@@ -89,21 +92,73 @@ const PaymentScheduleModal: React.FC<{
   const { t } = useTranslation();
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState('USD');
-  const [frequency, setFrequency] = useState<string>('monthly');
+  const [frequency, setFrequency] = useState<string>('one_time');
   const [day, setDay] = useState('1');
   const [notes, setNotes] = useState('');
+  const [endsAt, setEndsAt] = useState('');
+  const [terms, setTerms] = useState('');
+  const [termsTouched, setTermsTouched] = useState(false);
+  const [drafting, setDrafting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const existing = app?.contract && ['pending_signature', 'countered', 'active', 'approved'].includes(String(app.contract.status)) ? app.contract : null;
+
+  const fetchDraft = useCallback(
+    async (f: { amount: string; currency: string; frequency: string; day: string; notes: string; endsAt: string }) => {
+      if (!app) return;
+      const n = Number(f.amount);
+      if (!f.amount || !Number.isFinite(n) || n <= 0) return;
+      if (f.frequency !== 'one_time' && !f.endsAt) return;
+      setDrafting(true);
+      try {
+        const res = await api.get(`/contracts/application/${app.id}/draft`, {
+          params: { payment_amount: n, currency: f.currency, payment_frequency: f.frequency, payment_day: hasPaymentDay(f.frequency) ? Number(f.day) : '', ends_at: f.frequency !== 'one_time' ? f.endsAt : '', notes: f.notes },
+        });
+        setTerms(res.data?.terms || '');
+        setTermsTouched(false);
+      } catch {
+        /* the brand can still write the text by hand */
+      } finally {
+        setDrafting(false);
+      }
+    },
+    [app],
+  );
 
   useEffect(() => {
     if (!app) return;
-    setAmount(app.payment_amount != null ? String(Number(app.payment_amount)) : app.campaign?.budget != null ? String(Number(app.campaign.budget)) : '');
-    setCurrency(app.currency || app.campaign?.currency || 'USD');
-    setFrequency(app.payment_frequency || 'monthly');
-    setDay(String(app.payment_day || 1));
-    setNotes(app.notes || '');
+    const a = app.payment_amount != null ? String(Number(app.payment_amount)) : app.campaign?.budget != null ? String(Number(app.campaign.budget)) : '';
+    const c = app.currency || app.campaign?.currency || 'USD';
+    // the application row carries column defaults (monthly / day 1) before any terms were ever set — ignore those
+    const hasTerms = app.payment_amount != null || !!existing;
+    const f = hasTerms ? app.payment_frequency || 'one_time' : 'one_time';
+    const d = String((hasTerms && app.payment_day) || 1);
+    const n = app.notes || '';
+    const e = existing?.ends_at ? String(existing.ends_at).slice(0, 10) : '';
+    setAmount(a);
+    setCurrency(c);
+    setFrequency(f);
+    setDay(d);
+    setNotes(n);
+    setEndsAt(e);
     setError('');
+    if (existing?.terms) {
+      setTerms(existing.terms);
+      setTermsTouched(true);
+    } else {
+      setTerms('');
+      fetchDraft({ amount: a, currency: c, frequency: f, day: d, notes: n, endsAt: e });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app]);
+
+  // Keep the text in step with the money while the brand has not edited it by hand.
+  useEffect(() => {
+    if (!app || termsTouched) return;
+    const h = setTimeout(() => fetchDraft({ amount, currency, frequency, day, notes, endsAt }), 450);
+    return () => clearTimeout(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amount, currency, frequency, day, notes, endsAt]);
 
   const save = async () => {
     const n = Number(amount);
@@ -111,19 +166,27 @@ const PaymentScheduleModal: React.FC<{
       setError(t('apps.errAmount'));
       return;
     }
+    if (frequency !== 'one_time' && !endsAt) {
+      setError(t('apps.errEndsAt'));
+      return;
+    }
+    if (!terms.trim()) {
+      setError(t('contract.errTerms'));
+      return;
+    }
     setSaving(true);
     setError('');
     try {
-      if (normalizeApplicationStatus(app.status) !== 'accepted') {
-        await api.patch(`/applications/${app.id}/status`, { status: 'accepted' });
-      }
       await api.patch(`/applications/${app.id}/payment-schedule`, {
         payment_amount: n,
         currency,
         payment_frequency: frequency,
         payment_day: hasPaymentDay(frequency) ? Number(day) : 1,
+        ends_at: frequency !== 'one_time' ? endsAt : null,
         notes,
+        terms,
       });
+      toast.success(t('apps.contractSent', { name: creatorName(app) }));
       onSaved();
       onClose();
     } catch (e: any) {
@@ -137,12 +200,12 @@ const PaymentScheduleModal: React.FC<{
     <Modal isOpen={!!app} onOpenChange={(open) => !open && !saving && onClose()}>
       <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
         <Modal.Container>
-          <Modal.Dialog>
+          <Modal.Dialog className="!max-w-3xl">
             <Modal.CloseTrigger />
             <Modal.Header>
               <Modal.Heading className="flex items-center gap-2">
-                <DollarSign size={17} style={{ color: 'var(--color-campaign-purple)' }} />
-                {normalizeApplicationStatus(app?.status) === 'accepted' ? t('apps.editTerms') : t('apps.acceptTitle')}
+                <Send size={17} style={{ color: 'var(--color-campaign-purple)' }} />
+                {t('apps.acceptTitle', { name: app ? creatorName(app) : '' })}
               </Modal.Heading>
             </Modal.Header>
             <Modal.Body>
@@ -151,6 +214,15 @@ const PaymentScheduleModal: React.FC<{
                   {t('apps.acceptIntro', { name: app ? creatorName(app) : '', title: app?.campaign?.title || '' })}
                 </p>
                 {error && <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice>}
+                {existing?.status === 'countered' && existing.counter && (
+                  <Notice tone="info">
+                    <span className="inline-flex items-center gap-1.5">
+                      <ArrowLeftRight size={13} />
+                      {t('contract.counterFrom', { name: app ? creatorName(app) : '' })}: {formatBudget(existing.counter.payment_amount, existing.counter.currency || currency)}
+                      {existing.counter.payment_frequency && existing.counter.payment_frequency !== 'one_time' ? ` / ${t(`apps.freq.${existing.counter.payment_frequency}`)}` : ''}
+                    </span>
+                  </Notice>
+                )}
                 <div className="grid grid-cols-[120px_1fr] gap-3">
                   <div>
                     <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('wizard.currency')}</label>
@@ -161,8 +233,8 @@ const PaymentScheduleModal: React.FC<{
                     </select>
                   </div>
                   <div>
-                    <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.amount')}</label>
-                    <input type="number" min={0} step="0.01" className={fieldClass} value={amount} onChange={(e) => setAmount(e.target.value)} />
+                    <label htmlFor="send-amount" className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.amount')}</label>
+                    <input id="send-amount" type="number" min={0} step="0.01" className={fieldClass} value={amount} onChange={(e) => setAmount(e.target.value)} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -183,17 +255,290 @@ const PaymentScheduleModal: React.FC<{
                     </select>
                   </div>
                 </div>
+                {frequency !== 'one_time' && (
+                  <div>
+                    <label htmlFor="send-ends" className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>
+                      {t('apps.runsUntil', { freq: t(`apps.freq.${frequency}`) })}
+                    </label>
+                    <input id="send-ends" type="date" min={new Date().toISOString().slice(0, 10)} className={fieldClass} value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
+                    <p className="v-caption v-quiet mt-1.5" style={{ fontSize: 11.5 }}>{t('apps.runsUntilHint')}</p>
+                  </div>
+                )}
                 <div>
-                  <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.notes')}</label>
-                  <textarea className={`${fieldClass} resize-none`} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t('apps.notesPh')} />
+                  <label htmlFor="send-notes" className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.notes')}</label>
+                  <textarea id="send-notes" className={`${fieldClass} resize-none`} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t('apps.notesPh')} />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                    <label htmlFor="send-terms" className="v-caption v-ink font-medium" style={{ fontSize: 12.5 }}>{t('apps.agreement')}</label>
+                    <button
+                      type="button"
+                      className="v-caption font-medium inline-flex items-center gap-1"
+                      style={{ color: 'var(--color-campaign-purple)', fontSize: 12 }}
+                      onClick={() => fetchDraft({ amount, currency, frequency, day, notes, endsAt })}
+                      disabled={drafting}
+                      title={termsTouched ? t('apps.regenerateNote') : undefined}
+                    >
+                      <RefreshCw size={11} className={drafting ? 'animate-spin' : ''} /> {t('apps.regenerate')}
+                    </button>
+                  </div>
+                  <textarea
+                    id="send-terms"
+                    data-testid="agreement-editor"
+                    className={`${fieldClass} resize-y`}
+                    style={{ fontSize: 12.5, lineHeight: 1.6, minHeight: 280 }}
+                    value={terms}
+                    onChange={(e) => {
+                      setTerms(e.target.value);
+                      setTermsTouched(true);
+                    }}
+                    placeholder={drafting ? '…' : t('contract.termsPh')}
+                  />
+                  <p className="v-caption v-quiet mt-1.5" style={{ fontSize: 11.5 }}>{t('apps.agreementHint')}</p>
                 </div>
                 <p className="v-caption v-quiet" style={{ fontSize: 11.5 }}>{t('apps.termsNote')}</p>
               </div>
             </Modal.Body>
             <Modal.Footer>
               <Button variant="ghost" onPress={onClose} isDisabled={saving}>{t('common.cancel')}</Button>
-              <Button variant="primary" onPress={save} isPending={saving}>
-                <Check size={13} /> {normalizeApplicationStatus(app?.status) === 'accepted' ? t('apps.saveTerms') : t('apps.acceptBtn')}
+              <Button variant="primary" onPress={save} isPending={saving} isDisabled={drafting}>
+                <Send size={13} /> {existing ? t('apps.saveTerms') : t('apps.acceptBtn')}
+              </Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
+  );
+};
+
+/* ── Extra work on a signed agreement ─────────────────────────────── */
+const ExtraWorkModal: React.FC<{ app: any | null; onClose: () => void; onSaved: () => void }> = ({ app, onClose, onSaved }) => {
+  const { t } = useTranslation();
+  const [title, setTitle] = useState('');
+  const [scope, setScope] = useState('');
+  const [tasks, setTasks] = useState<{ key: string; title: string; platform?: string; due_days?: number }[]>([]);
+  const [taskDraft, setTaskDraft] = useState({ title: '', platform: '', due_days: '7' });
+  const [amount, setAmount] = useState('');
+  const [currency, setCurrency] = useState('USD');
+  const [frequency, setFrequency] = useState('one_time');
+  const [day, setDay] = useState('1');
+  const [endsAt, setEndsAt] = useState('');
+  const [notes, setNotes] = useState('');
+  const [terms, setTerms] = useState('');
+  const [termsTouched, setTermsTouched] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const platforms: string[] = String(app?.campaign?.platform || '')
+    .split(/[,|]+/)
+    .map((x: string) => x.trim())
+    .filter(Boolean);
+
+  useEffect(() => {
+    if (!app) return;
+    setTitle('');
+    setScope('');
+    setTasks([]);
+    setTaskDraft({ title: '', platform: '', due_days: '7' });
+    setAmount('');
+    setCurrency(app.currency || app.campaign?.currency || 'USD');
+    setFrequency('one_time');
+    setDay('1');
+    setEndsAt('');
+    setNotes('');
+    setTerms('');
+    setTermsTouched(false);
+    setError('');
+  }, [app]);
+
+  const fetchDraft = useCallback(async () => {
+    if (!app) return;
+    const n = Number(amount);
+    if (!title.trim() || !amount || !Number.isFinite(n) || n <= 0) return;
+    if (frequency !== 'one_time' && !endsAt) return;
+    setDrafting(true);
+    try {
+      const res = await api.get(`/contracts/application/${app.id}/addendum-draft`, {
+        params: { title: title.trim(), scope, tasks: JSON.stringify(tasks), payment_amount: n, currency, payment_frequency: frequency, payment_day: hasPaymentDay(frequency) ? Number(day) : '', ends_at: frequency !== 'one_time' ? endsAt : '', notes },
+      });
+      setTerms(res.data?.terms || '');
+      setTermsTouched(false);
+    } catch {
+      /* the brand can still write the text by hand */
+    } finally {
+      setDrafting(false);
+    }
+  }, [app, title, scope, tasks, amount, currency, frequency, day, endsAt, notes]);
+
+  useEffect(() => {
+    if (!app || termsTouched) return;
+    const h = setTimeout(fetchDraft, 450);
+    return () => clearTimeout(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, scope, tasks, amount, currency, frequency, day, endsAt, notes]);
+
+  const addTask = () => {
+    const tt = taskDraft.title.trim();
+    if (!tt) return;
+    const days = Number(taskDraft.due_days);
+    setTasks((prev) => [...prev, { key: `x${Date.now().toString(36)}`, title: tt, ...(taskDraft.platform ? { platform: taskDraft.platform } : {}), ...(Number.isFinite(days) && days > 0 ? { due_days: Math.round(days) } : {}) }]);
+    setTaskDraft({ title: '', platform: taskDraft.platform, due_days: taskDraft.due_days });
+  };
+
+  const save = async () => {
+    const n = Number(amount);
+    if (!title.trim()) return setError(t('apps.errExtraTitle'));
+    if (!amount || !Number.isFinite(n) || n <= 0) return setError(t('apps.errAmount'));
+    if (frequency !== 'one_time' && !endsAt) return setError(t('apps.errEndsAt'));
+    if (!terms.trim()) return setError(t('contract.errTerms'));
+    setSaving(true);
+    setError('');
+    try {
+      await api.post(`/contracts/application/${app.id}/addendum`, {
+        title: title.trim(),
+        scope,
+        tasks,
+        payment_amount: n,
+        currency,
+        payment_frequency: frequency,
+        payment_day: hasPaymentDay(frequency) ? Number(day) : 1,
+        ends_at: frequency !== 'one_time' ? endsAt : null,
+        notes,
+        terms,
+      });
+      toast.success(t('apps.extraSent', { name: creatorName(app) }));
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || t('apps.errSave'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={!!app} onOpenChange={(open) => !open && !saving && onClose()}>
+      <Modal.Backdrop isDismissable={false} isKeyboardDismissDisabled>
+        <Modal.Container>
+          <Modal.Dialog className="!max-w-3xl">
+            <Modal.CloseTrigger />
+            <Modal.Header>
+              <Modal.Heading className="flex items-center gap-2">
+                <PlusCircle size={17} style={{ color: 'var(--color-campaign-purple)' }} />
+                {t('apps.extraTitle', { name: app ? creatorName(app) : '' })}
+              </Modal.Heading>
+            </Modal.Header>
+            <Modal.Body>
+              <div className="space-y-4">
+                <p className="v-body v-muted">{t('apps.extraIntro', { title: app?.campaign?.title || '' })}</p>
+                {error && <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice>}
+                <div>
+                  <label htmlFor="extra-title" className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.extraWhat')} *</label>
+                  <input id="extra-title" className={fieldClass} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('apps.extraWhatPh')} />
+                </div>
+                <div>
+                  <label htmlFor="extra-scope" className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.extraScope')}</label>
+                  <textarea id="extra-scope" rows={2} className={`${fieldClass} resize-none`} value={scope} onChange={(e) => setScope(e.target.value)} placeholder={t('apps.extraScopePh')} />
+                </div>
+                <div>
+                  <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('wizard.tasks')}</label>
+                  {tasks.length > 0 && (
+                    <ol className="space-y-1 mb-2">
+                      {tasks.map((task, i) => (
+                        <li key={task.key} className="flex items-center gap-2 rounded-lg px-3 py-1.5" style={{ background: 'rgba(244,242,255,0.55)', border: '1px solid var(--color-cool-gray)' }}>
+                          <span className="v-caption v-quiet tabular-nums" style={{ fontSize: 11 }}>{i + 1}.</span>
+                          <span className="v-ink flex-1 truncate" style={{ fontSize: 13 }}>{task.title}{task.platform ? ` · ${task.platform}` : ''}{task.due_days ? ` · ${t('wizard.taskDueDays', { count: task.due_days })}` : ''}</span>
+                          <button type="button" className="v-shell-btn" style={{ width: 26, height: 26 }} aria-label={t('wizard.removeTask')} onClick={() => setTasks((prev) => prev.filter((_, idx) => idx !== i))}>
+                            <XCircle size={12} />
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                  <div className="grid grid-cols-2 sm:grid-cols-[1fr_140px_90px_auto] gap-2">
+                    <input className={`${fieldClass} col-span-2 sm:col-span-1`} value={taskDraft.title} onChange={(e) => setTaskDraft({ ...taskDraft, title: e.target.value })} placeholder={t('wizard.taskTitlePh')} aria-label={t('wizard.taskTitle')} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTask(); } }} />
+                    <select className={fieldClass} value={taskDraft.platform} onChange={(e) => setTaskDraft({ ...taskDraft, platform: e.target.value })} aria-label={t('wizard.taskPlatform')}>
+                      <option value="">{t('wizard.taskAnyPlatform')}</option>
+                      {platforms.map((pf) => (
+                        <option key={pf} value={pf}>{pf}</option>
+                      ))}
+                    </select>
+                    <input type="number" min={1} max={365} className={fieldClass} value={taskDraft.due_days} onChange={(e) => setTaskDraft({ ...taskDraft, due_days: e.target.value })} aria-label={t('wizard.taskDue')} title={t('wizard.taskDue')} />
+                    <Button variant="tertiary" size="md" onPress={addTask} isDisabled={!taskDraft.title.trim()} className="col-span-2 sm:col-auto">
+                      <Plus size={13} /> {t('wizard.addTask')}
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-[120px_1fr] gap-3">
+                  <div>
+                    <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('wizard.currency')}</label>
+                    <select className={fieldClass} value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                      {CURRENCIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="extra-amount" className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.extraFee')}</label>
+                    <input id="extra-amount" type="number" min={0} step="0.01" className={fieldClass} value={amount} onChange={(e) => setAmount(e.target.value)} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.frequency')}</label>
+                    <select className={fieldClass} value={frequency} onChange={(e) => setFrequency(e.target.value)}>
+                      {PAYMENT_FREQUENCIES.map((f) => (
+                        <option key={f} value={f}>{t(`apps.freq.${f}`)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={hasPaymentDay(frequency) ? undefined : { opacity: 0.45, pointerEvents: 'none' }}>
+                    <label className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.paymentDay')}</label>
+                    <select className={fieldClass} value={day} onChange={(e) => setDay(e.target.value)} disabled={!hasPaymentDay(frequency)}>
+                      {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {frequency !== 'one_time' && (
+                  <div>
+                    <label htmlFor="extra-ends" className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.runsUntil', { freq: t(`apps.freq.${frequency}`) })}</label>
+                    <input id="extra-ends" type="date" min={new Date().toISOString().slice(0, 10)} className={fieldClass} value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
+                  </div>
+                )}
+                <div>
+                  <label htmlFor="extra-notes" className="v-caption v-ink font-medium block mb-1.5" style={{ fontSize: 12.5 }}>{t('apps.notes')}</label>
+                  <textarea id="extra-notes" className={`${fieldClass} resize-none`} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t('apps.notesPh')} />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                    <label htmlFor="extra-terms" className="v-caption v-ink font-medium" style={{ fontSize: 12.5 }}>{t('apps.agreement')}</label>
+                    <button type="button" className="v-caption font-medium inline-flex items-center gap-1" style={{ color: 'var(--color-campaign-purple)', fontSize: 12 }} onClick={fetchDraft} disabled={drafting}>
+                      <RefreshCw size={11} className={drafting ? 'animate-spin' : ''} /> {t('apps.regenerate')}
+                    </button>
+                  </div>
+                  <textarea
+                    id="extra-terms"
+                    data-testid="addendum-editor"
+                    className={`${fieldClass} resize-y`}
+                    style={{ fontSize: 12.5, lineHeight: 1.6, minHeight: 220 }}
+                    value={terms}
+                    onChange={(e) => {
+                      setTerms(e.target.value);
+                      setTermsTouched(true);
+                    }}
+                    placeholder={drafting ? '…' : t('apps.extraTermsPh')}
+                  />
+                </div>
+                <p className="v-caption v-quiet" style={{ fontSize: 11.5 }}>{t('apps.extraNote')}</p>
+              </div>
+            </Modal.Body>
+            <Modal.Footer>
+              <Button variant="ghost" onPress={onClose} isDisabled={saving}>{t('common.cancel')}</Button>
+              <Button variant="primary" onPress={save} isPending={saving} isDisabled={drafting}>
+                <Send size={13} /> {t('apps.extraSend')}
               </Button>
             </Modal.Footer>
           </Modal.Dialog>
@@ -228,6 +573,8 @@ const BrandApplications: React.FC = () => {
   const [paymentApp, setPaymentApp] = useState<any | null>(null);
   const [chatApp, setChatApp] = useState<any | null>(null);
   const [contractApp, setContractApp] = useState<any | null>(null);
+  const [contractView, setContractView] = useState<string | undefined>(undefined);
+  const [extraApp, setExtraApp] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -269,7 +616,7 @@ const BrandApplications: React.FC = () => {
   }, [notice]);
 
   const counts = useMemo(() => {
-    const c: Record<StatusFilter, number> = { all: apps.length, pending: 0, shortlisted: 0, accepted: 0, rejected: 0, refunded: 0 };
+    const c: Record<StatusFilter, number> = { all: apps.length, pending: 0, shortlisted: 0, offered: 0, accepted: 0, rejected: 0, refunded: 0 };
     for (const a of apps) c[normalizeApplicationStatus(a.status)]++;
     return c;
   }, [apps]);
@@ -361,7 +708,7 @@ const BrandApplications: React.FC = () => {
   );
 
   const reviewStatus = reviewing ? normalizeApplicationStatus(reviewing.status) : 'pending';
-  const reviewVideo = videoSrc(reviewing?.video_pitch_url);
+  const reviewVideo = reviewing?.video_pitch_url || null;
 
   return (
     <PageShell
@@ -384,6 +731,7 @@ const BrandApplications: React.FC = () => {
               <Segment.Item id="all">{t('dash.all')} · {counts.all}</Segment.Item>
               <Segment.Item id="pending">{t('appStatus.pending')} · {counts.pending}</Segment.Item>
               <Segment.Item id="shortlisted">{t('appStatus.shortlisted')} · {counts.shortlisted}</Segment.Item>
+              <Segment.Item id="offered">{t('appStatus.offered')} · {counts.offered}</Segment.Item>
               <Segment.Item id="accepted">{t('appStatus.accepted')} · {counts.accepted}</Segment.Item>
               <Segment.Item id="rejected">{t('appStatus.rejected')} · {counts.rejected}</Segment.Item>
             </Segment>
@@ -464,9 +812,27 @@ const BrandApplications: React.FC = () => {
                 viewerIsCreator={false}
                 onInvite={() => {}}
                 badge={
-                  <Chip color={APPLICATION_STATUS_COLOR[s]} variant="soft" size="sm" className="shrink-0">
-                    <Chip.Label>{t(`appStatus.${s}`)}</Chip.Label>
-                  </Chip>
+                  <span className="inline-flex items-center gap-1 shrink-0">
+                    <Chip color={APPLICATION_STATUS_COLOR[s]} variant="soft" size="sm">
+                      <Chip.Label>{t(`appStatus.${s}`)}</Chip.Label>
+                    </Chip>
+                    {app.contract?.status === 'countered' && (
+                      <Chip color="warning" variant="soft" size="sm">
+                        <ArrowLeftRight size={10} />
+                        <Chip.Label>{t('apps.counterBadge')}</Chip.Label>
+                      </Chip>
+                    )}
+                    {(app.addenda || []).some((a: any) => a.status === 'countered') ? (
+                      <Chip color="warning" variant="soft" size="sm">
+                        <ArrowLeftRight size={10} />
+                        <Chip.Label>{t('apps.extraCounterBadge')}</Chip.Label>
+                      </Chip>
+                    ) : (app.addenda || []).some((a: any) => a.status === 'pending_signature') ? (
+                      <Chip color="default" variant="soft" size="sm">
+                        <Chip.Label>{t('apps.extraPendingBadge')}</Chip.Label>
+                      </Chip>
+                    ) : null}
+                  </span>
                 }
                 extra={
                   <div className="mt-3 rounded-xl p-3" style={{ background: 'rgba(244,242,255,0.55)', border: '1px solid var(--color-cool-gray)' }}>
@@ -545,7 +911,7 @@ const BrandApplications: React.FC = () => {
                           <div className="v-caption v-quiet font-medium uppercase tracking-wider mb-2 inline-flex items-center gap-1.5" style={{ fontSize: 10.5 }}>
                             <Video size={11} style={{ color: 'var(--color-campaign-purple)' }} /> {t('board.videoPitch')}
                           </div>
-                          <video src={reviewVideo} controls preload="metadata" className="w-full rounded-xl v-hairline" style={{ maxHeight: 320, background: '#0b1736' }} />
+                          <PitchVideo url={reviewing.video_pitch_url} maxHeight={320} />
                         </div>
                       )}
 
@@ -603,9 +969,14 @@ const BrandApplications: React.FC = () => {
                   <Modal.Footer>
                     <div className="flex items-center justify-between w-full gap-2 flex-wrap">
                       <div className="flex items-center gap-2">
-                        {(reviewStatus === 'pending' || reviewStatus === 'shortlisted') && (
+                        {(reviewStatus === 'pending' || reviewStatus === 'shortlisted' || reviewStatus === 'offered') && (
                           <Button variant="ghost" className="!text-danger" onPress={() => setStatusOf(reviewing, 'rejected')} isDisabled={busy}>
                             <XCircle size={13} /> {t('apps.decline')}
+                          </Button>
+                        )}
+                        {reviewStatus === 'offered' && (
+                          <Button variant="tertiary" onPress={() => setChatApp(reviewing)}>
+                            <MessageSquare size={13} /> {t('apps.message')}
                           </Button>
                         )}
                         {(reviewStatus === 'rejected' || reviewStatus === 'refunded') && (
@@ -635,10 +1006,28 @@ const BrandApplications: React.FC = () => {
                             <Check size={13} /> {t('apps.accept')}
                           </Button>
                         )}
+                        {reviewStatus === 'offered' && (
+                          <>
+                            <Button variant="tertiary" onPress={() => setPaymentApp(reviewing)} isDisabled={busy}>
+                              <DollarSign size={13} /> {t('contract.editResend')}
+                            </Button>
+                            <Button variant="primary" onPress={() => setContractApp(reviewing)} isDisabled={busy}>
+                              {reviewing.contract?.status === 'countered' ? <ArrowLeftRight size={13} /> : <FileText size={13} />}{' '}
+                              {reviewing.contract?.status === 'countered' ? t('apps.reviewCounter') : t('apps.viewContract')}
+                            </Button>
+                          </>
+                        )}
                         {reviewStatus === 'accepted' && (
-                          <Button variant="primary" onPress={() => setPaymentApp(reviewing)}>
-                            <DollarSign size={13} /> {t('apps.editTerms')}
-                          </Button>
+                          <>
+                            <Button variant="tertiary" onPress={() => setExtraApp(reviewing)}>
+                              <PlusCircle size={13} /> {t('contract.proposeExtra')}
+                            </Button>
+                            <Link to={`/dashboard/workspace?contract=${reviewing.contract?.id || ''}`}>
+                              <Button variant="primary">
+                                <ListChecks size={13} /> {t('apps.assignTasks')}
+                              </Button>
+                            </Link>
+                          </>
                         )}
                       </div>
                     </div>
@@ -671,7 +1060,28 @@ const BrandApplications: React.FC = () => {
         />
       )}
       {contractApp && (
-        <ContractManager applicationId={contractApp.id} isBrand application={contractApp} onClose={() => setContractApp(null)} />
+        <ContractManager
+          applicationId={contractApp.id}
+          isBrand
+          application={contractApp}
+          contractId={contractView}
+          onClose={() => {
+            setContractApp(null);
+            setContractView(undefined);
+          }}
+          onEdit={() => {
+            setPaymentApp(contractApp);
+            setContractApp(null);
+          }}
+          onProposeExtra={() => {
+            setExtraApp(contractApp);
+            setContractApp(null);
+          }}
+          onChanged={load}
+        />
+      )}
+      {extraApp && (
+        <ExtraWorkModal app={extraApp} onClose={() => setExtraApp(null)} onSaved={load} />
       )}
     </PageShell>
   );

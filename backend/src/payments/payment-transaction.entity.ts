@@ -26,6 +26,16 @@ export class PaymentTransaction {
   @Column({ nullable: true })
   provider_reference: string;
 
+  /** Batch payments: the parent carries `is_batch`; every child points at the parent's tx_ref. */
+  @Column({ type: 'boolean', default: false })
+  is_batch: boolean;
+
+  @Column({ type: 'varchar', nullable: true })
+  batch_ref: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  note: string | null;
+
   @Column({ type: 'text', nullable: true })
   provider_response: string; // JSON response from provider
 
