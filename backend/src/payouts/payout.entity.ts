@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { User } from '../users/user.entity';
 import { Campaign } from '../campaigns/campaign.entity';
 
@@ -20,7 +20,9 @@ export class Payout {
 
   @Column({ type: 'varchar', default: 'pending' }) // pending, approved, paid
   status: string;
-
+  /** Provider reference. Unique so a webhook and a browser callback racing
+   *  each other cannot both create a payout for the same payment. */
+  @Index({ unique: true, where: '"tx_ref" IS NOT NULL' })
   @Column({ type: 'varchar', nullable: true })
   tx_ref: string;
 

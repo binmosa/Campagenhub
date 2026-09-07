@@ -28,17 +28,7 @@ export class PayoutAccountsController {
   }
 
   @Get('user/:userId/status')
-  async getUserBankStatus(@Param('userId') userId: string) {
-    const account = await this.svc.getMine(userId);
-    const hasSavedBank = !!(account?.account_number && account?.bank_name && account?.country);
-    const hasVerifiedBank = !!(account?.is_verified && hasSavedBank);
-    const hasMobileMoney = !!(account?.account_type === 'mobile_money' && account?.mobile_number);
-    return {
-      has_bank: hasSavedBank || hasMobileMoney,
-      account_type: hasMobileMoney ? 'mobile_money' : hasSavedBank ? 'bank' : null,
-      bank_verified: hasVerifiedBank,
-      bank_name: account?.bank_name || null,
-      account_name: account?.account_name || null,
-    };
+  async getUserBankStatus(@Request() req: any, @Param('userId') userId: string) {
+    return this.svc.statusFor(req.user, userId);
   }
 }

@@ -21,21 +21,36 @@ export class SettingsService implements OnModuleInit {
 
   async onModuleInit() {
     // Seed default settings
+    /*
+     * Defaults a public launch can stand behind.
+     *
+     * These used to seed a customer ticker reading "Adidas, Nike, Apple,
+     * Google, Microsoft", invented platform figures, and mock testimonials —
+     * all live on a fresh deploy, all untrue. Nothing here claims a customer,
+     * a number or a quote the platform cannot evidence: the ticker starts
+     * empty, statistics read from the real tables, and the mock content
+     * switches are off. An admin can still turn any of them on from Site
+     * control once there is something real to show.
+     */
     const defaults = [
       { key: 'ticker_enabled', value: 'true' },
-      { key: 'ticker_text', value: '⚡ Adidas, ⚡ Nike, ⚡ Apple, ⚡ Google, ⚡ Microsoft' },
+      { key: 'ticker_text', value: '' },
       { key: 'notifications_enabled', value: 'true' },
-      { key: 'notifications_mock_enabled', value: 'true' },
-      { key: 'stats_use_real_data', value: 'false' },
+      { key: 'notifications_mock_enabled', value: 'false' },
+      { key: 'stats_use_real_data', value: 'true' },
       { key: 'for_brands_enabled', value: 'true' },
       { key: 'for_creators_enabled', value: 'true' },
       { key: 'testimonials_enabled', value: 'true' },
-      { key: 'testimonials_mock_enabled', value: 'true' },
+      { key: 'testimonials_mock_enabled', value: 'false' },
       { key: 'faq_enabled', value: 'true' },
       { key: 'contact_enabled', value: 'true' },
       { key: 'hero_title', value: '' },
       { key: 'hero_subtitle', value: '' },
       { key: 'about_text', value: '' },
+      { key: 'contact_email', value: '' },
+      { key: 'contact_phone', value: '' },
+      { key: 'contact_loc', value: '' },
+      { key: 'showcase_demo_enabled', value: 'false' },
     ];
 
     for (const setting of defaults) {

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Contract } from './contract.entity';
@@ -7,9 +7,34 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { Invitation } from '../invitations/invitation.entity';
 import { BrandTeam } from '../invitations/brand-team.entity';
 import { toPublicUser } from '../users/public-user';
+
+/**
+ * A contract row carries the whole application graph — creator and brand as
+ * raw User entities, i.e. password hashes and KYC blobs. These two helpers
+ * are what any contract or invitation leaving this service goes through.
+ */
+const publicContract = (c: any) =>
+  !c
+    ? c
+    : {
+        ...c,
+        application: c.application
+          ? {
+              ...c.application,
+              creator: toPublicUser(c.application.creator),
+              campaign: c.application.campaign
+                ? { ...c.application.campaign, brand: toPublicUser(c.application.campaign.brand) }
+                : c.application.campaign,
+            }
+          : c.application,
+      };
+
+const publicInvitation = (inv: any) =>
+  !inv ? inv : { ...inv, sender: toPublicUser(inv.sender), receiver: toPublicUser(inv.receiver), brand: toPublicUser(inv.brand) };
 import { Task } from '../tasks/task.entity';
 import { LessThan } from 'typeorm';
 import { amendmentText, buildAddendum, buildAgreement } from './agreement';
+import { assignedCampaignIds, engagementFor, isManager, requireManagerPermission } from '../managers/manager-access';
 
 /** Human name for the other party of a contract: company, creator or manager name, else the email prefix. */
 const displayName = (u: any): string =>
@@ -57,7 +82,10 @@ export class ContractsService implements OnModuleInit {
       if (!application) continue;
       const brandId = application.campaign?.brand?.id;
       const creatorId = application.creator?.id;
-      if (brandId && creatorId) {
+      // Only the main agreement ending takes someone off the brand's team.
+      // An extra-work addendum expiring used to do it too, quietly removing
+      // a creator whose main contract was still running.
+      if (contract.kind === 'main' && brandId && creatorId) {
         const row = await this.teamRepo.findOne({ where: { brand: { id: brandId }, member: { id: creatorId }, is_active: true } });
         if (row) {
           row.is_active = false;
@@ -65,7 +93,10 @@ export class ContractsService implements OnModuleInit {
         }
       }
       const title = application.campaign?.title || 'campaign';
-      const msg = `The contract for "${title}" reached its end date (${contract.ends_at}) and has ended. Payments already released are untouched.`;
+      const msg =
+        contract.kind === 'main'
+          ? `The contract for "${title}" reached its end date (${contract.ends_at}) and has ended. Payments already released are untouched.`
+          : `The extra work on "${title}" reached its end date (${contract.ends_at}) and has ended. The main agreement is unaffected.`;
       if (creatorId) await this.notify(creatorId, 'CONTRACT_ENDED', msg, contract.id);
       if (brandId) await this.notify(brandId, 'CONTRACT_ENDED', msg, contract.id);
     }
@@ -193,7 +224,7 @@ export class ContractsService implements OnModuleInit {
   /* ── Offer → accept / decline / counter → lock-in ───────────────── */
 
   private static readonly FREQUENCIES = ['one_time', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly'];
-  private static readonly APP_RELATIONS = ['creator', 'creator.creatorProfile', 'campaign', 'campaign.brand', 'campaign.brand.brandProfile'];
+  private static readonly APP_RELATIONS = ['creator', 'creator.creatorProfile', 'campaign', 'campaign.brand', 'campaign.brand.brandProfile', 'campaign.created_by'];
 
   /** The signed (or pending) collaboration agreement — never an addendum. */
   private mainContract(applicationId: string): Promise<Contract | null> {
@@ -275,6 +306,48 @@ export class ContractsService implements OnModuleInit {
     if (application.campaign?.brand?.id !== brandId) throw new BadRequestException('Only the brand that posted the brief can do this.');
   }
 
+  /**
+   * Which brand this request acts for on a given application. A brand acts
+   * for itself; an account manager acts only for a brand that engaged them,
+   * and only on a campaign inside that engagement.
+   */
+  async actingBrandFor(user: any, applicationId: string): Promise<string> {
+    if (!isManager(user)) return user.brandId || user.userId;
+    const application = await this.loadApplication(applicationId);
+    const brandId = application.campaign?.brand?.id;
+    if (!brandId) throw new NotFoundException('Campaign not found');
+    const engagement = engagementFor(user, brandId);
+    requireManagerPermission(engagement, 'can_manage_applications', 'review applicants and send contracts');
+    const managed = assignedCampaignIds(engagement).includes(application.campaign.id) || (application.campaign as any).created_by?.id === user.userId;
+    if (!managed) throw new ForbiddenException('This campaign is not part of your engagement.');
+    return brandId;
+  }
+
+  /**
+   * Nobody may commit more than the campaign's own budget. Everything signed
+   * or waiting for signature on the brief counts, extra work included.
+   */
+  private async assertWithinCampaignBudget(application: Application, amount: number, excludeContractId?: string) {
+    const campaign: any = application.campaign;
+    const budget = Number(campaign?.budget) || 0;
+    if (!budget) return;
+    const rows = await this.contractsRepo
+      .createQueryBuilder('c')
+      .innerJoin('c.application', 'a')
+      .innerJoin('a.campaign', 'camp')
+      .where('camp.id = :cid', { cid: campaign.id })
+      .andWhere('c.status IN (:...open)', { open: ['pending_signature', 'countered', 'active', 'approved'] })
+      .getMany();
+    const committed = rows.filter((r) => r.id !== excludeContractId).reduce((sum, r) => sum + (Number(r.payment_amount) || 0), 0);
+    const total = Math.round((committed + amount) * 100) / 100;
+    if (total > budget + 0.005) {
+      const cur = campaign.currency || 'USD';
+      throw new BadRequestException(
+        `This campaign's budget is ${cur} ${budget.toLocaleString('en-US')} and ${cur} ${committed.toLocaleString('en-US')} is already committed. Raise the campaign budget or lower this amount.`,
+      );
+    }
+  }
+
   private pushHistory(contract: Contract, entry: NonNullable<Contract['history']>[number]) {
     contract.history = [...(contract.history || []), entry];
   }
@@ -313,6 +386,7 @@ export class ContractsService implements OnModuleInit {
       throw new BadRequestException('This agreement is signed and locked. To ask for more work, propose extra work — the creator accepts or declines it separately.');
     }
     const t = this.validateTerms(d);
+    await this.assertWithinCampaignBudget(application, t.amount, existing?.id);
 
     application.payment_amount = t.amount;
     application.currency = t.currency;
@@ -539,6 +613,7 @@ export class ContractsService implements OnModuleInit {
     }
 
     // accept the counter: money moves to the creator's numbers, the text gets an amendment, then lock in
+    await this.assertWithinCampaignBudget(application, c.payment_amount, contract.id);
     contract.payment_amount = c.payment_amount;
     contract.currency = c.currency;
     contract.payment_frequency = c.payment_frequency;
@@ -636,6 +711,7 @@ export class ContractsService implements OnModuleInit {
     const title = String(d.title || '').trim();
     if (!title) throw new BadRequestException('Give the extra work a title.');
     const t = this.validateTerms(d);
+    await this.assertWithinCampaignBudget(application, t.amount);
     const tasks = this.cleanTemplates(d.tasks);
     const contract = this.contractsRepo.create({
       application: { id: applicationId } as any,
@@ -695,6 +771,7 @@ export class ContractsService implements OnModuleInit {
     const full = await this.loadApplication(application.id);
     if (full.campaign?.brand?.id !== d.brandId) throw new BadRequestException('This campaign belongs to another brand.');
     const t = this.validateTerms({ payment_amount: d.payment_amount, currency: d.currency, payment_frequency: d.payment_frequency, payment_day: d.payment_day, ends_at: d.ends_at });
+    await this.assertWithinCampaignBudget(full, t.amount, existing?.id);
 
     full.payment_amount = t.amount;
     full.currency = t.currency;
@@ -783,7 +860,8 @@ export class ContractsService implements OnModuleInit {
          `The collaboration contract for "${contract.application.campaign.title}" has been ended/terminated.`,
          contract.id
        );
-       return contract;
+       // Both parties' User rows are loaded here; strip them before returning.
+       return publicContract(contract);
     }
 
     // Checking if docId is an Invitation (BrandTeam contract)
@@ -821,7 +899,7 @@ export class ContractsService implements OnModuleInit {
          `Your collaboration agreement has been ended/terminated.`,
          inv.id
        );
-       return inv;
+       return publicInvitation(inv);
     }
 
     throw new BadRequestException('Contract not found');

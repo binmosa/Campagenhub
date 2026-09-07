@@ -34,7 +34,7 @@ import Footer from './sections/Footer';
  *   → Faq → FinalCta → Contact → Footer
  */
 const LandingPage: React.FC = () => {
-  const { settings, reviews, activeCampaigns, campaignsLoading, refetchReviews } = useLandingData();
+  const { settings, reviews, activeCampaigns, campaignsLoading, platformStats, refetchReviews } = useLandingData();
   const market = useMarket();
 
   return (
@@ -54,10 +54,10 @@ const LandingPage: React.FC = () => {
         </section>
         <Audiences />
         <ConsoleShowcase />
-        <Stats settings={settings} />
+        <Stats settings={settings} stats={platformStats} />
         <HowItWorks settings={settings} />
         <AiStudio settings={settings} />
-        <RealResults />
+        <RealResults settings={settings} />
         <Testimonials
           settings={settings}
           reviews={reviews}

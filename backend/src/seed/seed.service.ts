@@ -174,7 +174,29 @@ const SEED_ACCOUNTS: SeedAccount[] = [
       description: 'Demo brand running creator campaigns across platforms.',
     },
   },
-  { email: 'manager@test.com', role: UserRole.MANAGER, profile: 'manager' },
+  {
+    email: 'manager@test.com', role: UserRole.MANAGER, profile: 'manager',
+    profileData: {
+      first_name: 'Sara', last_name: 'Tesfaye', full_name: 'Sara Tesfaye',
+      bio: 'I run creator programmes for brands that would rather not build the team in house.',
+      location: 'Addis Ababa, Ethiopia', country: 'Ethiopia', country_code: 'ET', state: 'Addis Ababa', city: 'Addis Ababa',
+      specialty: 'Consumer Tech, Food', experience_years: 6,
+      services: 'Campaign strategy, Creator sourcing, Contract negotiation',
+      languages: 'Amharic, English',
+    },
+  },
+  // A second manager with no brand behind them — the locked state (no talent
+  // directory, no recruiting) is only reachable with an unengaged account.
+  {
+    email: 'manager2@test.com', role: UserRole.MANAGER, profile: 'manager',
+    profileData: {
+      first_name: 'Dawit', last_name: 'Bekele', full_name: 'Dawit Bekele',
+      bio: 'New to the platform and looking for a first brand to manage campaigns for.',
+      location: 'Addis Ababa, Ethiopia', country: 'Ethiopia', country_code: 'ET', state: 'Addis Ababa', city: 'Addis Ababa',
+      specialty: 'Fashion', experience_years: 2,
+      services: 'Creator sourcing', languages: 'Amharic, English',
+    },
+  },
   { email: 'superadmin@test.com', role: UserRole.ADMIN, permissions: SUPER_ADMIN_PERMISSIONS },
 ];
 
@@ -255,7 +277,12 @@ export class SeedService implements OnModuleInit {
       } else if (account.profile === 'manager') {
         const exists = await this.managerProfiles.findOne({ where: { user: { id: user.id } }, relations: ['user'] });
         if (!exists) {
-          await this.managerProfiles.save(this.managerProfiles.create({ user: { id: user.id } as any }));
+          await this.managerProfiles.save(
+            this.managerProfiles.create({ user: { id: user.id }, ...(account.profileData || {}) } as any),
+          );
+        } else if (account.profileData && !exists.full_name) {
+          Object.assign(exists, account.profileData);
+          await this.managerProfiles.save(exists);
         }
       }
     }

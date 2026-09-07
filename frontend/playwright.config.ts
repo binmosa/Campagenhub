@@ -52,6 +52,20 @@ export default defineConfig({
         CORS_ORIGINS: `http://localhost:${WEB_PORT},http://127.0.0.1:${WEB_PORT}`,
         ENABLE_TELEGRAM_POLLING: 'false',
         ENABLE_SEED: 'false',
+        // The suite signs in for every test and hammers the API far harder
+        // than a person would. Production ceilings stay as they are; this
+        // run raises them so throttling is not what the tests measure.
+        THROTTLE_SHORT: '2000',
+        THROTTLE_MEDIUM: '20000',
+        THROTTLE_LONG: '100000',
+        THROTTLE_LOGIN: '2000',
+        THROTTLE_LOGIN_QUARTER: '20000',
+        THROTTLE_REGISTER: '2000',
+        THROTTLE_REGISTER_HOUR: '20000',
+        THROTTLE_FORGOT: '2000',
+        THROTTLE_FORGOT_HOUR: '20000',
+        THROTTLE_RESET: '2000',
+        THROTTLE_RESET_HOUR: '20000',
       },
     },
     {

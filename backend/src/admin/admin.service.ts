@@ -1,7 +1,10 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { User } from '../users/user.entity';
+import { In, Repository } from 'typeorm';
+import { User, UserRole } from '../users/user.entity';
+import { toPublicUser } from '../users/public-user';
+import { Page, asPage, likeTerm, readPageParams } from '../core/pagination';
+import { normalizeCampaignStatus } from '../campaigns/campaigns.service';
 import { Campaign } from '../campaigns/campaign.entity';
 import { Application } from '../applications/application.entity';
 import { Payout } from '../payouts/payout.entity';
@@ -14,6 +17,33 @@ import { PaymentService } from '../payments/payment.service';
 import { AuditLog } from './audit-log.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as bcrypt from 'bcrypt';
+
+/** Roles the app ships with; anything else is a brand's custom role. */
+const STAFF_ROLES = ['admin', 'support', 'finance'];
+const KNOWN_ROLES = ['creator', 'brand', 'manager', ...STAFF_ROLES];
+
+/** Every spelling that means this status, so a filter also finds legacy rows. */
+const campaignStatusAliases = (status: string): string[] => {
+  const wanted = normalizeCampaignStatus(status) || status;
+  const aliases = new Set<string>([wanted]);
+  for (const legacy of ['inactive', 'open', 'completed', 'archived', 'cancelled']) {
+    if (normalizeCampaignStatus(legacy) === wanted) aliases.add(legacy);
+  }
+  return [...aliases];
+};
+
+/**
+ * A role has to be one the app actually knows — RolesGuard compares against
+ * these strings, so a typo'd or invented role silently locks an account out
+ * of everything (or, worse, out of the checks that name it).
+ */
+const assertKnownRole = (role?: string): string => {
+  const normalized = String(role || '').toLowerCase().trim();
+  if (!Object.values(UserRole).includes(normalized as UserRole)) {
+    throw new BadRequestException(`Unknown role "${role}". Use one of: ${Object.values(UserRole).join(', ')}.`);
+  }
+  return normalized;
+};
 
 @Injectable()
 export class AdminService {
@@ -44,12 +74,35 @@ export class AdminService {
    * no client should ever hold: the password hash, KYC document blobs,
    * Telegram identifiers/tokens and the referral code.
    */
-  async getAllUsers(): Promise<any[]> {
-    const users = await this.usersRepository.find({
-      relations: ['creatorProfile', 'brandProfile', 'managerProfile'],
-      order: { created_at: 'DESC' },
-    });
-    return users.map((u) => {
+  async getAllUsers(query: any = {}): Promise<Page<any> & { stats: Record<string, number> }> {
+    const { limit, offset, search } = readPageParams(query);
+    const status = String(query?.status || 'all').toLowerCase();
+    const role = String(query?.role || 'all').toLowerCase();
+
+    const qb = this.usersRepository
+      .createQueryBuilder('u')
+      .leftJoinAndSelect('u.creatorProfile', 'cp')
+      .leftJoinAndSelect('u.brandProfile', 'bp')
+      .leftJoinAndSelect('u.managerProfile', 'mp');
+
+    if (search) {
+      qb.andWhere(
+        '(u.email ILIKE :q OR cp.full_name ILIKE :q OR cp.username ILIKE :q OR bp.company_name ILIKE :q OR mp.full_name ILIKE :q OR u.role ILIKE :q)',
+        { q: likeTerm(search) },
+      );
+    }
+    if (status === 'active') qb.andWhere("u.account_status = 'active' AND u.is_banned = false");
+    if (status === 'pending') qb.andWhere("u.account_status = 'pending_verification'");
+    if (status === 'banned') qb.andWhere('u.is_banned = true');
+    if (status === 'staff') qb.andWhere('LOWER(u.role) IN (:...staff)', { staff: STAFF_ROLES });
+    if (role !== 'all') {
+      if (role === 'custom') qb.andWhere('LOWER(u.role) NOT IN (:...known)', { known: KNOWN_ROLES });
+      else qb.andWhere('LOWER(u.role) = :role', { role });
+    }
+
+    const [rows, total] = await qb.orderBy('u.created_at', 'DESC').addOrderBy('u.id', 'ASC').skip(offset).take(limit).getManyAndCount();
+
+    const items = rows.map((u) => {
       const {
         password_hash,
         identity_document,
@@ -63,6 +116,45 @@ export class AdminService {
       } = u as any;
       return { ...safe, has_kyc_submission: !!(kyc_video_url || kyc_id_front || identity_document), telegram_linked: !!telegram_chat_id };
     });
+
+    return { ...asPage(items, total, limit, offset), stats: await this.userStats() };
+  }
+
+  /**
+   * Directory tallies. These feed the KPI tiles, which have to describe the
+   * whole table and not just the page in front of you — so they are counted
+   * in SQL rather than derived from the loaded array.
+   */
+  private async userStats(): Promise<Record<string, number>> {
+    const week = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const row = await this.usersRepository
+      .createQueryBuilder('u')
+      .select('COUNT(*)', 'all')
+      .addSelect("COUNT(*) FILTER (WHERE u.account_status = 'active' AND u.is_banned = false)", 'active')
+      .addSelect("COUNT(*) FILTER (WHERE u.account_status = 'pending_verification')", 'pending')
+      .addSelect('COUNT(*) FILTER (WHERE u.is_banned = true)', 'banned')
+      .addSelect(`COUNT(*) FILTER (WHERE LOWER(u.role) IN ('${STAFF_ROLES.join("','")}'))`, 'staff')
+      .addSelect('COUNT(*) FILTER (WHERE u.created_at >= :week)', 'new7')
+      .setParameter('week', week)
+      .getRawOne();
+    const byRole = await this.usersRepository
+      .createQueryBuilder('u')
+      .select('LOWER(u.role)', 'role')
+      .addSelect('COUNT(*)', 'n')
+      .groupBy('LOWER(u.role)')
+      .getRawMany();
+    const roles = Object.fromEntries(byRole.map((r: any) => [`role_${r.role}`, Number(r.n)]));
+    const custom = byRole.filter((r: any) => !KNOWN_ROLES.includes(r.role)).reduce((sum: number, r: any) => sum + Number(r.n), 0);
+    return {
+      all: Number(row?.all || 0),
+      active: Number(row?.active || 0),
+      pending: Number(row?.pending || 0),
+      banned: Number(row?.banned || 0),
+      staff: Number(row?.staff || 0),
+      new7: Number(row?.new7 || 0),
+      custom,
+      ...roles,
+    };
   }
 
   async getPendingUsers(): Promise<User[]> {
@@ -159,39 +251,242 @@ export class AdminService {
     return this.usersRepository.save(user);
   }
 
-  async getAllCampaigns(): Promise<Campaign[]> {
-    return this.campaignsRepository.find({
-      relations: ['brand', 'brand.brandProfile'],
-      order: { created_at: 'DESC' },
-    });
-  }
+  /* Staff pages read other people's rows, so every User that rides along is
+     reduced to its public shape first — the entity carries password_hash,
+     KYC blobs and referral codes. */
+  async getAllCampaigns(query: any = {}): Promise<Page<any> & { stats: any }> {
+    const { limit, offset, search } = readPageParams(query, 24);
+    const status = String(query?.status || 'all').toLowerCase();
+    const platform = String(query?.platform || 'all');
+    const sort = String(query?.sort || 'newest');
 
-  async getAllApplications(): Promise<Application[]> {
-    return this.applicationsRepository.find({
-      relations: ['campaign', 'campaign.brand', 'creator', 'creator.creatorProfile'],
-      order: { created_at: 'DESC' },
-    });
-  }
+    const qb = this.campaignsRepository
+      .createQueryBuilder('c')
+      .leftJoinAndSelect('c.brand', 'b')
+      .leftJoinAndSelect('b.brandProfile', 'bp');
 
-  async getAllPayouts(): Promise<any[]> {
-    // Reconcile missed webhook/verify cases so completed transactions appear for approval.
-    await this.paymentService.reconcileMissingPayoutRequests();
+    if (search) {
+      qb.andWhere('(c.title ILIKE :q OR c.description ILIKE :q OR b.email ILIKE :q OR bp.company_name ILIKE :q)', { q: likeTerm(search) });
+    }
+    if (status !== 'all') qb.andWhere('LOWER(c.status) IN (:...statuses)', { statuses: campaignStatusAliases(status) });
+    if (platform !== 'all') qb.andWhere('c.platform ILIKE :platform', { platform: likeTerm(platform) });
 
-    const payouts = await this.payoutsRepository.find({
-      relations: ['creator', 'creator.creatorProfile', 'campaign'],
-      order: { created_at: 'DESC' },
-    });
+    if (sort === 'budget') {
+      qb.addSelect('COALESCE(c.budget_usd, c.budget)', 'sort_budget').orderBy('sort_budget', 'DESC', 'NULLS LAST');
+    } else if (sort === 'applicants') {
+      qb.addSelect('(SELECT COUNT(*) FROM applications app WHERE app.campaign_id = c.id)', 'sort_apps').orderBy('sort_apps', 'DESC');
+    } else {
+      qb.orderBy('c.created_at', 'DESC');
+    }
+    qb.addOrderBy('c.id', 'ASC');
 
-    // Stitch PayoutAccount statically into the response
-    const enrichedPayouts = await Promise.all(payouts.map(async (p) => {
-      let payoutAccount = null;
-      if (p.creator?.id) {
-        payoutAccount = await this.payoutAccountRepo.findOne({ where: { user: { id: p.creator.id } } });
+    const [rows, total] = await qb.skip(offset).take(limit).getManyAndCount();
+
+    /*
+     * The applicant funnel per brief. This screen used to fetch every
+     * application in the database to count these in the browser; now one
+     * grouped query covers just the campaigns on this page.
+     */
+    const ids = rows.map((c) => c.id);
+    const funnel = new Map<string, { n: number; pending: number; accepted: number }>();
+    if (ids.length) {
+      const counts = await this.applicationsRepository
+        .createQueryBuilder('a')
+        .select('a.campaign_id', 'campaignId')
+        .addSelect('COUNT(*)', 'n')
+        .addSelect("COUNT(*) FILTER (WHERE LOWER(a.status) IN ('pending','shortlisted'))", 'pending')
+        .addSelect("COUNT(*) FILTER (WHERE LOWER(a.status) = 'accepted')", 'accepted')
+        .where('a.campaign_id IN (:...ids)', { ids })
+        .groupBy('a.campaign_id')
+        .getRawMany();
+      for (const r of counts) {
+        funnel.set(r.campaignId, { n: Number(r.n), pending: Number(r.pending), accepted: Number(r.accepted) });
       }
-      return { ...p, payoutAccount };
+    }
+
+    const items = rows.map((c) => {
+      const f = funnel.get(c.id) || { n: 0, pending: 0, accepted: 0 };
+      return { ...c, brand: toPublicUser(c.brand), applicants_count: f.n, pending_count: f.pending, accepted_count: f.accepted };
+    });
+
+    return { ...asPage(items, total, limit, offset), stats: await this.campaignStats() };
+  }
+
+  private async campaignStats(): Promise<any> {
+    const byStatus = await this.campaignsRepository
+      .createQueryBuilder('c')
+      .select('LOWER(c.status)', 'status')
+      .addSelect('COUNT(*)', 'n')
+      .groupBy('LOWER(c.status)')
+      .getRawMany();
+    const liveAliases = campaignStatusAliases('active');
+    const totals = await this.campaignsRepository
+      .createQueryBuilder('c')
+      .select('COALESCE(SUM(COALESCE(c.budget_usd, 0)) FILTER (WHERE LOWER(c.status) IN (:...live)), 0)', 'liveUsd')
+      .addSelect('COUNT(DISTINCT c.brand_id)', 'brands')
+      .addSelect('COUNT(*)', 'all')
+      .setParameter('live', liveAliases)
+      .getRawOne();
+
+    // Rows still carry legacy spellings ("inactive", "completed"); the tabs
+    // count under the names the UI shows, so the tallies normalize too.
+    const by: Record<string, number> = {};
+    for (const r of byStatus) {
+      const key = normalizeCampaignStatus(r.status) || r.status;
+      by[key] = (by[key] || 0) + Number(r.n);
+    }
+    return {
+      by,
+      liveUsd: Number(totals?.liveUsd || 0),
+      brands: Number(totals?.brands || 0),
+      all: Number(totals?.all || 0),
+    };
+  }
+
+  async getAllApplications(query: any = {}): Promise<Page<any> & { stats: any }> {
+    const { limit, offset, search } = readPageParams(query);
+    const status = String(query?.status || 'all').toLowerCase();
+    const campaignId = String(query?.campaignId || '');
+
+    const qb = this.applicationsRepository
+      .createQueryBuilder('a')
+      .leftJoinAndSelect('a.campaign', 'c')
+      .leftJoinAndSelect('c.brand', 'b')
+      .leftJoinAndSelect('b.brandProfile', 'bp')
+      .leftJoinAndSelect('a.creator', 'cr')
+      .leftJoinAndSelect('cr.creatorProfile', 'cp');
+
+    if (search) {
+      qb.andWhere(
+        '(cr.email ILIKE :q OR cp.full_name ILIKE :q OR cp.username ILIKE :q OR c.title ILIKE :q OR bp.company_name ILIKE :q OR a.pitch ILIKE :q)',
+        { q: likeTerm(search) },
+      );
+    }
+    if (status !== 'all') {
+      const aliases = status === 'accepted' ? ['accepted', 'approved'] : [status];
+      qb.andWhere('LOWER(a.status) IN (:...statuses)', { statuses: aliases });
+    }
+    if (campaignId) qb.andWhere('c.id = :campaignId', { campaignId });
+
+    const [rows, total] = await qb.orderBy('a.created_at', 'DESC').addOrderBy('a.id', 'ASC').skip(offset).take(limit).getManyAndCount();
+
+    const items = rows.map((a) => ({
+      ...a,
+      creator: toPublicUser(a.creator),
+      campaign: a.campaign ? { ...a.campaign, brand: toPublicUser((a.campaign as any).brand) } : a.campaign,
     }));
 
-    return enrichedPayouts;
+    return { ...asPage(items, total, limit, offset), stats: await this.applicationStats() };
+  }
+
+  private async applicationStats(): Promise<any> {
+    const byStatus = await this.applicationsRepository
+      .createQueryBuilder('a')
+      .select('LOWER(a.status)', 'status')
+      .addSelect('COUNT(*)', 'n')
+      .groupBy('LOWER(a.status)')
+      .getRawMany();
+    const totals = await this.applicationsRepository
+      .createQueryBuilder('a')
+      .select('COUNT(*)', 'all')
+      .addSelect('COUNT(DISTINCT a.campaign_id)', 'campaigns')
+      .getRawOne();
+    const by: Record<string, number> = {};
+    for (const r of byStatus) {
+      const key = r.status === 'approved' ? 'accepted' : r.status;
+      by[key] = (by[key] || 0) + Number(r.n);
+    }
+    const decided = (by.accepted || 0) + (by.rejected || 0);
+    return {
+      by,
+      all: Number(totals?.all || 0),
+      campaigns: Number(totals?.campaigns || 0),
+      rate: decided ? Math.round(((by.accepted || 0) / decided) * 100) : 0,
+    };
+  }
+
+  /** True while a reconciliation sweep is already running, so opening the
+   *  desk twice does not start a second one. */
+  private reconciling = false;
+
+  async getAllPayouts(query: any = {}): Promise<Page<any> & { stats: any }> {
+    const { limit, offset, search } = readPageParams(query);
+
+    /*
+     * Reconcile missed webhook/verify cases so completed transactions turn
+     * up for approval. This calls Flutterwave for every in-flight payment,
+     * so it is kicked off in the background rather than awaited: the desk
+     * used to sit on "Searching…" for as long as those round-trips took,
+     * and anything it recovers appears on the next refresh anyway.
+     */
+    if (offset === 0 && !this.reconciling) {
+      this.reconciling = true;
+      this.paymentService
+        .reconcileMissingPayoutRequests()
+        .catch((e) => console.error('[Admin] Payout reconciliation failed:', e?.message))
+        .finally(() => {
+          this.reconciling = false;
+        });
+    }
+
+    const status = String(query?.status || 'all').toLowerCase();
+
+    // A payee is a creator or an account manager, so both profiles load.
+    const qb = this.payoutsRepository
+      .createQueryBuilder('p')
+      .leftJoinAndSelect('p.creator', 'u')
+      .leftJoinAndSelect('u.creatorProfile', 'cp')
+      .leftJoinAndSelect('u.managerProfile', 'mp')
+      .leftJoinAndSelect('p.campaign', 'c');
+
+    if (search) {
+      qb.andWhere(
+        '(u.email ILIKE :q OR cp.full_name ILIKE :q OR mp.full_name ILIKE :q OR c.title ILIKE :q OR p.tx_ref ILIKE :q OR p.status ILIKE :q)',
+        { q: likeTerm(search) },
+      );
+    }
+    if (status !== 'all') qb.andWhere('LOWER(p.status) = :status', { status });
+
+    const [rows, total] = await qb.orderBy('p.created_at', 'DESC').addOrderBy('p.id', 'ASC').skip(offset).take(limit).getManyAndCount();
+
+    /*
+     * Payout accounts for this page in one query. Fetching them per row was
+     * an N+1 that scaled with the whole queue.
+     */
+    const payeeIds = [...new Set(rows.map((p) => p.creator?.id).filter(Boolean))] as string[];
+    const accounts = payeeIds.length
+      ? await this.payoutAccountRepo.find({ where: { user: { id: In(payeeIds) } }, relations: ['user'] })
+      : [];
+    const byUser = new Map(accounts.map((a: any) => [a.user?.id, a]));
+
+    // The payee is reduced to its public shape — the raw User row carries
+    // password_hash and KYC blobs, which no client may ever see.
+    const items = rows.map((p) => ({
+      ...p,
+      creator: toPublicUser(p.creator),
+      payoutAccount: byUser.get(p.creator?.id) || null,
+    }));
+
+    return { ...asPage(items, total, limit, offset), stats: await this.payoutStats() };
+  }
+
+  private async payoutStats(): Promise<any> {
+    const byStatus = await this.payoutsRepository
+      .createQueryBuilder('p')
+      .select('LOWER(p.status)', 'status')
+      .addSelect('COUNT(*)', 'n')
+      .addSelect('COALESCE(SUM(p.amount), 0)', 'amount')
+      .groupBy('LOWER(p.status)')
+      .getRawMany();
+    const by: Record<string, number> = {};
+    let paidVolume = 0;
+    let all = 0;
+    for (const r of byStatus) {
+      by[r.status] = Number(r.n);
+      all += Number(r.n);
+      if (r.status === 'paid') paidVolume = Number(r.amount);
+    }
+    return { by, all, paidVolume };
   }
 
   async toggleCampaignStatus(campaignId: string, status: string): Promise<Campaign> {
@@ -201,21 +496,39 @@ export class AdminService {
     return this.campaignsRepository.save(campaign);
   }
 
-  private async computeCampaignEscrow(campaignId: string): Promise<{ deposited: number; committed: number; available: number }> {
+  /**
+   * What a campaign holds and what is already spoken for.
+   *
+   * Two things this has to get right, both of which used to be wrong:
+   *  - `excludePayoutId` keeps the payout being decided out of `committed`.
+   *    Without it every payout counts against itself, so releasing $500 on
+   *    a campaign funded with exactly $500 was rejected as "insufficient
+   *    escrow" — the normal case never worked.
+   *  - `paid` stays in `committed` forever. Dropping it once the money left
+   *    made the same funds spendable a second time.
+   *  - a batch parent row carries the total of its children, so counting
+   *    both doubles the deposit.
+   */
+  private async computeCampaignEscrow(
+    campaignId: string,
+    excludePayoutId?: string,
+  ): Promise<{ deposited: number; committed: number; available: number }> {
     const depositedRaw = await this.paymentTransactionRepo
       .createQueryBuilder('tx')
       .select('COALESCE(SUM(tx.amount), 0)', 'total')
       .where('tx.campaign = :campaignId', { campaignId })
       .andWhere('tx.status = :status', { status: 'completed' })
+      .andWhere('(tx.is_batch IS NULL OR tx.is_batch = false)')
       .getRawOne();
     const deposited = Number(depositedRaw?.total || 0);
 
-    const committedRaw = await this.payoutsRepository
+    const committedQb = this.payoutsRepository
       .createQueryBuilder('payout')
       .select('COALESCE(SUM(payout.amount), 0)', 'total')
       .where('payout.campaign = :campaignId', { campaignId })
-      .andWhere('payout.status IN (:...statuses)', { statuses: ['pending', 'approved'] })
-      .getRawOne();
+      .andWhere('payout.status IN (:...statuses)', { statuses: ['pending', 'approved', 'paid'] });
+    if (excludePayoutId) committedQb.andWhere('payout.id != :excludePayoutId', { excludePayoutId });
+    const committedRaw = await committedQb.getRawOne();
     const committed = Number(committedRaw?.total || 0);
 
     return { deposited, committed, available: Math.max(0, deposited - committed) };
@@ -282,7 +595,7 @@ export class AdminService {
     }
 
     if (payout.campaign?.id && ['approved', 'paid'].includes(status)) {
-      const escrow = await this.computeCampaignEscrow(payout.campaign.id);
+      const escrow = await this.computeCampaignEscrow(payout.campaign.id, payout.id);
       if (Number(payout.amount) > escrow.available) {
         // notify admin/finance that brand escrow is insufficient
         const staff = await this.usersRepository.find({ where: [{ role: 'admin' }, { role: 'finance' }] as any, select: ['id', 'email', 'role'] });
@@ -365,7 +678,7 @@ export class AdminService {
 
     // 1. Escrow Budget Check
     if (payout.campaign?.id) {
-      const escrow = await this.computeCampaignEscrow(payout.campaign.id);
+      const escrow = await this.computeCampaignEscrow(payout.campaign.id, payout.id);
       if (Number(payout.amount) > escrow.available) {
         const staff = await this.usersRepository.find({ where: [{ role: 'admin' }, { role: 'finance' }] as any, select: ['id'] });
         await Promise.all(
@@ -407,12 +720,15 @@ export class AdminService {
   }
 
   // ===== Audit Logs =====
-  async getAuditLogs(): Promise<AuditLog[]> {
-    return this.auditLogRepo.find({
+  async getAuditLogs(query: any = {}): Promise<Page<any>> {
+    const { limit, offset } = readPageParams(query, 25, 200);
+    const [rows, total] = await this.auditLogRepo.findAndCount({
       relations: ['user'],
       order: { created_at: 'DESC' },
-      take: 200,
+      skip: offset,
+      take: limit,
     });
+    return asPage(rows.map((l) => ({ ...l, user: toPublicUser(l.user) })), total, limit, offset);
   }
 
   async getStats() {
@@ -445,7 +761,7 @@ export class AdminService {
     if (existing) throw new ConflictException('Email already exists');
 
     const password_hash = await bcrypt.hash(password, 10);
-    const normalizedRole = (role || '').toLowerCase().trim();
+    const normalizedRole = assertKnownRole(role);
     const user = this.usersRepository.create({
       email,
       password_hash,
@@ -460,7 +776,7 @@ export class AdminService {
     const user = await this.usersRepository.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
 
-    if (data.role) user.role = data.role;
+    if (data.role) user.role = assertKnownRole(data.role);
     if (data.email) user.email = data.email;
     if (data.password) {
       user.password_hash = await bcrypt.hash(data.password, 10);

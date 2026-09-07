@@ -1,0 +1,17 @@
+# Serves the built SPA inside the private network. TLS and routing happen
+# at the edge proxy, so this listens on plain :80.
+:80 {
+	root * /srv
+	encode gzip zstd
+
+	# Hashed asset filenames never change contents — cache them hard.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	# index.html must never be cached, or a deploy ships stale asset refs.
+	header /index.html Cache-Control "no-cache"
+
+	# BrowserRouter: unknown paths are app routes, not missing files.
+	try_files {path} /index.html
+	file_server
+}

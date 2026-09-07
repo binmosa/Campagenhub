@@ -2,7 +2,7 @@
  * Seeded role accounts the suite signs in with. The password is the local
  * seed password (SEED_PASSWORD in backend/.env) — override with E2E_PASSWORD.
  */
-export type Role = 'admin' | 'support' | 'finance' | 'brand' | 'creator' | 'creator2' | 'creator3' | 'manager';
+export type Role = 'admin' | 'support' | 'finance' | 'brand' | 'creator' | 'creator2' | 'creator3' | 'manager' | 'manager2';
 
 export const ACCOUNTS: Record<Role, string> = {
   admin: 'superadmin@test.com',
@@ -13,6 +13,7 @@ export const ACCOUNTS: Record<Role, string> = {
   creator2: 'creator2@test.com',
   creator3: 'creator3@test.com',
   manager: 'manager@test.com',
+  manager2: 'manager2@test.com',
 };
 
 /** The role the app stores for the account (creator2 is a creator). */
@@ -25,6 +26,7 @@ export const APP_ROLE: Record<Role, string> = {
   creator2: 'creator',
   creator3: 'creator',
   manager: 'manager',
+  manager2: 'manager',
 };
 
 export const PASSWORD = process.env.E2E_PASSWORD || '12345678';

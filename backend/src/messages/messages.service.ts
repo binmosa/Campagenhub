@@ -5,6 +5,15 @@ import { Message } from './message.entity';
 import { Application } from '../applications/application.entity';
 import { Invitation } from '../invitations/invitation.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { toPublicUser } from '../users/public-user';
+
+/**
+ * A thread carries both parties' User rows. The raw entity holds
+ * password_hash, KYC document blobs and the Telegram link token, so every
+ * message leaving this service is stripped to the public shape first.
+ */
+const publicMessage = (m: any) => (m ? { ...m, sender: toPublicUser(m.sender), receiver: toPublicUser(m.receiver) } : m);
+const publicMessages = (rows: any[]) => rows.map(publicMessage);
 
 @Injectable()
 export class MessagesService {
@@ -38,14 +47,16 @@ export class MessagesService {
         { is_read: true }
       );
 
-      return this.messagesRepo.find({
-        where: [
-          { sender: { id: userId }, receiver: { id: otherUserId } },
-          { sender: { id: otherUserId }, receiver: { id: userId } },
-        ],
-        relations: ['sender', 'receiver'],
-        order: { created_at: 'ASC' },
-      });
+      return publicMessages(
+        await this.messagesRepo.find({
+          where: [
+            { sender: { id: userId }, receiver: { id: otherUserId } },
+            { sender: { id: otherUserId }, receiver: { id: userId } },
+          ],
+          relations: ['sender', 'receiver'],
+          order: { created_at: 'ASC' },
+        }),
+      );
     }
 
     // Check if it's an invitation
@@ -67,14 +78,16 @@ export class MessagesService {
         { is_read: true }
       );
 
-      return this.messagesRepo.find({
-        where: [
-          { sender: { id: userId }, receiver: { id: otherUserId } },
-          { sender: { id: otherUserId }, receiver: { id: userId } },
-        ],
-        relations: ['sender', 'receiver'],
-        order: { created_at: 'ASC' },
-      });
+      return publicMessages(
+        await this.messagesRepo.find({
+          where: [
+            { sender: { id: userId }, receiver: { id: otherUserId } },
+            { sender: { id: otherUserId }, receiver: { id: userId } },
+          ],
+          relations: ['sender', 'receiver'],
+          order: { created_at: 'ASC' },
+        }),
+      );
     }
 
     throw new BadRequestException('Chat context not found');
@@ -174,14 +187,16 @@ export class MessagesService {
       { is_read: true }
     );
 
-    return this.messagesRepo
-      .createQueryBuilder('message')
-      .leftJoinAndSelect('message.sender', 'sender')
-      .leftJoinAndSelect('message.receiver', 'receiver')
-      .where('(message.sender_id = :userId AND message.receiver_id = :otherUserId)', { userId, otherUserId })
-      .orWhere('(message.sender_id = :otherUserId AND message.receiver_id = :userId)', { userId, otherUserId })
-      .orderBy('message.created_at', 'ASC')
-      .getMany();
+    return publicMessages(
+      await this.messagesRepo
+        .createQueryBuilder('message')
+        .leftJoinAndSelect('message.sender', 'sender')
+        .leftJoinAndSelect('message.receiver', 'receiver')
+        .where('(message.sender_id = :userId AND message.receiver_id = :otherUserId)', { userId, otherUserId })
+        .orWhere('(message.sender_id = :otherUserId AND message.receiver_id = :userId)', { userId, otherUserId })
+        .orderBy('message.created_at', 'ASC')
+        .getMany(),
+    );
   }
 
   async sendDirectMessage(senderId: string, receiverId: string, content: string): Promise<Message> {

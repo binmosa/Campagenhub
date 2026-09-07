@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -16,9 +16,12 @@ export class AdminController {
     return this.adminService.getStats();
   }
 
+  /* The back-office lists are paged: ?limit&offset&search plus each
+     screen's own filters. Every response carries `total` and whole-table
+     `stats`, so the KPI tiles stay true while only one page is loaded. */
   @Get('users')
-  async getAllUsers() {
-    return this.adminService.getAllUsers();
+  async getAllUsers(@Query() query: any) {
+    return this.adminService.getAllUsers(query);
   }
 
   @Get('users/pending')
@@ -40,19 +43,19 @@ export class AdminController {
   }
 
   @Get('campaigns')
-  async getAllCampaigns() {
-    return this.adminService.getAllCampaigns();
+  async getAllCampaigns(@Query() query: any) {
+    return this.adminService.getAllCampaigns(query);
   }
 
   @Get('applications')
-  async getAllApplications() {
-    return this.adminService.getAllApplications();
+  async getAllApplications(@Query() query: any) {
+    return this.adminService.getAllApplications(query);
   }
 
   @Get('payouts')
   @Roles(UserRole.ADMIN, UserRole.FINANCE)
-  async getAllPayouts() {
-    return this.adminService.getAllPayouts();
+  async getAllPayouts(@Query() query: any) {
+    return this.adminService.getAllPayouts(query);
   }
 
   @Patch('campaigns/:id/status')
@@ -87,8 +90,8 @@ export class AdminController {
 
   @Get('audit-logs')
   @Roles(UserRole.ADMIN)
-  async getAuditLogs() {
-    return this.adminService.getAuditLogs();
+  async getAuditLogs(@Query() query: any) {
+    return this.adminService.getAuditLogs(query);
   }
 
   // ===== User Management CRUD =====

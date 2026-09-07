@@ -58,20 +58,32 @@ const AdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
+  const [totals, setTotals] = useState<{ users: any; campaigns: any; applications: any; payouts: any }>({
+    users: null,
+    campaigns: null,
+    applications: null,
+    payouts: null,
+  });
+
   const load = () => {
     setError(false);
-    const arr = (r: any) => (Array.isArray(r?.data) ? r.data : []);
+    /* Paged endpoints answer { items, total, stats }; the rest still answer
+       a bare array. The overview needs only the newest rows for its panels
+       and sparklines — the headline numbers come from `stats`, which counts
+       the whole table, so this page no longer downloads four full tables. */
+    const arr = (r: any) => (Array.isArray(r?.data) ? r.data : Array.isArray(r?.data?.items) ? r.data.items : []);
+    const page = { params: { limit: 50 } };
     Promise.all([
       api.get('/auth/me').catch(() => ({ data: null })),
-      api.get('/admin/users'),
-      api.get('/admin/campaigns').catch(() => ({ data: [] })),
-      api.get('/admin/applications').catch(() => ({ data: [] })),
-      api.get('/admin/payouts').catch(() => ({ data: [] })),
+      api.get('/admin/users', page),
+      api.get('/admin/campaigns', page).catch(() => ({ data: [] })),
+      api.get('/admin/applications', page).catch(() => ({ data: [] })),
+      api.get('/admin/payouts', page).catch(() => ({ data: [] })),
       api.get('/admin/users/pending').catch(() => ({ data: [] })),
       api.get('/support/tickets/stats').catch(() => ({ data: {} })),
       api.get('/creators/admin/follower-claims', { params: { status: 'pending' } }).catch(() => ({ data: [] })),
       api.get('/managers/admin/feedback').catch(() => ({ data: [] })),
-      api.get('/admin/audit-logs').catch(() => ({ data: [] })),
+      api.get('/admin/audit-logs', { params: { limit: 25 } }).catch(() => ({ data: [] })),
     ])
       .then(([meRes, u, c, a, p, pu, ts, cl, fb, al]) => {
         setMe(meRes.data);
@@ -79,6 +91,12 @@ const AdminDashboard: React.FC = () => {
         setCampaigns(arr(c));
         setApplications(arr(a));
         setPayouts(arr(p));
+        setTotals({
+          users: u.data?.stats || null,
+          campaigns: c.data?.stats || null,
+          applications: a.data?.stats || null,
+          payouts: p.data?.stats || null,
+        });
         setPendingUsers(arr(pu));
         setTicketStats(ts.data || {});
         setClaims(arr(cl));
@@ -97,8 +115,16 @@ const AdminDashboard: React.FC = () => {
   const liveCampaigns = useMemo(() => campaigns.filter((c) => normalizeCampaignStatus(c.status) === 'active'), [campaigns]);
   const pendingApps = useMemo(() => applications.filter((a) => normalizeApplicationStatus(a.status) === 'pending'), [applications]);
   const pendingPayouts = useMemo(() => payouts.filter((p) => p.status === 'pending' || p.status === 'approved'), [payouts]);
-  const paidVolume = useMemo(() => payouts.filter((p) => p.status === 'paid').reduce((s, p) => s + (Number(p.amount) || 0), 0), [payouts]);
-  const newUsers7d = useMemo(() => withinDays(users, 7), [users]);
+  const paidVolume = Number(totals.payouts?.paidVolume ?? 0);
+  const newUsers7d = Number(totals.users?.new7 ?? withinDays(users, 7));
+  const userTotal = Number(totals.users?.all ?? users.length);
+  const campaignTotal = Number(totals.campaigns?.all ?? campaigns.length);
+  const liveTotal = Number(totals.campaigns?.by?.active ?? liveCampaigns.length);
+  const applicationTotal = Number(totals.applications?.all ?? applications.length);
+  const pendingAppTotal = Number(totals.applications?.by?.pending ?? pendingApps.length);
+  const pendingPayoutTotal = Number(
+    (totals.payouts?.by?.pending ?? 0) + (totals.payouts?.by?.approved ?? 0) || pendingPayouts.length,
+  );
 
   const series = useMemo(
     () => ({
@@ -113,14 +139,14 @@ const AdminDashboard: React.FC = () => {
   const mix = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const u of users) counts[String(u.role || '').toLowerCase()] = (counts[String(u.role || '').toLowerCase()] || 0) + 1;
-    const total = users.length || 1;
+    const total = userTotal || 1;
     return ALL_ROLES.map((r) => ({ role: r, n: counts[r] || 0, pct: Math.round(((counts[r] || 0) / total) * 100) })).filter((x) => x.n > 0);
   }, [users]);
 
   const attention = useMemo(() => {
     const items: { key: string; n: number; label: string; to: string; icon: React.ReactNode; tone: string }[] = [];
     if (pendingUsers.length) items.push({ key: 'kyc', n: pendingUsers.length, label: t('adm.dash.attnValidations'), to: '/dashboard/support', icon: <UserCheck size={15} />, tone: '#6c63ff' });
-    if (pendingPayouts.length) items.push({ key: 'pay', n: pendingPayouts.length, label: t('adm.dash.attnPayouts'), to: '/dashboard/payouts', icon: <DollarSign size={15} />, tone: '#16c784' });
+    if (pendingPayoutTotal) items.push({ key: 'pay', n: pendingPayoutTotal, label: t('adm.dash.attnPayouts'), to: '/dashboard/payouts', icon: <DollarSign size={15} />, tone: '#16c784' });
     if (ticketStats.open) items.push({ key: 'tix', n: ticketStats.open, label: t('adm.dash.attnTickets'), to: '/dashboard/support', icon: <Headphones size={15} />, tone: '#ff7a45' });
     if (claims.length) items.push({ key: 'claims', n: claims.length, label: t('adm.dash.attnClaims'), to: '/dashboard/follower-claims', icon: <BadgeCheck size={15} />, tone: '#00d4c7' });
     if (feedbacks.length) items.push({ key: 'fb', n: feedbacks.length, label: t('adm.dash.attnManagerChanges'), to: '/dashboard/support', icon: <AlertTriangle size={15} />, tone: '#ffb547' });
@@ -129,10 +155,10 @@ const AdminDashboard: React.FC = () => {
 
   const kpis = (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <MetricCard label={t('adm.dash.kpiUsers')} value={users.length} hint={t('adm.dash.kpiUsersHint', { n: newUsers7d })} series={series.users} icon={Users} iconStatus={newUsers7d ? 'success' : undefined} />
-      <MetricCard label={t('adm.dash.kpiLive')} value={liveCampaigns.length} hint={t('dash.kpiOfTotal', { n: campaigns.length })} series={series.campaigns} chartColor="var(--chart-1, #00d4c7)" icon={Briefcase} />
-      <MetricCard label={t('adm.dash.kpiApplications')} value={applications.length} hint={t('dash.kpiPendingN', { n: pendingApps.length })} series={series.applications} chartColor="var(--color-signal-green, #16c784)" icon={FileText} iconStatus={pendingApps.length ? 'warning' : undefined} />
-      <MetricCard label={t('adm.dash.kpiPaid')} value={money(paidVolume)} hint={t('adm.dash.kpiPaidHint', { n: pendingPayouts.length })} series={series.payouts} chartColor="#ffb547" icon={DollarSign} iconStatus={pendingPayouts.length ? 'warning' : 'success'} />
+      <MetricCard label={t('adm.dash.kpiUsers')} value={userTotal} hint={t('adm.dash.kpiUsersHint', { n: newUsers7d })} series={series.users} icon={Users} iconStatus={newUsers7d ? 'success' : undefined} />
+      <MetricCard label={t('adm.dash.kpiLive')} value={liveTotal} hint={t('dash.kpiOfTotal', { n: campaignTotal })} series={series.campaigns} chartColor="var(--chart-1, #00d4c7)" icon={Briefcase} />
+      <MetricCard label={t('adm.dash.kpiApplications')} value={applicationTotal} hint={t('dash.kpiPendingN', { n: pendingAppTotal })} series={series.applications} chartColor="var(--color-signal-green, #16c784)" icon={FileText} iconStatus={pendingAppTotal ? 'warning' : undefined} />
+      <MetricCard label={t('adm.dash.kpiPaid')} value={money(paidVolume)} hint={t('adm.dash.kpiPaidHint', { n: pendingPayoutTotal })} series={series.payouts} chartColor="#ffb547" icon={DollarSign} iconStatus={pendingPayoutTotal ? 'warning' : 'success'} />
     </div>
   );
 
@@ -279,7 +305,7 @@ const AdminDashboard: React.FC = () => {
               <h2 className="v-ink font-medium inline-flex items-center gap-2" style={{ fontSize: 15 }}>
                 <Users size={14} style={{ color: 'var(--color-campaign-purple)' }} /> {t('adm.dash.mix')}
               </h2>
-              <span className="v-caption v-quiet tabular-nums" style={{ fontSize: 12 }}>{t('dash.pipelineTotal', { n: users.length })}</span>
+              <span className="v-caption v-quiet tabular-nums" style={{ fontSize: 12 }}>{t('dash.pipelineTotal', { n: userTotal })}</span>
             </div>
             {loading ? (
               <div className="space-y-2" aria-hidden><div className="v-skel h-3 w-full" /><div className="v-skel h-3 w-4/5" /><div className="v-skel h-3 w-3/5" /></div>

@@ -60,7 +60,7 @@ Effective Date: ${new Date().toLocaleDateString()}
     @Query('ends_at') endsAt: string,
     @Query('notes') notes: string,
   ) {
-    return this.contractsService.draftTerms(req.user.brandId || req.user.userId, applicationId, {
+    return this.contractsService.draftTerms(await this.contractsService.actingBrandFor(req.user, applicationId), applicationId, {
       payment_amount: Number(amount),
       currency,
       payment_frequency: frequency,
@@ -73,13 +73,13 @@ Effective Date: ${new Date().toLocaleDateString()}
   /** Brand answers a creator's counter-offer. */
   @Put('application/:applicationId/brand-respond')
   async brandRespond(@Request() req: any, @Param('applicationId') applicationId: string, @Body('action') action: 'accept_counter' | 'decline_counter') {
-    return this.contractsService.brandRespond(req.user.brandId || req.user.userId, applicationId, action);
+    return this.contractsService.brandRespond(await this.contractsService.actingBrandFor(req.user, applicationId), applicationId, action);
   }
 
   /** All agreements on an application: the main one first, then extra-work proposals. */
   @Get('application/:applicationId/all')
   async listForApplication(@Request() req: any, @Param('applicationId') applicationId: string) {
-    return this.contractsService.listForApplication(req.user.brandId || req.user.userId, applicationId);
+    return this.contractsService.listForApplication(req.user.role === 'manager' ? (await this.contractsService.actingBrandFor(req.user, applicationId)) : req.user.brandId || req.user.userId, applicationId);
   }
 
   /** Text preview of an extra-work addendum. */
@@ -103,7 +103,7 @@ Effective Date: ${new Date().toLocaleDateString()}
     } catch {
       parsed = [];
     }
-    return this.contractsService.draftAddendum(req.user.brandId || req.user.userId, applicationId, {
+    return this.contractsService.draftAddendum(await this.contractsService.actingBrandFor(req.user, applicationId), applicationId, {
       title,
       scope,
       tasks: parsed,
@@ -123,7 +123,7 @@ Effective Date: ${new Date().toLocaleDateString()}
     @Param('applicationId') applicationId: string,
     @Body() body: { title: string; scope?: string | null; tasks?: any; payment_amount: number; currency: string; payment_frequency: string; payment_day?: number | null; ends_at?: string | null; notes?: string | null; terms?: string | null },
   ) {
-    return this.contractsService.proposeAddendum(req.user.brandId || req.user.userId, applicationId, body);
+    return this.contractsService.proposeAddendum(await this.contractsService.actingBrandFor(req.user, applicationId), applicationId, body);
   }
 
   @Get('application/:applicationId')
@@ -137,7 +137,7 @@ Effective Date: ${new Date().toLocaleDateString()}
     @Param('applicationId') applicationId: string,
     @Body() body: { terms: string; paymentAmount: number; contractLength?: string }
   ) {
-    return this.contractsService.upsertContract(req.user.brandId || req.user.userId, applicationId, body.terms, body.paymentAmount, body.contractLength);
+    return this.contractsService.upsertContract(await this.contractsService.actingBrandFor(req.user, applicationId), applicationId, body.terms, body.paymentAmount, body.contractLength);
   }
 
   /** Creator answers: `{ action: 'accept' | 'decline' | 'counter', counter?: {...}, note? }` (legacy `{ status }` still works). */

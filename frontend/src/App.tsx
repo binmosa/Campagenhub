@@ -8,9 +8,13 @@ import GeoGate from './components/common/GeoGate';
 import Maintenance from './pages/Maintenance';
 import Login from './pages/auth/Login';
 import Register from './pages/auth/Register';
+import NotFound from './pages/NotFound';
+import ForgotPassword from './pages/auth/ForgotPassword';
+import ResetPassword from './pages/auth/ResetPassword';
 import CreatorDashboard from './pages/creator/Dashboard';
 import CreatorProfile from './pages/creator/Profile';
 import BrandDashboard from './pages/brand/Dashboard';
+import ManagerCampaigns from './pages/manager/Campaigns';
 import BrandProfile from './pages/brand/Profile';
 import AdminDashboard from './pages/admin/Dashboard';
 
@@ -111,6 +115,8 @@ function App() {
         <Route path="/talent" element={<TalentNetwork />} />
         <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
         <Route path="/register" element={<GuestGuard><Register /></GuestGuard>} />
+        <Route path="/forgot-password" element={<GuestGuard><ForgotPassword /></GuestGuard>} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         
         {/* Protected Routes */}
         <Route path="/dashboard" element={<AuthGuard><Layout /></AuthGuard>}>
@@ -138,6 +144,7 @@ function App() {
         </Route>
         {/* Market landing pages — /et, /ng, … (validated against /api/markets) */}
         <Route path="/:marketCode" element={<MarketPage />} />
+        <Route path="*" element={<NotFound />} />
         </Routes>
       )}
     </BrowserRouter>
@@ -159,13 +166,15 @@ const CampaignsRouter = () => {
   const role = (localStorage.getItem('role') || 'creator').toLowerCase().trim();
   if (role === 'admin') return <AdminCampaigns />;
   if (role === 'brand') return <BrandCampaigns />;
+  if (role === 'manager') return <ManagerCampaigns />;
   return <CreatorApplications />;
 };
 
 const ApplicationsRouter = () => {
   const role = (localStorage.getItem('role') || 'creator').toLowerCase().trim();
   if (role === 'admin') return <AdminApplications />;
-  if (role === 'brand') return <BrandApplications />;
+  // A manager reviews applicants on the campaigns their engagement covers.
+  if (role === 'brand' || role === 'manager') return <BrandApplications />;
   if (role === 'creator') return <CreatorApplications initialTab="applications" />;
   return <div className="text-center p-10 text-slate-500">Not available for this role.</div>;
 };

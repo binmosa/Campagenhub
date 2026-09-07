@@ -26,6 +26,10 @@ export type LandingSettings = {
   testimonials_mock_enabled?: string;
   faq_enabled?: string;
   contact_enabled?: string;
+  /** Sections built on sample data (the payout strip, the results showcase).
+   *  Off unless an admin opts in — they illustrate the product, they do not
+   *  report anything the platform has done. */
+  showcase_demo_enabled?: string;
 
   // Hero
   hero_title?: string;
@@ -109,25 +113,37 @@ export type ActiveCampaign = {
   brand?: { id?: string; email?: string; brandProfile?: { company_name?: string; logo_url?: string } };
 };
 
+/** Live counts from the platform's own tables. */
+export type PlatformStats = {
+  creatorCount: number;
+  brandCount: number;
+  activeCampaigns: number;
+  totalApplications: number;
+};
+
 export type LandingData = {
   settings: LandingSettings;
   reviews: Review[];
   activeCampaigns: ActiveCampaign[];
   campaignsLoading: boolean;
+  platformStats: PlatformStats | null;
   refetchReviews: () => void;
 };
 
 export function useLandingData(): LandingData {
   const [settings, setSettings] = useState<LandingSettings>({
+    /* First paint, before /public/settings answers — and the permanent
+       state if that call fails. Nothing here may assert a customer, a
+       figure or a quote the platform cannot evidence. */
     ticker_enabled: 'true',
-    ticker_text: 'Spotify · LVMH · Epic Games · Adidas · RedBull · Gymshark · Nike · Samsung',
+    ticker_text: '',
     notifications_enabled: 'true',
-    notifications_mock_enabled: 'true',
-    stats_use_real_data: 'false',
+    notifications_mock_enabled: 'false',
+    stats_use_real_data: 'true',
     for_brands_enabled: 'true',
     for_creators_enabled: 'true',
     testimonials_enabled: 'true',
-    testimonials_mock_enabled: 'true',
+    testimonials_mock_enabled: 'false',
     faq_enabled: 'true',
     contact_enabled: 'true',
   });
@@ -135,6 +151,7 @@ export function useLandingData(): LandingData {
   const { i18n } = useTranslation();
   const [activeCampaigns, setActiveCampaigns] = useState<ActiveCampaign[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(true);
+  const [platformStats, setPlatformStats] = useState<PlatformStats | null>(null);
 
   const fetchReviews = () =>
     api.get('/public/reviews').then((res) => setReviews(res.data || [])).catch(() => {});
@@ -143,6 +160,13 @@ export function useLandingData(): LandingData {
     api.get('/public/settings').then((res) => {
       setSettings((prev) => ({ ...prev, ...res.data }));
     }).catch(() => {});
+
+    // Real counts for the statistics row. Without them the section shows
+    // nothing rather than inventing a number.
+    api
+      .get('/public/platform-stats')
+      .then((res) => setPlatformStats(res.data || null))
+      .catch(() => setPlatformStats(null));
 
     fetchReviews();
 
@@ -158,6 +182,7 @@ export function useLandingData(): LandingData {
     reviews,
     activeCampaigns,
     campaignsLoading,
+    platformStats,
     refetchReviews: fetchReviews,
   };
 }

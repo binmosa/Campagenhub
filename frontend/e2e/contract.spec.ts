@@ -204,7 +204,7 @@ test.describe('contract flow', () => {
     const camp = await (
       await request.post(`${baseURL}/api/campaigns`, {
         headers: brand,
-        data: { title, description: 'Throwaway brief for the extra-work flow.', platforms: ['Instagram', 'TikTok'], budget: 300, currency: 'USD', status: 'active', content_type: 'Reel', objective: 'Awareness' },
+        data: { title, description: 'Throwaway brief for the extra-work flow.', platforms: ['Instagram', 'TikTok'], budget: 500, currency: 'USD', status: 'active', content_type: 'Reel', objective: 'Awareness' },
       })
     ).json();
     let mainId = '';
@@ -222,6 +222,15 @@ test.describe('contract flow', () => {
       expect(again.status()).toBe(400);
       const apps = await (await request.get(`${baseURL}/api/applications?campaignId=${camp.id}`, { headers: brand })).json();
       expect(Number(apps[0].payment_amount)).toBe(300);
+
+      // extra work is a commitment like any other: it cannot push the
+      // campaign past its budget (300 of 500 is already signed)
+      const overBudget = await request.post(`${baseURL}/api/contracts/application/${app.id}/addendum`, {
+        headers: brand,
+        data: { title: 'Too much extra', payment_amount: 400, currency: 'USD', payment_frequency: 'one_time' },
+      });
+      expect(overBudget.status()).toBe(400);
+      expect((await overBudget.json()).message).toMatch(/budget is USD 500/);
 
       // brand proposes extra work from the inbox
       await loginAs('brand');

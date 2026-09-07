@@ -3,6 +3,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Offer } from './offer.entity';
 
+const OFFER_WRITABLE = ['title', 'description', 'content_type', 'price', 'currency', 'delivery_days', 'is_active'] as const;
+
+const pickWritableOffer = (data: any): Partial<Offer> => {
+  const out: any = {};
+  if (!data || typeof data !== 'object') return out;
+  for (const k of OFFER_WRITABLE) if (data[k] !== undefined) out[k] = data[k];
+  return out;
+};
+
 @Injectable()
 export class OffersService {
   constructor(
@@ -48,7 +57,7 @@ export class OffersService {
       created_at: o.created_at,
       user: {
         id: o.user?.id,
-        email: o.user?.email,
+        // no email: this list is served to anonymous visitors
         role: o.user?.role,
         name: o.user?.creatorProfile?.full_name || o.user?.managerProfile?.full_name || o.user?.email?.split('@')[0],
         avatar: o.user?.creatorProfile?.avatar_url || o.user?.managerProfile?.avatar_url || null,
@@ -63,7 +72,9 @@ export class OffersService {
     const offer = await this.offersRepo.findOne({ where: { id: offerId }, relations: ['user'] });
     if (!offer) throw new BadRequestException('Offer not found');
     if (offer.user.id !== userId) throw new BadRequestException('Unauthorized');
-    Object.assign(offer, data);
+    // Assigning the raw body would let it carry `id` or `user` and move the
+    // write onto someone else's row, undoing the check just above.
+    Object.assign(offer, pickWritableOffer(data));
     return this.offersRepo.save(offer);
   }
 

@@ -193,13 +193,13 @@ const OverviewPane: React.FC = () => {
           <div className="v-caption v-quiet">Paid to creators</div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="v-ink font-medium tabular-nums" style={{ fontSize: 28, letterSpacing: '-0.018em' }}>
-              $2.4M
+              $18.6k
             </span>
             <Chip color="success" variant="soft" size="sm">
               <TrendingUp size={11} /> +18%
             </Chip>
           </div>
-          <div className="mt-3 v-caption v-muted">Settled across 1,287 collabs · YTD</div>
+          <div className="mt-3 v-caption v-muted">Sample console · figures are illustrative</div>
         </div>
 
         <div className="col-span-12 v-hairline rounded-2xl p-4">
@@ -330,7 +330,7 @@ const CreatorsPane: React.FC = () => (
     <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
       <span className="v-pill-quiet">
         <Users size={11} style={{ color: BRAND.purple }} />
-        12,847 creators · ranked by fit
+        Creators ranked by fit
       </span>
       <Button size="sm" variant="outline" className="!rounded-lg">
         <Hash size={12} /> Filter by niche
@@ -510,7 +510,7 @@ const PayoutsPane: React.FC = () => (
       {[
         { label: 'Paid today', value: '$18,420', helper: '42 settlements', icon: DollarSign },
         { label: 'In escrow', value: '$54,900', helper: 'held until ship', icon: Clock },
-        { label: 'YTD payouts', value: '$2.4M', helper: '+18%', icon: TrendingUp, success: true },
+        { label: 'YTD payouts', value: '$18.6k', helper: '+18%', icon: TrendingUp, success: true },
       ].map((t, i) => {
         const Icon = t.icon;
         return (
@@ -701,7 +701,7 @@ export const ConsoleShowcase: React.FC = () => {
             }}
           >
             <Search size={14} className="v-quiet" />
-            <span className="v-body v-muted">Search 12,847 creators</span>
+            <span className="v-body v-muted">Search creators</span>
             <span
               className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-md v-caption"
               style={{

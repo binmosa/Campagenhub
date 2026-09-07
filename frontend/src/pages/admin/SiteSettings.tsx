@@ -43,8 +43,9 @@ const DEFAULTS: SettingsMap = {
   ticker_enabled: 'true',
   ticker_text: '',
   notifications_enabled: 'true',
-  notifications_mock_enabled: 'true',
-  stats_use_real_data: 'false',
+  notifications_mock_enabled: 'false',
+  stats_use_real_data: 'true',
+  showcase_demo_enabled: 'false',
   for_brands_enabled: 'true',
   for_creators_enabled: 'true',
   testimonials_enabled: 'true',
@@ -335,7 +336,10 @@ const SiteSettings: React.FC = () => {
               </div>
             </Panel>
             <Panel icon={<Star size={15} />} title={t('adm.site.testimonials')} desc={t('adm.site.testimonialsDesc')}>
-              <Toggle label={t('adm.site.mockTesti')} desc={t('adm.site.mockTestiDesc')} value={on('testimonials_mock_enabled')} onChange={(v) => toggle('testimonials_mock_enabled', v)} />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Toggle label={t('adm.site.mockTesti')} desc={t('adm.site.mockTestiDesc')} value={on('testimonials_mock_enabled')} onChange={(v) => toggle('testimonials_mock_enabled', v)} />
+                <Toggle label={t('adm.site.demoShowcase')} desc={t('adm.site.demoShowcaseDesc')} value={on('showcase_demo_enabled')} onChange={(v) => toggle('showcase_demo_enabled', v)} />
+              </div>
             </Panel>
             <Panel icon={<Bell size={15} />} title={t('adm.site.popups')} desc={t('adm.site.popupsDesc')}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

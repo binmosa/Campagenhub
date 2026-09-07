@@ -21,6 +21,8 @@ import { fieldClass } from '../talent/shared';
 import { MetricCard, PageShell } from '../../components/ui';
 import { EmptyPanel } from '../../components/common/EmptyPanel';
 import { DirectoryToolbar } from '../../components/common/filters';
+import { LoadMore, LoadMoreSkeleton } from '../../components/common/LoadMore';
+import { usePagedList, useDebounced } from '../../lib/usePagedList';
 import { StoryAvatar } from '../../components/common/StoryAvatar';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { ALL_ROLES, Field, RoleChip, RowSkeletons, STAFF_ROLES, dateShort, userIdentity, type AdminUser } from './shared';
@@ -37,14 +39,10 @@ const PAGE = 30;
 
 const AdminUsers: React.FC = () => {
   const { t } = useTranslation();
-  const [users, setUsers] = useState<AdminUser[]>([]);
   const [customRoles, setCustomRoles] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [role, setRole] = useState<RoleFilter>('all');
-  const [limit, setLimit] = useState(PAGE);
   const [busy, setBusy] = useState<string | null>(null);
 
   const [showCreate, setShowCreate] = useState(false);
@@ -53,53 +51,42 @@ const AdminUsers: React.FC = () => {
   const [permJson, setPermJson] = useState('');
   const [confirm, setConfirm] = useState<{ kind: 'delete' | 'kyc' | 'ban'; user: AdminUser } | null>(null);
 
-  const load = useCallback(() => {
-    setError(false);
-    Promise.all([api.get('/admin/users'), api.get('/roles/global').catch(() => ({ data: [] }))])
-      .then(([u, r]) => {
-        setUsers(Array.isArray(u.data) ? u.data : []);
-        setCustomRoles(Array.isArray(r.data) ? r.data : []);
-      })
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
+  /* One page of the directory at a time: search, status and role are all
+     applied by the API, so this never holds more than `PAGE` users. */
+  const debouncedSearch = useDebounced(search);
+  const { items: users, total, hasMore, stats: serverStats, loading, loadingMore, error, loadMore, refresh } = usePagedList<AdminUser>(
+    '/admin/users',
+    { search: debouncedSearch, status, role },
+    PAGE,
+  );
+  const load = refresh;
+
+  useEffect(() => {
+    api
+      .get('/roles/global')
+      .then((r) => setCustomRoles(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setCustomRoles([]));
   }, []);
-  useEffect(load, [load]);
 
-  const customNames = useMemo(() => new Set(customRoles.map((r) => String(r.name).toLowerCase())), [customRoles]);
-  const isStaff = (u: AdminUser) => (STAFF_ROLES as readonly string[]).includes(String(u.role).toLowerCase());
-
+  /* Counted across the whole table by the API — a KPI that only described
+     the loaded page would be wrong the moment anyone paged or filtered. */
   const counts = useMemo(() => {
     const byRole: Record<string, number> = {};
-    for (const u of users) {
-      const r = String(u.role || '').toLowerCase();
-      byRole[r] = (byRole[r] || 0) + 1;
+    for (const [k, v] of Object.entries(serverStats || {})) {
+      if (k.startsWith('role_')) byRole[k.slice(5)] = Number(v);
     }
     return {
       byRole,
-      custom: users.filter((u) => customNames.has(String(u.role).toLowerCase())).length,
-      active: users.filter((u) => u.account_status === 'active' && !u.is_banned).length,
-      pending: users.filter((u) => u.account_status === 'pending_verification').length,
-      banned: users.filter((u) => u.is_banned).length,
-      staff: users.filter(isStaff).length,
-      new7: withinDays(users, 7),
+      custom: Number(serverStats?.custom || 0),
+      active: Number(serverStats?.active || 0),
+      pending: Number(serverStats?.pending || 0),
+      banned: Number(serverStats?.banned || 0),
+      staff: Number(serverStats?.staff || 0),
+      new7: Number(serverStats?.new7 || 0),
+      all: Number(serverStats?.all || 0),
     };
-  }, [users, customNames]);
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return users.filter((u) => {
-      const r = String(u.role || '').toLowerCase();
-      if (role === 'custom' ? !customNames.has(r) : role !== 'all' && r !== role) return false;
-      if (status === 'active' && !(u.account_status === 'active' && !u.is_banned)) return false;
-      if (status === 'pending' && u.account_status !== 'pending_verification') return false;
-      if (status === 'banned' && !u.is_banned) return false;
-      if (status === 'staff' && !isStaff(u)) return false;
-      if (!q) return true;
-      const who = userIdentity(u);
-      return [u.email, who.name, who.handle, r].some((s) => (s || '').toLowerCase().includes(q));
-    });
-  }, [users, search, status, role, customNames]);
-  const shown = filtered.slice(0, limit);
+  }, [serverStats]);
+  const filtersOn = !!search || status !== 'all' || role !== 'all';
 
   const run = async (id: string, fn: () => Promise<unknown>, ok: string, fail: string) => {
     setBusy(id);
@@ -158,7 +145,7 @@ const AdminUsers: React.FC = () => {
 
   const stats = (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <MetricCard label={t('adm.users.kpiAll')} value={users.length} hint={t('adm.dash.kpiUsersHint', { n: counts.new7 })} series={weekSeries(users)} icon={UsersIcon} iconStatus={counts.new7 ? 'success' : undefined} />
+      <MetricCard label={t('adm.users.kpiAll')} value={counts.all} hint={t('adm.dash.kpiUsersHint', { n: counts.new7 })} series={weekSeries(users)} icon={UsersIcon} iconStatus={counts.new7 ? 'success' : undefined} />
       <MetricCard label={t('adm.users.kpiPending')} value={counts.pending} hint={t('adm.users.kpiPendingHint')} icon={ShieldAlert} iconStatus={counts.pending ? 'warning' : undefined} />
       <MetricCard label={t('adm.users.kpiBanned')} value={counts.banned} hint={t('adm.users.kpiBannedHint')} icon={Ban} iconStatus={counts.banned ? 'danger' : undefined} />
       <MetricCard label={t('adm.users.kpiStaff')} value={counts.staff} hint={t('adm.users.kpiStaffHint')} icon={ShieldCheck} />
@@ -183,9 +170,9 @@ const AdminUsers: React.FC = () => {
       <div>
         <DirectoryToolbar
           search={{ value: search, onChange: setSearch, placeholder: t('adm.users.searchPh'), widthClass: 'w-full sm:w-[300px]' }}
-          count={t('adm.users.count', { shown: shown.length, total: filtered.length })}
+          count={loading ? t('common.searching') : t('adm.users.count', { shown: users.length, total })}
         >
-          <Segment size="sm" selectedKey={status} onSelectionChange={(k) => { setStatus(k as StatusFilter); setLimit(PAGE); }} aria-label={t('adm.users.statusFilter')}>
+          <Segment size="sm" selectedKey={status} onSelectionChange={(k) => setStatus(k as StatusFilter)} aria-label={t('adm.users.statusFilter')}>
             <Segment.Item id="all">{t('dash.all')}</Segment.Item>
             <Segment.Item id="active">{t('adm.users.sActive')} · {counts.active}</Segment.Item>
             <Segment.Item id="pending">{t('adm.users.sPending')} · {counts.pending}</Segment.Item>
@@ -195,16 +182,16 @@ const AdminUsers: React.FC = () => {
         </DirectoryToolbar>
 
         <div className="flex items-center gap-1.5 flex-wrap mb-5">
-          <button type="button" className="v-niche-chip" data-active={role === 'all' || undefined} aria-pressed={role === 'all'} onClick={() => { setRole('all'); setLimit(PAGE); }}>
+          <button type="button" className="v-niche-chip" data-active={role === 'all' || undefined} aria-pressed={role === 'all'} onClick={() => setRole('all')}>
             {t('adm.users.allRoles')}
           </button>
           {ALL_ROLES.map((r) => (
-            <button key={r} type="button" className="v-niche-chip" data-active={role === r || undefined} aria-pressed={role === r} onClick={() => { setRole(role === r ? 'all' : r); setLimit(PAGE); }}>
+            <button key={r} type="button" className="v-niche-chip" data-active={role === r || undefined} aria-pressed={role === r} onClick={() => setRole(role === r ? 'all' : r)}>
               {t(`adm.roles.${r}`)} <span className="opacity-70 tabular-nums">{counts.byRole[r] || 0}</span>
             </button>
           ))}
           {customRoles.length > 0 && (
-            <button type="button" className="v-niche-chip" data-active={role === 'custom' || undefined} aria-pressed={role === 'custom'} onClick={() => { setRole(role === 'custom' ? 'all' : 'custom'); setLimit(PAGE); }}>
+            <button type="button" className="v-niche-chip" data-active={role === 'custom' || undefined} aria-pressed={role === 'custom'} onClick={() => setRole(role === 'custom' ? 'all' : 'custom')}>
               {t('adm.users.customRoles')} <span className="opacity-70 tabular-nums">{counts.custom}</span>
             </button>
           )}
@@ -213,18 +200,18 @@ const AdminUsers: React.FC = () => {
         {loading ? (
           <RowSkeletons n={5} />
         ) : error ? (
-          <EmptyPanel tone="error" icon={<AlertTriangle size={22} />} title={t('adm.errTitle')} description={t('adm.errDesc')} actions={<Button variant="primary" onPress={() => { setLoading(true); load(); }}>{t('common.tryAgain')}</Button>} />
-        ) : filtered.length === 0 ? (
+          <EmptyPanel tone="error" icon={<AlertTriangle size={22} />} title={t('adm.errTitle')} description={t('adm.errDesc')} actions={<Button variant="primary" onPress={refresh}>{t('common.tryAgain')}</Button>} />
+        ) : users.length === 0 ? (
           <EmptyPanel
             icon={<UsersIcon size={22} />}
-            title={users.length === 0 ? t('adm.users.emptyTitle') : t('common.noMatches')}
-            description={users.length === 0 ? t('adm.users.emptyDesc') : t('adm.users.emptyFiltered')}
-            actions={users.length > 0 ? <Button variant="tertiary" onPress={() => { setSearch(''); setStatus('all'); setRole('all'); }}>{t('board.resetFilters')}</Button> : undefined}
+            title={filtersOn ? t('common.noMatches') : t('adm.users.emptyTitle')}
+            description={filtersOn ? t('adm.users.emptyFiltered') : t('adm.users.emptyDesc')}
+            actions={filtersOn ? <Button variant="tertiary" onPress={() => { setSearch(''); setStatus('all'); setRole('all'); }}>{t('board.resetFilters')}</Button> : undefined}
           />
         ) : (
           <>
             <ul className="space-y-3">
-              {shown.map((u) => {
+              {users.map((u) => {
                 const who = userIdentity(u);
                 const r = String(u.role || '').toLowerCase();
                 const pending = u.account_status === 'pending_verification';
@@ -291,13 +278,8 @@ const AdminUsers: React.FC = () => {
                 );
               })}
             </ul>
-            {filtered.length > shown.length && (
-              <div className="flex justify-center mt-6">
-                <button type="button" onClick={() => setLimit((n) => n + PAGE)} className="v-facet-btn !px-4 !py-2.5">
-                  {t('common.loadMore', { n: filtered.length - shown.length })}
-                </button>
-              </div>
-            )}
+            {loadingMore && <LoadMoreSkeleton n={2} />}
+            <LoadMore onLoadMore={loadMore} remaining={hasMore ? total - users.length : 0} pending={loadingMore} />
           </>
         )}
       </div>

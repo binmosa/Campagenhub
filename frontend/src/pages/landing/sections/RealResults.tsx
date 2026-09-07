@@ -10,6 +10,7 @@ import {
 } from '@heroui-pro/react';
 import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
+import type { LandingSettings } from '../useLandingData';
 
 /**
  * RealResults — "Real campaigns. Real results."
@@ -52,8 +53,15 @@ const COMPASS_DATA = [
 const formatK = (v: number) =>
   v >= 1000 ? `${(v / 1000).toFixed(0)}k` : `${v}`;
 
-export const RealResults: React.FC = () => {
+/**
+ * A showcase built on sample data. The chart, the compass and the footer
+ * figures are illustrations of what the reporting looks like — not results
+ * this platform has produced — so the section is off unless an admin turns
+ * the demo showcase on in Site control, and it says plainly what it is.
+ */
+export const RealResults: React.FC<{ settings: LandingSettings }> = ({ settings }) => {
   const { t } = useTranslation();
+  if (settings.showcase_demo_enabled !== 'true') return null;
   return (
   <section
     id="real-results"
@@ -140,9 +148,9 @@ export const RealResults: React.FC = () => {
               <div className="flex items-center justify-between w-full flex-wrap gap-2">
                 <Chip color="success" variant="soft" size="sm">
                   <ArrowUpRight size={11} />
-                  Creator-driven +4.2× brand-direct YTD
+                  {t('stats.sampleData')}
                 </Chip>
-                <span className="v-caption v-quiet">Aggregated across 1,287 collabs</span>
+                <span className="v-caption v-quiet">{t('stats.sampleData')}</span>
               </div>
             </Widget.Footer>
           </Widget>

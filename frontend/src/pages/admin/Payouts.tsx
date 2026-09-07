@@ -26,6 +26,8 @@ import { postedLabel } from '../../lib/campaignFormat';
 import { MetricCard, PageShell } from '../../components/ui';
 import { EmptyPanel } from '../../components/common/EmptyPanel';
 import { DirectoryToolbar } from '../../components/common/filters';
+import { LoadMore, LoadMoreSkeleton } from '../../components/common/LoadMore';
+import { usePagedList, useDebounced } from '../../lib/usePagedList';
 import { StoryAvatar } from '../../components/common/StoryAvatar';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { Fact, PAYOUT_COLOR, Panel, RowSkeletons, SectionTitle, dateShort, dateTime, money, userIdentity } from './shared';
@@ -57,6 +59,33 @@ type Payout = {
   } | null;
 };
 type Balance = { brandId: string; brandEmail: string; deposited: number | string; committed: number | string; available: number | string };
+
+/**
+ * How the money would actually leave, read the same way the API reads it
+ * (admin.service `executePayoutTransfer`): a bank transfer needs the
+ * account number, the bank and the country; mobile money needs the number.
+ * Anything else is not payable and Execute stays disabled.
+ */
+type Method = { kind: 'bank' | 'mobile' | 'partial' | 'none'; label?: string; detail?: string };
+const maskTail = (v?: string | null) => {
+  const s = String(v || '').replace(/\s+/g, '');
+  return s.length > 4 ? `••••${s.slice(-4)}` : s;
+};
+const methodOf = (a?: Payout['payoutAccount']): Method => {
+  if (!a || (!a.account_number && !a.mobile_number)) return { kind: 'none' };
+  if (a.account_number && a.bank_name && a.country) {
+    return {
+      kind: 'bank',
+      label: a.bank_name,
+      detail: [maskTail(a.account_number), a.account_name, a.currency || 'USD', a.country].filter(Boolean).join(' · '),
+    };
+  }
+  if (a.mobile_number) {
+    return { kind: 'mobile', label: a.mobile_network || undefined, detail: [maskTail(a.mobile_number), a.currency || 'USD', a.country].filter(Boolean).join(' · ') };
+  }
+  return { kind: 'partial', detail: [a.bank_name, maskTail(a.account_number), a.country].filter(Boolean).join(' · ') };
+};
+const isPayable = (p: Payout) => methodOf(p.payoutAccount).kind === 'bank' || methodOf(p.payoutAccount).kind === 'mobile';
 type StatusFilter = 'all' | 'pending' | 'approved' | 'paid' | 'rejected';
 const STATUSES: StatusFilter[] = ['pending', 'approved', 'paid', 'rejected'];
 const PAGE = 30;
@@ -66,67 +95,62 @@ const AdminPayouts: React.FC = () => {
   const role = (localStorage.getItem('role') || 'creator').toLowerCase().trim();
   const isAdmin = role === 'admin';
 
-  const [payouts, setPayouts] = useState<Payout[]>([]);
   const [balances, setBalances] = useState<Balance[]>([]);
   const [audit, setAudit] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
-  const [limit, setLimit] = useState(PAGE);
   const [busy, setBusy] = useState<string | null>(null);
   const [detail, setDetail] = useState<Payout | null>(null);
   const [confirm, setConfirm] = useState<{ kind: 'execute' | 'reject' | 'approve'; payout: Payout } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
-  const load = useCallback(() => {
-    setError(false);
-    Promise.all([
-      api.get('/admin/payouts'),
-      api.get('/admin/brand-balances').catch(() => ({ data: [] })),
-      isAdmin ? api.get('/admin/audit-logs').catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
-    ])
-      .then(([p, b, a]) => {
-        setPayouts(Array.isArray(p.data) ? p.data : []);
-        setBalances(Array.isArray(b.data) ? b.data : []);
-        setAudit(Array.isArray(a.data) ? a.data : []);
-      })
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, [isAdmin]);
-  useEffect(load, [load]);
+  /* The queue is server-paged: search and the status tabs are applied by
+     the API, so a desk with thousands of payouts still opens instantly. */
+  const debouncedSearch = useDebounced(search);
+  const { items: payouts, total, hasMore, stats: serverStats, loading, loadingMore, error, loadMore, refresh } = usePagedList<Payout>(
+    '/admin/payouts',
+    { search: debouncedSearch, status },
+    PAGE,
+  );
 
-  const counts = useMemo(() => {
-    const by: Record<string, number> = {};
-    let paidVolume = 0;
-    for (const p of payouts) {
-      by[p.status] = (by[p.status] || 0) + 1;
-      if (p.status === 'paid') paidVolume += Number(p.amount) || 0;
+  const loadSidebars = useCallback(() => {
+    api.get('/admin/brand-balances').then((r) => setBalances(Array.isArray(r.data) ? r.data : [])).catch(() => setBalances([]));
+    if (isAdmin) {
+      api
+        .get('/admin/audit-logs', { params: { limit: 25 } })
+        .then((r) => setAudit(Array.isArray(r.data?.items) ? r.data.items : []))
+        .catch(() => setAudit([]));
     }
+  }, [isAdmin]);
+  useEffect(loadSidebars, [loadSidebars]);
+
+  const load = useCallback(() => {
+    refresh();
+    loadSidebars();
+  }, [refresh, loadSidebars]);
+
+  /* Queue tallies and paid volume are counted across the whole desk by the
+     API; escrow comes from the balances call. */
+  const counts = useMemo(() => {
     const escrow = balances.reduce((s, b) => s + (Number(b.available) || 0), 0);
     const deposited = balances.reduce((s, b) => s + (Number(b.deposited) || 0), 0);
-    return { by, paidVolume, escrow, deposited };
-  }, [payouts, balances]);
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return payouts.filter((p) => {
-      if (status !== 'all' && p.status !== status) return false;
-      if (!q) return true;
-      const who = userIdentity(p.creator);
-      return [p.creator?.email, who.name, p.campaign?.title, p.status, p.tx_ref].some((s) => String(s || '').toLowerCase().includes(q));
-    });
-  }, [payouts, search, status]);
-  const shown = filtered.slice(0, limit);
+    return {
+      by: (serverStats?.by || {}) as Record<string, number>,
+      paidVolume: Number(serverStats?.paidVolume || 0),
+      all: Number(serverStats?.all || 0),
+      escrow,
+      deposited,
+    };
+  }, [serverStats, balances]);
+  const filtersOn = !!search || status !== 'all';
 
   const setStatusOf = async (p: Payout, next: 'approved' | 'rejected') => {
     setBusy(p.id);
     try {
       await api.patch(`/admin/payouts/${p.id}`, { status: next });
-      setPayouts((prev) => prev.map((x) => (x.id === p.id ? { ...x, status: next } : x)));
       if (detail?.id === p.id) setDetail((d) => (d ? { ...d, status: next } : d));
       toast.success(next === 'approved' ? t('adm.pay.approved', { amount: money(p.amount) }) : t('adm.pay.rejected', { amount: money(p.amount) }));
-      if (isAdmin) api.get('/admin/audit-logs').then((r) => setAudit(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+      load();
     } catch (e: any) {
       toast.error(e?.response?.data?.message || t('adm.pay.updateFailed'));
     } finally {
@@ -138,7 +162,6 @@ const AdminPayouts: React.FC = () => {
     setBusy(p.id);
     try {
       await api.post(`/admin/payouts/${p.id}/execute`);
-      setPayouts((prev) => prev.map((x) => (x.id === p.id ? { ...x, status: 'paid' } : x)));
       if (detail?.id === p.id) setDetail((d) => (d ? { ...d, status: 'paid' } : d));
       toast.success(t('adm.pay.executed', { amount: money(p.amount) }));
       load();
@@ -165,19 +188,40 @@ const AdminPayouts: React.FC = () => {
     });
   };
 
-  const accountChip = (p: Payout) => {
-    const a = p.payoutAccount;
-    if (!a || (!a.account_number && !a.mobile_number)) {
-      return <Chip color="danger" variant="soft" size="sm"><AlertTriangle size={11} /><Chip.Label>{t('adm.pay.noAccount')}</Chip.Label></Chip>;
+  /* Where the money goes, spelled out: method, bank or network, masked
+     account and currency — or plainly why this one cannot be paid yet. */
+  const PayoutMethod: React.FC<{ payout: Payout }> = ({ payout }) => {
+    const a = payout.payoutAccount;
+    const m = methodOf(a);
+    if (m.kind === 'none') {
+      return (
+        <div className="min-w-0">
+          <Chip color="danger" variant="soft" size="sm"><AlertTriangle size={11} /><Chip.Label>{t('adm.pay.noAccount')}</Chip.Label></Chip>
+          <div className="v-caption v-quiet mt-1" style={{ fontSize: 11 }}>{t('adm.pay.noAccountLine')}</div>
+        </div>
+      );
     }
-    if (a.mobile_number && !a.account_number) {
-      return <Chip color="default" variant="soft" size="sm"><Smartphone size={11} /><Chip.Label>{a.mobile_network || t('adm.pay.mobileMoney')}</Chip.Label></Chip>;
+    if (m.kind === 'partial') {
+      return (
+        <div className="min-w-0">
+          <Chip color="warning" variant="soft" size="sm"><AlertTriangle size={11} /><Chip.Label>{t('adm.pay.incomplete')}</Chip.Label></Chip>
+          <div className="v-caption v-quiet mt-1 truncate" style={{ fontSize: 11 }}>{t('adm.pay.incompleteLine')}{m.detail ? ` · ${m.detail}` : ''}</div>
+        </div>
+      );
     }
+    const mobile = m.kind === 'mobile';
     return (
-      <Chip color={a.is_verified ? 'success' : 'default'} variant="soft" size="sm">
-        {a.is_verified ? <CheckCircle2 size={11} /> : <Landmark size={11} />}
-        <Chip.Label>{a.bank_name || t('adm.pay.bank')}{a.is_verified ? ` · ${t('adm.pay.verified')}` : ''}</Chip.Label>
-      </Chip>
+      <div className="min-w-0">
+        <Chip color={!mobile && a?.is_verified ? 'success' : 'default'} variant="soft" size="sm">
+          {mobile ? <Smartphone size={11} /> : a?.is_verified ? <CheckCircle2 size={11} /> : <Landmark size={11} />}
+          <Chip.Label>
+            {mobile ? t('adm.pay.mobileMoney') : t('adm.pay.bankTransfer')}
+            {m.label ? ` · ${m.label}` : ''}
+            {!mobile && a?.is_verified ? ` · ${t('adm.pay.verified')}` : ''}
+          </Chip.Label>
+        </Chip>
+        <div className="v-caption v-quiet mt-1 truncate tabular-nums" style={{ fontSize: 11 }}>{m.detail}</div>
+      </div>
     );
   };
 
@@ -192,7 +236,14 @@ const AdminPayouts: React.FC = () => {
           </Button>
         )}
         {p.status === 'approved' && (
-          <Button variant="primary" size="sm" className="!px-2.5" isPending={pending} onPress={() => setConfirm({ kind: 'execute', payout: p })}>
+          <Button
+            variant="primary"
+            size="sm"
+            className="!px-2.5"
+            isPending={pending}
+            isDisabled={!isPayable(p)}
+            onPress={() => setConfirm({ kind: 'execute', payout: p })}
+          >
             <Send size={11} /> {t('adm.pay.execute')}
           </Button>
         )}
@@ -244,12 +295,13 @@ const AdminPayouts: React.FC = () => {
       stats={stats}
     >
       {error && (
-        <EmptyPanel tone="error" size="sm" icon={<AlertTriangle size={20} />} title={t('adm.errTitle')} description={t('adm.errDesc')} actions={<Button variant="primary" size="sm" onPress={() => { setLoading(true); load(); }}>{t('common.tryAgain')}</Button>} />
+        <EmptyPanel tone="error" size="sm" icon={<AlertTriangle size={20} />} title={t('adm.errTitle')} description={t('adm.errDesc')} actions={<Button variant="primary" size="sm" onPress={load}>{t('common.tryAgain')}</Button>} />
       )}
 
       {/* Brand escrow */}
       <div>
-        <SectionTitle icon={<Building2 size={15} />}>{t('adm.pay.escrow')}</SectionTitle>
+        <SectionTitle icon={<Building2 size={15} />} className="mb-1">{t('adm.pay.escrow')}</SectionTitle>
+        <p className="v-caption v-quiet mb-3" style={{ fontSize: 12 }}>{t('adm.pay.escrowDesc')}</p>
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3" aria-hidden>{[0, 1, 2].map((i) => <div key={i} className="v-talent-card p-4"><div className="v-skel h-4 w-1/2 mb-3" /><div className="v-skel h-3 w-full" /></div>)}</div>
         ) : balances.length === 0 ? (
@@ -289,10 +341,10 @@ const AdminPayouts: React.FC = () => {
         <SectionTitle icon={<CreditCard size={15} />}>{t('adm.pay.queue')}</SectionTitle>
         <DirectoryToolbar
           search={{ value: search, onChange: setSearch, placeholder: t('adm.pay.searchPh'), widthClass: 'w-full sm:w-[300px]' }}
-          count={t('adm.pay.count', { shown: shown.length, total: filtered.length })}
+          count={loading ? t('common.searching') : t('adm.pay.count', { shown: payouts.length, total })}
         >
-          <Segment size="sm" selectedKey={status} onSelectionChange={(k) => { setStatus(k as StatusFilter); setLimit(PAGE); }} aria-label={t('adm.users.statusFilter')}>
-            <Segment.Item id="all">{t('dash.all')} · {payouts.length}</Segment.Item>
+          <Segment size="sm" selectedKey={status} onSelectionChange={(k) => setStatus(k as StatusFilter)} aria-label={t('adm.users.statusFilter')}>
+            <Segment.Item id="all">{t('dash.all')} · {counts.all}</Segment.Item>
             {STATUSES.map((s) => (
               <Segment.Item key={s} id={s}>{t(`adm.pay.status.${s}`)} · {counts.by[s] || 0}</Segment.Item>
             ))}
@@ -301,18 +353,18 @@ const AdminPayouts: React.FC = () => {
 
         {loading ? (
           <RowSkeletons n={4} />
-        ) : filtered.length === 0 ? (
+        ) : payouts.length === 0 ? (
           <EmptyPanel
-            tone={payouts.length === 0 ? 'neutral' : status === 'pending' ? 'success' : 'neutral'}
+            tone={status === 'pending' && counts.all > 0 ? 'success' : 'neutral'}
             icon={<DollarSign size={22} />}
-            title={payouts.length === 0 ? t('adm.pay.emptyTitle') : status === 'pending' ? t('adm.pay.clearTitle') : t('common.noMatches')}
-            description={payouts.length === 0 ? t('adm.pay.emptyDesc') : status === 'pending' ? t('adm.pay.clearDesc') : t('board.emptyStatus')}
-            actions={payouts.length > 0 && (search || status !== 'all') ? <Button variant="tertiary" onPress={() => { setSearch(''); setStatus('all'); }}>{t('board.resetFilters')}</Button> : undefined}
+            title={counts.all === 0 ? t('adm.pay.emptyTitle') : status === 'pending' ? t('adm.pay.clearTitle') : t('common.noMatches')}
+            description={counts.all === 0 ? t('adm.pay.emptyDesc') : status === 'pending' ? t('adm.pay.clearDesc') : t('board.emptyStatus')}
+            actions={filtersOn ? <Button variant="tertiary" onPress={() => { setSearch(''); setStatus('all'); }}>{t('board.resetFilters')}</Button> : undefined}
           />
         ) : (
           <>
             <ul className="space-y-3">
-              {shown.map((p) => {
+              {payouts.map((p) => {
                 const who = userIdentity(p.creator);
                 return (
                   <li key={p.id} className="v-talent-card p-4 grid grid-cols-1 lg:grid-cols-[minmax(220px,1.3fr)_minmax(140px,0.8fr)_auto_minmax(260px,1fr)] gap-4 items-center">
@@ -321,9 +373,9 @@ const AdminPayouts: React.FC = () => {
                       <div className="min-w-0">
                         <div className="v-ink font-medium truncate" style={{ fontSize: 14.5 }}>{who.name || p.creator?.email}</div>
                         <div className="v-caption v-quiet truncate" style={{ fontSize: 11.5 }}>
-                          {p.creator?.email} · {p.campaign?.title || t('adm.pay.direct')} · {postedLabel(p.created_at)}
+                          {p.creator?.email} · {t(`adm.roles.${p.creator?.role}`, { defaultValue: p.creator?.role || '' })} · {p.campaign?.title || t('adm.pay.direct')} · {postedLabel(p.created_at)}
                         </div>
-                        <div className="mt-1.5">{accountChip(p)}</div>
+                        <div className="mt-1.5"><PayoutMethod payout={p} /></div>
                       </div>
                     </div>
                     <div className="min-w-0">
@@ -333,18 +385,18 @@ const AdminPayouts: React.FC = () => {
                     <Chip color={PAYOUT_COLOR[p.status] || 'default'} variant="soft" size="sm">
                       <Chip.Label>{t(`adm.pay.status.${p.status}`, { defaultValue: p.status })}</Chip.Label>
                     </Chip>
-                    {actions(p)}
+                    <div className="min-w-0">
+                      {actions(p)}
+                      {p.status === 'approved' && !isPayable(p) && (
+                        <div className="v-caption v-quiet mt-1.5 lg:text-right" style={{ fontSize: 11 }}>{t('adm.pay.executeBlocked')}</div>
+                      )}
+                    </div>
                   </li>
                 );
               })}
             </ul>
-            {filtered.length > shown.length && (
-              <div className="flex justify-center mt-6">
-                <button type="button" onClick={() => setLimit((n) => n + PAGE)} className="v-facet-btn !px-4 !py-2.5">
-                  {t('common.loadMore', { n: filtered.length - shown.length })}
-                </button>
-              </div>
-            )}
+            {loadingMore && <LoadMoreSkeleton n={2} />}
+            <LoadMore onLoadMore={loadMore} remaining={hasMore ? total - payouts.length : 0} pending={loadingMore} />
           </>
         )}
       </div>
@@ -437,7 +489,12 @@ const AdminPayouts: React.FC = () => {
                 )}
               </Modal.Body>
               <Modal.Footer>
-                <div className="flex-1">{detail && actions(detail, true)}</div>
+                <div className="flex-1 min-w-0">
+                  {detail && actions(detail, true)}
+                  {detail?.status === 'approved' && !isPayable(detail) && (
+                    <div className="v-caption v-quiet mt-1.5" style={{ fontSize: 11 }}>{t('adm.pay.executeBlocked')}</div>
+                  )}
+                </div>
                 <Button variant="ghost" onPress={() => setDetail(null)}>{t('common.close')}</Button>
               </Modal.Footer>
             </Modal.Dialog>

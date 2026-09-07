@@ -1,6 +1,17 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { SupportService } from './support.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { UserRole } from '../users/user.entity';
+
+/**
+ * Tickets come from a public form, so the inbox holds the name, email and
+ * message of anyone who ever wrote in — staff-only data. The same goes for
+ * the review desk: what is visible on the landing page is a staff decision,
+ * not something any signed-in account may set.
+ */
+const STAFF = [UserRole.ADMIN, UserRole.SUPPORT] as const;
 
 @Controller('api')
 export class SupportController {
@@ -13,31 +24,36 @@ export class SupportController {
   }
 
   // ========== ADMIN TICKETS ==========
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...STAFF)
   @Get('support/tickets')
   async getAllTickets(@Query('status') status?: string) {
     return this.supportService.getAllTickets(status);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...STAFF)
   @Get('support/tickets/stats')
   async getTicketStats() {
     return this.supportService.getTicketStats();
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...STAFF)
   @Get('support/tickets/:id')
   async getTicket(@Param('id') id: string) {
     return this.supportService.getTicketById(id);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...STAFF)
   @Patch('support/tickets/:id/reply')
   async replyToTicket(@Param('id') id: string, @Body() body: { reply: string; status?: string }) {
     return this.supportService.replyToTicket(id, body.reply, body.status);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...STAFF)
   @Patch('support/tickets/:id/status')
   async updateTicketStatus(@Param('id') id: string, @Body() body: { status: string }) {
     return this.supportService.updateTicketStatus(id, body.status);
@@ -49,7 +65,8 @@ export class SupportController {
     return this.supportService.getVisibleReviews();
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @Post('public/reviews')
   async createAdminTestimonial(@Body() body: any) {
     return this.supportService.createReview(null, body);
@@ -68,19 +85,22 @@ export class SupportController {
   }
 
   // ========== ADMIN REVIEWS ==========
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...STAFF)
   @Get('reviews')
   async getAllReviews() {
     return this.supportService.getAllReviews();
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...STAFF)
   @Patch('reviews/:id/toggle')
   async toggleReviewVisibility(@Param('id') id: string) {
     return this.supportService.toggleReviewVisibility(id);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...STAFF)
   @Delete('reviews/:id')
   async deleteReview(@Param('id') id: string) {
     return this.supportService.deleteReview(id);

@@ -26,6 +26,7 @@ import PayoutSettings from '../components/PayoutSettings';
 import { MetricCard, PageShell } from '../components/ui';
 import { EmptyPanel } from '../components/common/EmptyPanel';
 import { Notice } from '../components/common/Notice';
+import { toast } from '../lib/toast';
 import { StoryAvatar } from '../components/common/StoryAvatar';
 import { DashPanel, PanelEmpty } from '../components/common/DashPanel';
 import { DirectoryToolbar } from '../components/common/filters';
@@ -227,22 +228,29 @@ const Payments: React.FC = () => {
     if (!transactionId && !txRef) return;
     const marker = `verified_tx_${transactionId || txRef}`;
     if (sessionStorage.getItem(marker)) return;
-    sessionStorage.setItem(marker, '1');
-    if (txRef) {
-      api
-        .post('/payments/confirm', {
-          txRef,
+
+    /*
+     * Reconciling the redirect back from the gateway. The "already handled"
+     * marker is written only once the server has actually answered — it used
+     * to be set first, so one transient failure suppressed the retry
+     * permanently, even on reload, and the payment was never recorded.
+     */
+    (async () => {
+      try {
+        if (txRef) {
+          await api.post('/payments/confirm', { txRef, transactionId: transactionId || undefined });
+        }
+        await api.post('/payments/verify', {
           transactionId: transactionId || undefined,
-          status: status || undefined,
-        })
-        .catch(() => {});
-    }
-    api
-      .post('/payments/verify', {
-        transactionId: transactionId || undefined,
-        txRef: txRef || undefined,
-      })
-      .catch(() => {});
+          txRef: txRef || undefined,
+        });
+        sessionStorage.setItem(marker, '1');
+        load();
+      } catch {
+        // Left unmarked on purpose: reloading the page retries.
+        toast.error(t('ops.pay.errReconcile', { ref: txRef || transactionId || '—' }));
+      }
+    })();
   }, []);
 
   const load = useCallback(async () => {
@@ -693,8 +701,22 @@ const PayModal: React.FC<{
         window.location.href = res.data.paymentLink;
         return;
       } else if (res.data?.data) {
-        launchFlutterwaveCheckout(res.data.data, payConfig.publicKey, onPaid);
-        setSuccess(true);
+        // Success is decided in the callback, not here: the checkout window
+        // has not even opened yet at this point.
+        launchFlutterwaveCheckout(res.data.data, payConfig.publicKey, (result) => {
+          setSending(false);
+          if (result.ok) {
+            setSuccess(true);
+            onPaid();
+            return;
+          }
+          if (result.reason === 'closed') {
+            setError(t('ops.pay.m.errClosed'));
+            return;
+          }
+          setError(result.reason === 'sdk' ? t('ops.pay.m.errSdk') : t('ops.pay.m.errUnconfirmed', { ref: result.txRef || '—' }));
+        });
+        return;
       } else {
         setError(t('ops.pay.m.errNoLink'));
       }
@@ -899,23 +921,42 @@ const PayModal: React.FC<{
   );
 };
 
-/* ─── Flutterwave inline checkout (unchanged) ───────────────────── */
+/* ─── Flutterwave inline checkout ───────────────────────────────── */
+/**
+ * The result of a checkout, as the server sees it.
+ *
+ * This used to swallow both the confirm and the verify call in empty
+ * catches and then report success unconditionally: the card was charged,
+ * the platform had no record, and the brand was told it worked. Nothing is
+ * called a success now unless the server says the transaction completed.
+ */
+export type CheckoutResult = { ok: boolean; txRef?: string; reason?: 'closed' | 'unconfirmed' | 'sdk' };
+
 function launchFlutterwaveCheckout(
   paymentData: any,
   publicKey: string,
-  onSuccess: () => void
+  onSettled: (result: CheckoutResult) => void,
 ) {
   if (!(window as any).FlutterwaveCheckout) {
     const script = document.createElement('script');
     script.src = 'https://checkout.flutterwave.com/v3.js';
-    script.onload = () => doCheckout(paymentData, publicKey, onSuccess);
+    script.onload = () => doCheckout(paymentData, publicKey, onSettled);
+    // Without this the modal claimed success while the checkout never opened.
+    script.onerror = () => onSettled({ ok: false, txRef: paymentData?.tx_ref, reason: 'sdk' });
     document.head.appendChild(script);
   } else {
-    doCheckout(paymentData, publicKey, onSuccess);
+    doCheckout(paymentData, publicKey, onSettled);
   }
 }
 
-function doCheckout(data: any, publicKey: string, onSuccess: () => void) {
+function doCheckout(data: any, publicKey: string, onSettled: (result: CheckoutResult) => void) {
+  let settled = false;
+  const finish = (result: CheckoutResult) => {
+    if (settled) return;
+    settled = true;
+    onSettled(result);
+  };
+
   (window as any).FlutterwaveCheckout({
     public_key: publicKey,
     tx_ref: data.tx_ref,
@@ -925,28 +966,32 @@ function doCheckout(data: any, publicKey: string, onSuccess: () => void) {
     customizations: data.customizations || { title: 'CampaignHub Payment' },
     callback: async (response: any) => {
       const transactionId = response?.transaction_id || response?.id;
-      const txRef = response?.tx_ref || data?.tx_ref;
-      const status = response?.status;
-      if (txRef) {
-        try {
-          await api.post('/payments/confirm', {
-            txRef: String(txRef),
-            transactionId: transactionId ? String(transactionId) : undefined,
-            status: status ? String(status) : undefined,
-          });
-        } catch {}
+      const txRef = String(response?.tx_ref || data?.tx_ref || '');
+      let completed = false;
+
+      try {
+        const confirmed = await api.post('/payments/confirm', {
+          txRef,
+          transactionId: transactionId ? String(transactionId) : undefined,
+        });
+        completed = confirmed.data?.status === 'completed';
+      } catch {
+        completed = false;
       }
-      if (transactionId) {
+
+      if (!completed && transactionId) {
         try {
-          await api.post('/payments/verify', {
-            transactionId: String(transactionId),
-            txRef: txRef ? String(txRef) : undefined,
-          });
-        } catch {}
+          const verified = await api.post('/payments/verify', { transactionId: String(transactionId), txRef });
+          const status = verified.data?.data?.status || verified.data?.status;
+          completed = typeof status === 'string' && ['successful', 'success', 'completed'].includes(status.toLowerCase());
+        } catch {
+          completed = false;
+        }
       }
-      onSuccess();
+
+      finish({ ok: completed, txRef, reason: completed ? undefined : 'unconfirmed' });
     },
-    onclose: () => {},
+    onclose: () => finish({ ok: false, txRef: data?.tx_ref, reason: 'closed' }),
   });
 }
 

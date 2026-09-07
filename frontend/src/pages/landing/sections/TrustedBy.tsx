@@ -18,30 +18,18 @@ interface TrustedByProps {
   settings: LandingSettings;
 }
 
-const DEFAULT_BRANDS = [
-  'Spotify',
-  'LVMH',
-  'Epic Games',
-  'Adidas',
-  'Red Bull',
-  'Gymshark',
-  'Nike',
-  'Samsung',
-  'Sephora',
-  'Disney+',
-  'Glossier',
-  'Notion',
-];
-
 export const TrustedBy: React.FC<TrustedByProps> = ({ settings }) => {
   if (settings.ticker_enabled === 'false') return null;
 
   const tickerRaw = settings.ticker_text?.trim();
   // Admin enters logos as comma-separated text in Site Control; we also tolerate
   // `·`, `•`, `|` separators for backwards compatibility with older settings.
-  const brands = tickerRaw
-    ? tickerRaw.split(/[,·•|]/).map((s) => s.trim()).filter(Boolean)
-    : DEFAULT_BRANDS;
+  const brands = tickerRaw ? tickerRaw.split(/[,·•|]/).map((s) => s.trim()).filter(Boolean) : [];
+
+  // No placeholder roster: this strip used to fall back to Spotify, Nike and
+  // ten other brands that have never been customers. With nothing set, the
+  // section simply does not render.
+  if (brands.length === 0) return null;
 
   /* Repeat the row twice so the -50% translate produces a seamless loop. */
   const doubled = [...brands, ...brands];

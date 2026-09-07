@@ -110,12 +110,19 @@ test.describe('brand', () => {
     const started = await bulk.json();
     expect(started.count).toBe(2);
     expect(started.total).toBe(Math.round(items.reduce((s: number, i: any) => s + i.amount, 0) * 100) / 100);
+    // The payer does not get to declare their own payment successful: the
+    // status is whatever the provider says on verification. Claiming
+    // "successful" for a checkout that never cleared must leave the batch
+    // exactly where it was, or a brand could fund payouts with nothing.
     const confirm = await request.post(`${baseURL}/api/payments/confirm`, { headers: auth, data: { txRef: started.batchRef, status: 'successful' } });
     expect(confirm.ok()).toBeTruthy();
+    expect((await confirm.json()).status, 'an unverified payment must not complete itself').not.toBe('completed');
+
     const txs = await (await request.get(`${baseURL}/api/payments/transactions`, { headers: auth })).json();
     const children = txs.filter((x: any) => x.batch_ref === started.batchRef && !x.is_batch);
     expect(children).toHaveLength(2);
-    expect(children.every((x: any) => x.status === 'completed')).toBeTruthy();
+    expect(children.every((x: any) => x.status !== 'completed')).toBeTruthy();
+    expect(children.reduce((s: number, x: any) => s + Number(x.amount), 0)).toBe(started.total);
     expect(txs.find((x: any) => x.tx_ref === started.batchRef)?.is_batch).toBeTruthy();
   });
 

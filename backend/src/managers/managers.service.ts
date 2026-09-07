@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { toPublicUser } from '../users/public-user';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ManagerProfile } from './manager-profile.entity';
@@ -38,7 +39,10 @@ export class ManagersService {
       relations: ['user'],
     });
 
-    if (profile) return profile;
+    // The linked User row carries password_hash, KYC blobs and the Telegram
+    // link token — none of which belongs in a profile response, even the
+    // owner's own (it would land in browser memory on every page load).
+    if (profile) return { ...profile, user: toPublicUser(profile.user) };
 
     const user = await this.usersService.findById(userId);
     if (!user) throw new BadRequestException('User not found');
@@ -51,7 +55,8 @@ export class ManagersService {
       blacklisted_brand_ids: [],
     } as any) as unknown as ManagerProfile;
 
-    return this.managersRepo.save(profile);
+    const created = await this.managersRepo.save(profile);
+    return { ...created, user: toPublicUser((created as any).user) };
   }
 
   async createProfile(userId: string, data: any) {
@@ -161,10 +166,11 @@ export class ManagersService {
   }
 
   async getAllFeedback() {
-    return this.feedbackRepo.find({
+    const rows = await this.feedbackRepo.find({
       relations: ['brand', 'brand.brandProfile', 'manager', 'manager.managerProfile'],
       order: { created_at: 'DESC' }
     });
+    return rows.map((f: any) => ({ ...f, brand: toPublicUser(f.brand), manager: toPublicUser(f.manager) }));
   }
 
   async resolveFeedback(id: string, status: string) {

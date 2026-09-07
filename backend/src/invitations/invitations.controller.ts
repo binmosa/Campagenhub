@@ -62,6 +62,17 @@ export class InvitationsController {
     return this.svc.approvePayment(req.user.userId, id);
   }
 
+  /**
+   * How much of the brand's money a manager may commit. Every sibling route
+   * here scopes to `req.user.userId` (so a team member acts only on their
+   * own account); this one resolved the parent brand, which let any team
+   * member — with no permissions at all — raise a manager's budget cap.
+   */
+  @Patch('team/:id/grant')
+  updateGrant(@Request() req: any, @Param('id') id: string, @Body() body: { campaign_limit?: number | null; budget_cap?: number | null; campaigns?: string[] }) {
+    return this.svc.updateGrant(req.user.userId, id, body);
+  }
+
   @Patch('team/:id/permissions')
   updatePermissions(@Request() req: any, @Param('id') id: string, @Body() body: any) {
     return this.svc.updatePermissions(req.user.userId, id, body.permissions);

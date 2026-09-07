@@ -8,7 +8,7 @@ import { fieldClass } from '../talent/shared';
 import { MetricCard, PageShell } from '../../components/ui';
 import { EmptyPanel } from '../../components/common/EmptyPanel';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
-import { Field, dateShort, type AdminUser } from './shared';
+import { Field, dateShort } from './shared';
 
 /**
  * AdminRoles — custom staff roles and what they may do. Permissions are a
@@ -88,7 +88,7 @@ const PermissionEditor: React.FC<{ value: Perm[]; onChange: (v: Perm[]) => void 
 const AdminRoles: React.FC = () => {
   const { t } = useTranslation();
   const [roles, setRoles] = useState<Role[]>([]);
-  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [roleCounts, setRoleCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -99,10 +99,12 @@ const AdminRoles: React.FC = () => {
 
   const load = useCallback(() => {
     setError(false);
-    Promise.all([api.get('/roles/global'), api.get('/admin/users').catch(() => ({ data: [] }))])
+    /* Only the per-role headcounts are needed here, and the directory
+       endpoint counts those in SQL — so ask for one row, not every user. */
+    Promise.all([api.get('/roles/global'), api.get('/admin/users', { params: { limit: 1 } }).catch(() => ({ data: {} }))])
       .then(([r, u]) => {
         setRoles(Array.isArray(r.data) ? r.data : []);
-        setUsers(Array.isArray(u.data) ? u.data : []);
+        setRoleCounts(u.data?.stats || {});
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
@@ -111,12 +113,11 @@ const AdminRoles: React.FC = () => {
 
   const usersByRole = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const u of users) {
-      const r = String(u.role || '').toLowerCase();
-      m[r] = (m[r] || 0) + 1;
+    for (const [k, v] of Object.entries(roleCounts || {})) {
+      if (k.startsWith('role_')) m[k.slice(5)] = Number(v);
     }
     return m;
-  }, [users]);
+  }, [roleCounts]);
   const onCustom = roles.reduce((s, r) => s + (usersByRole[String(r.name).toLowerCase()] || 0), 0);
   const keyCount = roles.reduce((s, r) => s + Object.keys(r.permissions || {}).length, 0);
 

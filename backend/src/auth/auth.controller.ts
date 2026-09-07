@@ -1,17 +1,30 @@
-import { Controller, Request, Post, UseGuards, Body, Get, UnauthorizedException } from '@nestjs/common';
+import { Controller, Request, Post, UseGuards, Body, Get, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { UserRole } from '../users/user.entity';
 import { JwtAuthGuard } from './jwt-auth.guard';
+
+
+/** Same idea as the app-wide ceilings: production defaults, raisable for a test run. */
+const authLimit = (key: string, fallback: number): number => {
+  const raw = Number(process.env[key]);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : fallback;
+};
 
 @Controller('api/auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+  /* Credential endpoints are the ones worth guessing at, so they get a
+     much tighter allowance than the app-wide default. */
+  @Throttle({ short: { ttl: 60_000, limit: authLimit('THROTTLE_REGISTER', 5) }, medium: { ttl: 3_600_000, limit: authLimit('THROTTLE_REGISTER_HOUR', 20) } })
   @Post('register')
   async register(@Body() body: any) {
     const { email, password, role, profile } = body;
     if (!email || !password || !role) {
-      return { error: 'Email, password, and role are required' };
+      // A 201 carrying `{ error }` reads as success to every client — the
+      // frontend would store an undefined token and land on a blank app.
+      throw new BadRequestException('Email, password, and role are required');
     }
     // Simple-signup flow: no KYC required at registration. Account starts
     // as `active`. Admin can later flip `kyc_required=true` and the user
@@ -19,6 +32,23 @@ export class AuthController {
     return this.authService.register(email, password, role, profile, body.language, body.signup_market);
   }
 
+  /* Asking for a link is rate-limited hard: it sends mail, and answering
+     the same way for every address is what keeps it from confirming who
+     has an account. */
+  @Throttle({ short: { ttl: 60_000, limit: authLimit('THROTTLE_FORGOT', 3) }, medium: { ttl: 3_600_000, limit: authLimit('THROTTLE_FORGOT_HOUR', 10) } })
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: { email: string }) {
+    await this.authService.requestPasswordReset(body?.email);
+    return { ok: true, message: 'If that address has an account, a reset link is on its way.' };
+  }
+
+  @Throttle({ short: { ttl: 60_000, limit: authLimit('THROTTLE_RESET', 5) }, medium: { ttl: 3_600_000, limit: authLimit('THROTTLE_RESET_HOUR', 20) } })
+  @Post('reset-password')
+  async resetPassword(@Body() body: { email: string; token: string; password: string }) {
+    return this.authService.resetPassword(body?.email, body?.token, body?.password);
+  }
+
+  @Throttle({ short: { ttl: 60_000, limit: authLimit('THROTTLE_LOGIN', 10) }, medium: { ttl: 900_000, limit: authLimit('THROTTLE_LOGIN_QUARTER', 40) } })
   @Post('login')
   async login(@Body() body: any) {
     const { email, password } = body;

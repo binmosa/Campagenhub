@@ -5,6 +5,19 @@ import { BrandProfile } from './brand-profile.entity';
 import { User, UserRole } from '../users/user.entity';
 import * as bcrypt from 'bcrypt';
 
+const BRAND_WRITABLE = [
+  'company_name', 'industry', 'website', 'social_links', 'objectives',
+  'contact_person', 'contact_email', 'description', 'logo_url', 'tin_number',
+  'location', 'country', 'country_code', 'state', 'state_code', 'city',
+] as const;
+
+const pickWritableBrandProfile = (data: any): Partial<BrandProfile> => {
+  const out: any = {};
+  if (!data || typeof data !== 'object') return out;
+  for (const k of BRAND_WRITABLE) if (data[k] !== undefined) out[k] = data[k];
+  return out;
+};
+
 @Injectable()
 export class BrandsService {
   constructor(
@@ -22,6 +35,9 @@ export class BrandsService {
   }
 
   async updateProfile(userId: string, data: Partial<BrandProfile>): Promise<BrandProfile> {
+    // Allowlisted for the same reason as the creator profile: `merge` would
+    // otherwise accept an `id` from the body and update another brand's row.
+    data = pickWritableBrandProfile(data);
     let profile = await this.getProfile(userId);
     
     if (!profile) {

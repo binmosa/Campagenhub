@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards, Request, Patch, Param, Delete, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, Request, Patch, Param, Delete, Query, ForbiddenException } from '@nestjs/common';
 import { CampaignsService } from './campaigns.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
@@ -6,12 +6,27 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { TeamPermission, TeamPermissionGuard } from '../auth/team-permission.guard';
 import { UserRole } from '../users/user.entity';
+import { engagementFor, isManager, requireManagerPermission } from '../managers/manager-access';
 
 /**
  * Brand-owned routes act for `req.user.brandId` — the owner itself, or the
  * parent brand when a team member is signed in — and team members must hold
  * the matching permission flag (see TeamPermissionGuard).
+ *
+ * An account manager is not a brand: they act only for brands that engaged
+ * them, name the brand explicitly, and are capped by that brand's grant.
  */
+
+/** The brand a request acts for: the account itself, or — for a manager — the brand they named. */
+const actingBrand = (req: any, brandId?: string, permission?: { key: string; label: string }): string => {
+  if (!isManager(req.user)) return req.user.brandId;
+  const target = brandId || (req.user.managedBrands || [])[0]?.brandId;
+  if (!target) throw new ForbiddenException('No brand has engaged you yet. Offer to manage a campaign first.');
+  const engagement = engagementFor(req.user, target);
+  if (permission) requireManagerPermission(engagement, permission.key, permission.label);
+  return target;
+};
+
 @Controller('api/campaigns')
 export class CampaignsController {
   constructor(private readonly campaignsService: CampaignsService) {}
@@ -50,47 +65,54 @@ export class CampaignsController {
   // Brand overview numbers (funnels, committed budget, weekly series).
   @UseGuards(JwtAuthGuard, RolesGuard, TeamPermissionGuard)
   @Get('brand/stats')
-  @Roles(UserRole.BRAND)
+  @Roles(UserRole.BRAND, UserRole.MANAGER)
   @TeamPermission('can_view_analytics')
-  async getBrandStats(@Request() req: any) {
-    return this.campaignsService.getBrandStats(req.user.brandId);
+  async getBrandStats(@Request() req: any, @Query('brandId') brandId?: string) {
+    return this.campaignsService.getBrandStats(actingBrand(req, brandId, { key: 'can_view_analytics', label: 'see analytics' }));
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Get('brand')
-  @Roles(UserRole.BRAND)
+  @Roles(UserRole.BRAND, UserRole.MANAGER)
   async getBrandCampaigns(
     @Request() req: any,
     @Query('status') status?: string,
     @Query('search') search?: string,
+    @Query('brandId') brandId?: string,
   ) {
+    if (isManager(req.user)) return this.campaignsService.getCampaignsForManager(req.user, { status, search, brandId });
     return this.campaignsService.getCampaignsByBrand(req.user.brandId, { status, search });
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
+  /** The campaigns this account works on: a brand's own, a manager's managed set. */
   @Get('mine')
-  @Roles(UserRole.BRAND)
+  @Roles(UserRole.BRAND, UserRole.MANAGER)
   async getMineCampaigns(
     @Request() req: any,
     @Query('status') status?: string,
     @Query('search') search?: string,
+    @Query('brandId') brandId?: string,
   ) {
+    if (isManager(req.user)) return this.campaignsService.getCampaignsForManager(req.user, { status, search, brandId });
     return this.campaignsService.getCampaignsByBrand(req.user.brandId, { status, search });
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard, TeamPermissionGuard)
   @Post()
-  @Roles(UserRole.BRAND)
+  @Roles(UserRole.BRAND, UserRole.MANAGER)
   @TeamPermission('can_add_campaigns')
   async createCampaign(@Request() req: any, @Body() body: any) {
-    return this.campaignsService.createCampaign({ ...req.user, userId: req.user.brandId }, body);
+    const brandId = actingBrand(req, body?.brand_id, { key: 'can_add_campaigns', label: 'create campaigns' });
+    return this.campaignsService.createCampaign({ ...req.user, userId: brandId }, body, isManager(req.user) ? req.user : null);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard, TeamPermissionGuard)
   @Patch(':id')
-  @Roles(UserRole.BRAND)
+  @Roles(UserRole.BRAND, UserRole.MANAGER)
   @TeamPermission('can_add_campaigns')
   async updateCampaign(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+    if (isManager(req.user)) return this.campaignsService.updateCampaignAsManager(id, req.user, body);
     return this.campaignsService.updateCampaign(id, req.user.brandId, body);
   }
 

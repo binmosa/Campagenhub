@@ -8,6 +8,19 @@ import { decideClaim, parseSocialLinks, publicSocialLinks, reconcileSocialLinks 
 import { User } from '../users/user.entity';
 import { withDerivedFullName } from '../core/name.util';
 
+const CREATOR_WRITABLE = [
+  'first_name', 'last_name', 'full_name', 'username', 'category', 'location',
+  'country', 'country_code', 'state', 'state_code', 'city',
+  'follower_range', 'social_links', 'bio', 'avatar_url',
+] as const;
+
+const pickWritableProfile = (data: any): Partial<CreatorProfile> => {
+  const out: any = {};
+  if (!data || typeof data !== 'object') return out;
+  for (const k of CREATOR_WRITABLE) if (data[k] !== undefined) out[k] = data[k];
+  return out;
+};
+
 @Injectable()
 export class CreatorsService {
   constructor(
@@ -187,7 +200,10 @@ export class CreatorsService {
     return { items, total, limit, offset, hasMore: offset + items.length < total };
   }
   async updateProfile(userId: string, data: Partial<CreatorProfile>): Promise<CreatorProfile> {
-    data = withDerivedFullName(data);
+    // `merge` copies every column it is handed, primary key included, so an
+    // unfiltered body could carry `id` and rewrite somebody else's profile.
+    // Only these presentation fields are ever client-writable.
+    data = withDerivedFullName(pickWritableProfile(data));
     let profile = await this.getProfile(userId);
 
     // Follower counts are claims: the server decides their verification

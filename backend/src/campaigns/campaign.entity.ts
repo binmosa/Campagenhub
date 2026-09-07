@@ -10,6 +10,11 @@ export class Campaign {
   @JoinColumn({ name: 'brand_id' })
   brand: User;
 
+  /** Set when an account manager created this brief for the brand. */
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'created_by_id' })
+  created_by: User | null;
+
   @Column()
   title: string;
 

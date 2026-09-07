@@ -15,6 +15,7 @@ tempdocx/
 
 # Local credentials — do not commit
 heroui-token.txt
+heroui-ci-token.txt
 
 # Runtime state — never commit user uploads
 backend/public/uploads/

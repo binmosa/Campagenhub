@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Campaign } from '../campaigns/campaign.entity';
@@ -6,6 +6,7 @@ import { CreatorProfile } from '../creators/creator-profile.entity';
 import { User } from '../users/user.entity';
 import { Application } from '../applications/application.entity';
 import { LlmService } from './llm.service';
+import { engagementsOf, isManager } from '../managers/manager-access';
 
 const CATEGORIES = [
   'fashion', 'tech', 'food', 'fitness', 'beauty',
@@ -98,6 +99,22 @@ export class AiService {
     private applicationsRepo: Repository<Application>,
     private llm: LlmService,
   ) {}
+
+  /**
+   * Campaign-scoped AI reads hand back applicant emails, pitches and creator
+   * contact details. They were reachable by any signed-in account with a
+   * campaign id from the public board, so ownership is proven first.
+   */
+  async assertOwnsCampaign(user: any, campaignId: string): Promise<void> {
+    const role = String(user?.role || '').toLowerCase();
+    if (role === 'admin') return;
+    const campaign = await this.campaignsRepo.findOne({ where: { id: campaignId }, relations: ['brand'] });
+    if (!campaign?.brand?.id) throw new NotFoundException('Campaign not found');
+    const brandId = campaign.brand.id;
+    if (user?.brandId === brandId || user?.userId === brandId) return;
+    if (isManager(user) && engagementsOf(user).some((e: any) => e.brandId === brandId)) return;
+    throw new ForbiddenException('That campaign is not yours.');
+  }
 
   /**
    * Helper: Build a standardized creator object from a CreatorProfile entity.

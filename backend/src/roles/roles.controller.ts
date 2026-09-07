@@ -38,14 +38,18 @@ export class RolesController {
     return this.rolesService.createRole(body.name, body.permissions, req.user.userId);
   }
 
-  // Common: Update role permissions (Need to ensure they own it)
+  // Common: a brand edits its own roles, an admin edits platform roles.
+  // RolesGuard passes when a handler declares no @Roles, so both of these
+  // must name their roles AND the service must prove ownership.
   @Patch(':id')
-  async updateRole(@Param('id') id: string, @Body() body: { permissions: Record<string, boolean> }) {
-    return this.rolesService.updateRole(id, body.permissions);
+  @Roles(UserRole.ADMIN, UserRole.BRAND)
+  async updateRole(@Request() req: any, @Param('id') id: string, @Body() body: { permissions: Record<string, boolean> }) {
+    return this.rolesService.updateRole(id, body.permissions, req.user);
   }
 
   @Delete(':id')
-  async deleteRole(@Param('id') id: string) {
-    return this.rolesService.deleteRole(id);
+  @Roles(UserRole.ADMIN, UserRole.BRAND)
+  async deleteRole(@Request() req: any, @Param('id') id: string) {
+    return this.rolesService.deleteRole(id, req.user);
   }
 }

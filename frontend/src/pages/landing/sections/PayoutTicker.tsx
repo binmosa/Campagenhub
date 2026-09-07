@@ -58,7 +58,14 @@ const Row: React.FC<{ ariaHidden?: boolean }> = ({ ariaHidden }) => (
 export const PayoutTicker: React.FC<Props> = ({ settings }) => {
   const { t } = useTranslation();
   const trackRef = useRef<HTMLDivElement>(null);
+  /*
+   * These rows are illustrative, not live payouts. Showing invented
+   * transactions as a running feed is a claim the platform cannot back, so
+   * the strip only renders when an admin deliberately turns it on in Site
+   * control (it is off by default, including on a fresh deploy).
+   */
   if (settings.ticker_enabled === 'false') return null;
+  if (settings.showcase_demo_enabled !== 'true') return null;
 
   const setPaused = (paused: boolean) => {
     if (trackRef.current) {

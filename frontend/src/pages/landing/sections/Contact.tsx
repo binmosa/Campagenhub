@@ -119,12 +119,17 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
             </Button>
           </form>
 
+          {/* Only real contact details, set by an admin in Site control. The
+              fallbacks here used to be a misspelled address on a domain
+              nobody owns, a 555 test number and a city with no office. */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-10">
             {[
-              { icon: Mail, value: settings.contact_email || 'info@campgainshub.com' },
-              { icon: Phone, value: settings.contact_phone || '+1 (555) 123-4567' },
-              { icon: MapPin, value: settings.contact_loc || 'San Francisco, CA' },
-            ].map((row, i) => {
+              { icon: Mail, value: settings.contact_email },
+              { icon: Phone, value: settings.contact_phone },
+              { icon: MapPin, value: settings.contact_loc },
+            ]
+              .filter((row) => !!row.value && String(row.value).trim())
+              .map((row, i) => {
               const Icon = row.icon;
               return (
                 <div key={i} className="flex items-center gap-3 v-body v-muted">

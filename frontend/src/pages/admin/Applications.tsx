@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, FileText, Percent, Users, Video } from 'lucide-react';
 import { Button, Chip, Modal } from '@heroui/react';
 import { Segment } from '@heroui-pro/react';
 import { useTranslation } from 'react-i18next';
-import api from '../../lib/api';
 import { weekSeries } from '../../lib/series';
+import { usePagedList, useDebounced } from '../../lib/usePagedList';
 import { formatBudget, postedLabel } from '../../lib/campaignFormat';
 import { APPLICATION_STATUSES, APPLICATION_STATUS_COLOR, normalizeApplicationStatus, type ApplicationStatus } from '../../lib/catalog';
 import { formatCompact, totalFollowers, verifiedFollowers } from '../../lib/socialLinks';
@@ -12,6 +12,7 @@ import { MetricCard, PageShell } from '../../components/ui';
 import { EmptyPanel } from '../../components/common/EmptyPanel';
 import { PitchVideo } from '../../components/common/PitchVideo';
 import { DirectoryToolbar } from '../../components/common/filters';
+import { LoadMore, LoadMoreSkeleton } from '../../components/common/LoadMore';
 import { StoryAvatar } from '../../components/common/StoryAvatar';
 import { Fact, RowSkeletons, dateShort, userIdentity } from './shared';
 
@@ -30,49 +31,27 @@ const audienceOf = (creator: any) => {
 
 const AdminApplications: React.FC = () => {
   const { t } = useTranslation();
-  const [apps, setApps] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
-  const [limit, setLimit] = useState(PAGE);
   const [open, setOpen] = useState<any>(null);
 
-  const load = useCallback(() => {
-    setError(false);
-    api
-      .get('/admin/applications')
-      .then((r) => setApps(Array.isArray(r.data) ? r.data : []))
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, []);
-  useEffect(load, [load]);
+  /* The server filters, sorts and slices; the browser holds one page. */
+  const debouncedSearch = useDebounced(search);
+  const { items: apps, total, hasMore, stats: serverStats, loading, loadingMore, error, loadMore, refresh } = usePagedList<any>(
+    '/admin/applications',
+    { search: debouncedSearch, status },
+    PAGE,
+  );
 
-  const counts = useMemo(() => {
-    const by: Record<string, number> = {};
-    for (const a of apps) {
-      const s = normalizeApplicationStatus(a.status);
-      by[s] = (by[s] || 0) + 1;
-    }
-    const decided = (by.accepted || 0) + (by.rejected || 0);
-    return { by, rate: decided ? Math.round(((by.accepted || 0) / decided) * 100) : 0 };
-  }, [apps]);
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return apps.filter((a) => {
-      if (status !== 'all' && normalizeApplicationStatus(a.status) !== status) return false;
-      if (!q) return true;
-      const who = userIdentity(a.creator);
-      const brand = userIdentity(a.campaign?.brand);
-      return [a.creator?.email, who.name, who.handle, a.campaign?.title, brand.name, a.pitch].some((s) => String(s || '').toLowerCase().includes(q));
-    });
-  }, [apps, search, status]);
-  const shown = filtered.slice(0, limit);
+  // Whole-table tallies, counted in SQL — the KPI row must describe every
+  // application, not the page currently loaded.
+  const counts = { by: (serverStats?.by || {}) as Record<string, number>, rate: Number(serverStats?.rate || 0) };
+  const allCount = Number(serverStats?.all || 0);
+  const filtersOn = !!search || status !== 'all';
 
   const stats = (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <MetricCard label={t('adm.apps.kpiAll')} value={apps.length} hint={t('adm.apps.kpiAllHint', { n: new Set(apps.map((a) => a.campaign?.id).filter(Boolean)).size })} series={weekSeries(apps)} icon={FileText} />
+      <MetricCard label={t('adm.apps.kpiAll')} value={allCount} hint={t('adm.apps.kpiAllHint', { n: Number(serverStats?.campaigns || 0) })} series={weekSeries(apps)} icon={FileText} />
       <MetricCard label={t('appStatus.pending')} value={counts.by.pending || 0} hint={t('apps.kpiPendingHint')} icon={Clock} iconStatus={counts.by.pending ? 'warning' : undefined} />
       <MetricCard label={t('appStatus.accepted')} value={counts.by.accepted || 0} hint={t('adm.apps.kpiAcceptedHint')} icon={CheckCircle2} iconStatus={counts.by.accepted ? 'success' : undefined} chartColor="var(--color-signal-green, #16c784)" series={weekSeries(apps, (a) => normalizeApplicationStatus(a.status) === 'accepted')} />
       <MetricCard label={t('adm.apps.kpiRate')} value={`${counts.rate}%`} hint={t('adm.apps.kpiRateHint')} icon={Percent} />
@@ -95,10 +74,10 @@ const AdminApplications: React.FC = () => {
       <div>
         <DirectoryToolbar
           search={{ value: search, onChange: setSearch, placeholder: t('adm.apps.searchPh'), widthClass: 'w-full sm:w-[320px]' }}
-          count={t('adm.apps.count', { shown: shown.length, total: filtered.length })}
+          count={loading ? t('common.searching') : t('adm.apps.count', { shown: apps.length, total })}
         >
-          <Segment size="sm" selectedKey={status} onSelectionChange={(k) => { setStatus(k as StatusFilter); setLimit(PAGE); }} aria-label={t('adm.users.statusFilter')}>
-            <Segment.Item id="all">{t('dash.all')} · {apps.length}</Segment.Item>
+          <Segment size="sm" selectedKey={status} onSelectionChange={(k) => setStatus(k as StatusFilter)} aria-label={t('adm.users.statusFilter')}>
+            <Segment.Item id="all">{t('dash.all')} · {allCount}</Segment.Item>
             {APPLICATION_STATUSES.map((s) => (
               <Segment.Item key={s} id={s}>{t(`appStatus.${s}`)} · {counts.by[s] || 0}</Segment.Item>
             ))}
@@ -108,18 +87,18 @@ const AdminApplications: React.FC = () => {
         {loading ? (
           <RowSkeletons n={5} />
         ) : error ? (
-          <EmptyPanel tone="error" icon={<AlertTriangle size={22} />} title={t('adm.errTitle')} description={t('adm.errDesc')} actions={<Button variant="primary" onPress={() => { setLoading(true); load(); }}>{t('common.tryAgain')}</Button>} />
-        ) : filtered.length === 0 ? (
+          <EmptyPanel tone="error" icon={<AlertTriangle size={22} />} title={t('adm.errTitle')} description={t('adm.errDesc')} actions={<Button variant="primary" onPress={refresh}>{t('common.tryAgain')}</Button>} />
+        ) : apps.length === 0 ? (
           <EmptyPanel
             icon={<FileText size={22} />}
-            title={apps.length === 0 ? t('adm.apps.emptyTitle') : t('common.noMatches')}
-            description={apps.length === 0 ? t('adm.apps.emptyDesc') : t('board.emptyStatus')}
-            actions={apps.length > 0 ? <Button variant="tertiary" onPress={() => { setSearch(''); setStatus('all'); }}>{t('board.resetFilters')}</Button> : undefined}
+            title={filtersOn ? t('common.noMatches') : t('adm.apps.emptyTitle')}
+            description={filtersOn ? t('board.emptyStatus') : t('adm.apps.emptyDesc')}
+            actions={filtersOn ? <Button variant="tertiary" onPress={() => { setSearch(''); setStatus('all'); }}>{t('board.resetFilters')}</Button> : undefined}
           />
         ) : (
           <>
             <ul className="space-y-3">
-              {shown.map((a) => {
+              {apps.map((a) => {
                 const who = userIdentity(a.creator);
                 const brand = userIdentity(a.campaign?.brand);
                 const s = normalizeApplicationStatus(a.status);
@@ -174,13 +153,8 @@ const AdminApplications: React.FC = () => {
                 );
               })}
             </ul>
-            {filtered.length > shown.length && (
-              <div className="flex justify-center mt-6">
-                <button type="button" onClick={() => setLimit((n) => n + PAGE)} className="v-facet-btn !px-4 !py-2.5">
-                  {t('common.loadMore', { n: filtered.length - shown.length })}
-                </button>
-              </div>
-            )}
+            {loadingMore && <LoadMoreSkeleton n={2} />}
+            <LoadMore onLoadMore={loadMore} remaining={hasMore ? total - apps.length : 0} pending={loadingMore} />
           </>
         )}
       </div>

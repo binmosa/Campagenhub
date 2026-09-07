@@ -1,0 +1,7 @@
+# Local-only override: the VPS binds 80/443, a laptop usually cannot.
+#   docker compose -f docker-compose.yml -f docker-compose.smoketest.yml up -d
+services:
+  caddy:
+    ports: !override
+      - '8080:80'
+      - '8443:443'

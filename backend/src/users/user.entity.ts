@@ -24,6 +24,15 @@ export class User {
   @Column()
   password_hash: string;
 
+  /* Password reset. The token itself is never stored — only its SHA-256
+     digest — so a leaked database row cannot be replayed as a reset link.
+     Both fields are cleared the moment a reset succeeds. */
+  @Column({ type: 'varchar', nullable: true, select: false })
+  reset_token_hash: string | null;
+
+  @Column({ type: 'timestamp', nullable: true, select: false })
+  reset_token_expires: Date | null;
+
   /** Acquisition market at signup ('et', 'root' for the global site, null
    *  for pre-tracking accounts) — cohort/attribution analytics per market. */
   @Column({ type: 'varchar', length: 8, nullable: true })

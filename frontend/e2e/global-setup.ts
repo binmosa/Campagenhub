@@ -77,6 +77,16 @@ export default async function globalSetup(config: FullConfig) {
       if (pending.rows[0].n === 0) {
         await db.query(`INSERT INTO payouts (creator_id, campaign_id, amount, status) VALUES ($1, $2, 125.00, 'pending')`, [ids.creator, campaignId]);
       }
+      // an approved payout for a payee with no payout account, so the suite
+      // can prove Execute stays disabled when the money has nowhere to go
+      const orphan = await db.query(`SELECT COUNT(*)::int AS n FROM payouts WHERE tx_ref = 'E2E-NO-ACCOUNT-1'`);
+      if (orphan.rows[0].n === 0) {
+        await db.query(
+          `INSERT INTO payouts (creator_id, campaign_id, amount, status, tx_ref) VALUES ($1, $2, 37.00, 'approved', 'E2E-NO-ACCOUNT-1')`,
+          [ids.creator3, campaignId],
+        );
+      }
+      await db.query(`DELETE FROM payout_accounts WHERE user_id = $1`, [ids.creator3]);
     }
     const open = await db.query(`SELECT COUNT(*)::int AS n FROM support_tickets WHERE status = 'open'`);
     if (open.rows[0].n === 0) {

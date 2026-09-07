@@ -1,0 +1,7 @@
+node_modules
+# dist/ is excluded for the from-source build and re-included by
+# Dockerfile.prebuilt, which ships a locally built bundle.
+.env
+test-results
+playwright-report
+e2e

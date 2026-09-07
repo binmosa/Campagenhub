@@ -290,13 +290,13 @@ const Login: React.FC = () => {
                 >
                   {t('auth.passwordLabel')}
                 </label>
-                <a
-                  href="#"
+                <Link
+                  to="/forgot-password"
                   className="v-caption font-medium"
                   style={{ color: 'var(--color-campaign-purple)' }}
                 >
                   {t('auth.forgot')}
-                </a>
+                </Link>
               </div>
               <div className="relative">
                 <span

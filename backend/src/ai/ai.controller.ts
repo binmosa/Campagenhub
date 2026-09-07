@@ -1,21 +1,30 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Request, UseGuards } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { UserRole } from '../users/user.entity';
 
 @Controller('api/ai')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 
-  // 1. Smart Match — discover creators for a campaign
+  // 1. Smart Match — discover creators for a campaign.
+  // Campaign-scoped reads expose applicants and creator contact details, so
+  // they are for the brand that owns the brief (or a manager it engaged).
   @Get('match/:campaignId')
-  async getSmartMatches(@Param('campaignId') campaignId: string) {
+  @Roles(UserRole.BRAND, UserRole.MANAGER, UserRole.ADMIN)
+  async getSmartMatches(@Request() req: any, @Param('campaignId') campaignId: string) {
+    await this.aiService.assertOwnsCampaign(req.user, campaignId);
     return this.aiService.getSmartMatches(campaignId);
   }
 
   // 2. Performance Prediction
   @Get('predict/:campaignId')
-  async predictPerformance(@Param('campaignId') campaignId: string) {
+  @Roles(UserRole.BRAND, UserRole.MANAGER, UserRole.ADMIN)
+  async predictPerformance(@Request() req: any, @Param('campaignId') campaignId: string) {
+    await this.aiService.assertOwnsCampaign(req.user, campaignId);
     return this.aiService.predictPerformance(campaignId);
   }
 
@@ -46,7 +55,9 @@ export class AiController {
 
   // 5. Rank Applicants (Brand-side)
   @Get('rank/:campaignId')
-  async rankApplicants(@Param('campaignId') campaignId: string) {
+  @Roles(UserRole.BRAND, UserRole.MANAGER, UserRole.ADMIN)
+  async rankApplicants(@Request() req: any, @Param('campaignId') campaignId: string) {
+    await this.aiService.assertOwnsCampaign(req.user, campaignId);
     return this.aiService.rankApplicants(campaignId);
   }
 

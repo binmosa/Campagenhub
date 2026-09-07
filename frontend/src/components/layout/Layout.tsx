@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BadgeCheck,
@@ -135,10 +135,11 @@ const NAV_BY_ROLE: Record<string, NavGroup[]> = {
     {
       items: [
         { key: 'dashboard', path: '/dashboard', icon: LayoutDashboard, end: true },
+        { key: 'managerCampaigns', path: '/dashboard/campaigns', icon: Briefcase },
+        { key: 'talent', path: '/dashboard/talent', icon: Star },
         { key: 'invitations', path: '/dashboard/invitations', icon: Mail },
         { key: 'workspace', path: '/dashboard/workspace', icon: ClipboardList },
         { key: 'offers', path: '/dashboard/offers', icon: ShoppingBag },
-        { key: 'talent', path: '/dashboard/talent', icon: Star },
       ],
     },
     {
@@ -215,6 +216,9 @@ const PROMO: Record<string, { title: string; cta: string; to: string; icon: Reac
   brand: { title: 'shell.promoBrandTitle', cta: 'shell.promoBrandCta', to: '/dashboard/campaigns?new=1', icon: <Sparkles size={14} /> },
   creator: { title: 'shell.promoCreatorTitle', cta: 'shell.promoCreatorCta', to: '/campaigns', icon: <Search size={14} /> },
   manager: { title: 'shell.promoManagerTitle', cta: 'shell.promoManagerCta', to: '/dashboard/talent', icon: <Star size={14} /> },
+  /* A manager no brand has engaged yet cannot reach talent — point them at
+     the campaign board, which is where an engagement starts. */
+  managerUnengaged: { title: 'shell.promoManagerNewTitle', cta: 'shell.promoManagerNewCta', to: '/dashboard/campaigns', icon: <Search size={14} /> },
   admin: { title: 'shell.promoAdminTitle', cta: 'shell.promoAdminCta', to: '/dashboard/site-control', icon: <Settings size={14} /> },
 };
 
@@ -241,13 +245,15 @@ interface DashboardSidebarProps {
   groups: NavGroup[];
   role: string;
   pathname: string;
+  /** Manager only: false until a brand engages them, which changes the promo. */
+  engaged?: boolean;
 }
 
-const DashboardSidebar: React.FC<DashboardSidebarProps> = ({ groups, role, pathname }) => {
+const DashboardSidebar: React.FC<DashboardSidebarProps> = ({ groups, role, pathname, engaged = true }) => {
   const { t } = useTranslation();
   const active = findActiveItem(groups, pathname);
   const activeId = active?.path;
-  const promo = PROMO[role];
+  const promo = PROMO[role === 'manager' && !engaged ? 'managerUnengaged' : role];
 
   const renderMenu = (g: NavGroup, ariaLabel: string) => (
     <Sidebar.Menu aria-label={ariaLabel}>
@@ -488,7 +494,6 @@ const Layout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const role = (localStorage.getItem('role') || 'creator').toLowerCase().trim();
-  const groups = NAV_BY_ROLE[role] || NAV_BY_ROLE.creator;
 
   const [user, setUser] = useState<any>(null);
   const [profileImg, setProfileImg] = useState<string | null>(null);
@@ -510,6 +515,15 @@ const Layout: React.FC = () => {
       })
       .catch(() => setLoadingUser(false));
   }, []);
+
+  /* An account manager only reaches the talent directory once a brand engages them. */
+  const engaged = role !== 'manager' || (Array.isArray(user?.managedBrands) && user.managedBrands.length > 0);
+  const groups = useMemo(() => {
+    const base = NAV_BY_ROLE[role] || NAV_BY_ROLE.creator;
+    if (role !== 'manager') return base;
+    if (engaged) return base;
+    return base.map((g) => ({ ...g, items: g.items.filter((i) => i.key !== 'talent') })).filter((g) => g.items.length > 0);
+  }, [role, engaged]);
 
   /* Fetch role profile for avatar + display name (and refresh on save) */
   useEffect(() => {
@@ -576,7 +590,7 @@ const Layout: React.FC = () => {
     <>
       <AppLayout
         navigate={(href) => navigate(href)}
-        sidebar={<DashboardSidebar groups={groups} role={role} pathname={location.pathname} />}
+        sidebar={<DashboardSidebar groups={groups} role={role} pathname={location.pathname} engaged={engaged} />}
         navbar={
           <DashboardNavbar
             pageLabel={pageLabel}

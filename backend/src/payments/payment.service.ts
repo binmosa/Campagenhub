@@ -159,23 +159,15 @@ export class PaymentService {
   // ========== FLUTTERWAVE ==========
   private async ensurePayoutRequestForTransaction(transaction: PaymentTransaction): Promise<Payout | null> {
     if (!transaction?.tx_ref) return null;
+    // Never for a batch parent: its children carry the real payees.
+    if (transaction.is_batch) return null;
 
-    // Recover missing payee/campaign links from legacy/incomplete transaction rows.
-    let payeeId: string | undefined = transaction?.payee?.id;
+    // Recover a missing payee link on legacy/incomplete transaction rows.
+    // The checkout customer is deliberately NOT used for this: on a batch
+    // (and on any brand-paid checkout) that is the payer, which would queue
+    // a payout to the brand itself.
+    const payeeId: string | undefined = transaction?.payee?.id;
     let campaignId: string | undefined = transaction?.campaign?.id;
-
-    if (!payeeId) {
-      try {
-        const provider = transaction?.provider_response ? JSON.parse(transaction.provider_response) : null;
-        const customerEmail = provider?.customer?.email || provider?.email;
-        if (customerEmail) {
-          const payee = await this.userRepo.findOne({ where: { email: customerEmail } as any, select: ['id', 'email'] as any });
-          if (payee?.id) payeeId = payee.id;
-        }
-      } catch {
-        // best-effort parse only
-      }
-    }
 
     if (!campaignId && transaction?.payer?.id) {
       campaignId = await this.resolveCampaignIdForPayment({
@@ -260,6 +252,10 @@ export class PaymentService {
     let created = 0;
     for (const tx of completedTransactions) {
       if (!tx?.tx_ref) continue;
+      // A batch parent is the sum of its children — its own children already
+      // produce the payouts. Reconciling it created an extra payout for the
+      // whole batch total, payable to the brand that ran the checkout.
+      if (tx.is_batch) continue;
       const existing = await this.payoutsRepository.findOne({ where: { tx_ref: tx.tx_ref } });
       if (existing) continue;
       const saved = await this.ensurePayoutRequestForTransaction(tx);
@@ -559,10 +555,11 @@ export class PaymentService {
     }
   }
 
-  async verifyPayment(transactionId?: string, txRef?: string) {
+  async verifyPayment(transactionId?: string, txRef?: string, actor?: any) {
     if (!transactionId && !txRef) {
       throw new BadRequestException('Payment verification requires transactionId or txRef');
     }
+    if (actor && txRef) await this.assertTransactionParty(txRef, actor);
 
     const headers = { Authorization: `Bearer ${this.flwSecretKey}` };
     let response: any = null;
@@ -600,7 +597,22 @@ export class PaymentService {
           relations: ['payee', 'campaign'],
         });
         if (transaction) {
-          transaction.status = this.isProviderSuccessStatus(txData?.status) ? 'completed' : 'failed';
+          /*
+           * "successful" is not enough on its own: the provider is telling
+           * us about a charge, and we have to be sure it is the charge we
+           * asked for. A short-paid checkout (or a reference reused across
+           * amounts) must not complete a transaction worth more.
+           */
+          const paidEnough =
+            Number(txData?.amount ?? 0) + 0.005 >= Number(transaction.amount ?? 0) &&
+            String(txData?.currency || transaction.currency).toUpperCase() === String(transaction.currency || '').toUpperCase();
+          const succeeded = this.isProviderSuccessStatus(txData?.status) && paidEnough;
+          if (this.isProviderSuccessStatus(txData?.status) && !paidEnough) {
+            console.error(
+              `[Payments] ${transaction.tx_ref}: provider reported success for ${txData?.amount} ${txData?.currency} but the transaction is ${transaction.amount} ${transaction.currency}.`,
+            );
+          }
+          transaction.status = succeeded ? 'completed' : 'failed';
           if (!providerReference) providerReference = String(txData?.id || '');
           transaction.provider_reference = providerReference;
           transaction.provider_response = JSON.stringify(txData);
@@ -662,20 +674,21 @@ export class PaymentService {
     if (tx.payer?.id !== data.userId) throw new BadRequestException('Unauthorized transaction access');
 
     tx.provider_reference = data.transactionId || tx.provider_reference;
-    if (data.status && this.isProviderSuccessStatus(data.status)) {
-      tx.status = 'completed';
-    } else if (!data.status && ['initiated', 'processing'].includes((tx.status || '').toLowerCase())) {
-      // Fallback for callbacks that omit explicit status but indicate successful return.
-      tx.status = 'completed';
-    }
     await this.transactionsRepository.save(tx);
 
-    if (tx.status === 'completed') {
-      if (tx.is_batch) await this.completeBatch(tx, null);
-      else await this.ensurePayoutRequestForTransaction(tx);
-    }
+    /*
+     * The payer is the last party who should get to say whether they paid.
+     * This used to complete the transaction from `data.status` — or from no
+     * status at all — so a brand could mark its own $10,000 checkout paid
+     * without money moving, and the platform would then release a payout
+     * against it. The browser only tells us the checkout closed; the
+     * verdict comes from asking Flutterwave.
+     */
+    const verified = await this.verifyPayment(data.transactionId, tx.tx_ref).catch(() => null);
+    const fresh = await this.transactionsRepository.findOne({ where: { tx_ref: tx.tx_ref }, relations: ['payer', 'payee', 'campaign'] });
+    const status = fresh?.status || tx.status;
 
-    return { ok: true, tx_ref: tx.tx_ref, status: tx.status };
+    return { ok: status === 'completed', tx_ref: tx.tx_ref, status, verified: !!verified };
   }
 
   async handleWebhook(payload: any) {
@@ -783,6 +796,22 @@ export class PaymentService {
       throw new BadRequestException('Insufficient escrow balance. Please deposit more funds.');
     }
 
+    /*
+     * This route writes straight into the payout queue, so it has to clear
+     * the same two gates as a normal payment: it cannot settle a creator
+     * below what was agreed, and it cannot invent a reference. Without them
+     * a brand could book a $1 "settlement" against a $1,000 contract.
+     */
+    await this.assertNotBelowAgreed(data.brandId, data.creatorId, Number(data.amount));
+
+    const backing = await this.transactionsRepository.findOne({ where: { tx_ref: data.txRef } as any });
+    if (!backing || backing.status !== 'completed') {
+      throw new BadRequestException('That payment reference has no completed transaction behind it.');
+    }
+
+    const duplicate = await this.payoutsRepository.findOne({ where: { tx_ref: data.txRef } as any });
+    if (duplicate) return duplicate;
+
     const payout = this.payoutsRepository.create({
       creator: { id: data.creatorId },
       campaign: { id: data.campaignId },
@@ -798,11 +827,15 @@ export class PaymentService {
     if (!campaign) throw new BadRequestException('Campaign not found');
     if (campaign.brand?.id !== brandId) throw new BadRequestException('Unauthorized campaign access');
 
+    // Mirrors admin.service.computeCampaignEscrow: batch parents are excluded
+    // (their children carry the same money) and `paid` stays committed, so
+    // money that has already left cannot be spent a second time.
     const depositedRaw = await this.transactionsRepository
       .createQueryBuilder('tx')
       .select('COALESCE(SUM(tx.amount), 0)', 'total')
       .where('tx.campaign_id = :campaignId', { campaignId })
       .andWhere('tx.status = :status', { status: 'completed' })
+      .andWhere('(tx.is_batch IS NULL OR tx.is_batch = false)')
       .getRawOne();
     const deposited = Number(depositedRaw?.total || 0);
 
@@ -810,7 +843,7 @@ export class PaymentService {
       .createQueryBuilder('payout')
       .select('COALESCE(SUM(payout.amount), 0)', 'total')
       .where('payout.campaign_id = :campaignId', { campaignId })
-      .andWhere('payout.status IN (:...statuses)', { statuses: ['pending', 'approved'] })
+      .andWhere('payout.status IN (:...statuses)', { statuses: ['pending', 'approved', 'paid'] })
       .getRawOne();
     const committed = Number(committedRaw?.total || 0);
 
@@ -832,6 +865,21 @@ export class PaymentService {
       ? await this.getAllTransactions()
       : await this.getUserTransactions(userId);
     return rows.map(sanitizeTransaction);
+  }
+
+  /**
+   * Only the two sides of a transaction (and platform finance) may read or
+   * re-verify it. These routes used to take a bare reference from anyone.
+   */
+  private async assertTransactionParty(txRef: string, actor: any): Promise<void> {
+    if (!actor) return; // internal call
+    const role = String(actor?.role || '').toLowerCase();
+    if (role === 'admin' || role === 'finance') return;
+    const tx = await this.transactionsRepository.findOne({ where: { tx_ref: txRef }, relations: ['payer', 'payee'] });
+    if (!tx) throw new BadRequestException('Transaction not found');
+    if (tx.payer?.id !== actor?.userId && tx.payee?.id !== actor?.userId) {
+      throw new BadRequestException('Unauthorized');
+    }
   }
 
   async getTransactionByRef(txRef: string, userId?: string, role?: string) {
@@ -916,7 +964,8 @@ export class PaymentService {
     }
   }
 
-  async capturePaypalOrder(orderId: string) {
+  async capturePaypalOrder(orderId: string, actor?: any) {
+    if (actor) await this.assertTransactionParty(orderId, actor);
     const clientId = process.env.PAYPAL_CLIENT_ID || '';
     const clientSecret = process.env.PAYPAL_CLIENT_SECRET || '';
     const baseUrl = process.env.PAYPAL_BASE_URL || 'https://api-m.sandbox.paypal.com';
@@ -1045,8 +1094,14 @@ export class PaymentService {
         version: "1.0"
       };
 
+      // Without a real callback URL the payment silently never confirms —
+      // Telebirr would post the result to a domain we do not own.
+      if (!process.env.PUBLIC_URL) {
+        throw new BadRequestException('Telebirr is not configured on this server (PUBLIC_URL is unset).');
+      }
+
       reqObj.biz_content = {
-        notify_url: process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/api/payments/telebirr/webhook` : "https://placeholder.com/api",
+        notify_url: `${process.env.PUBLIC_URL}/api/payments/telebirr/webhook`,
         trade_type: "Checkout", // Updated from InApp to Checkout as per documentation Web portal spec
         appid: this.telebirrConfig.merchantAppId,
         merch_code: this.telebirrConfig.merchantCode,
@@ -1120,7 +1175,8 @@ export class PaymentService {
     }
   }
 
-  async verifyTelebirrPayment(outTradeNo: string) {
+  async verifyTelebirrPayment(outTradeNo: string, actor?: any) {
+    if (actor) await this.assertTransactionParty(outTradeNo, actor);
     const transaction = await this.transactionsRepository.findOne({
       where: { tx_ref: outTradeNo },
     });

@@ -1,13 +1,23 @@
-# VPS deployment stack: Postgres + backend API + Caddy TLS proxy.
-# The frontend is NOT here — it deploys to Vercel.
+# The whole app on one VPS: Postgres, the API, the built frontend, and a
+# Caddy edge that terminates TLS and puts all of it on a single domain.
 #
-# Usage on the VPS:
-#   1. Copy backend/.env.example to backend/.env and fill in production values
-#      (JWT_SECRET, DB_PASSWORD, OPENROUTER_API_KEY, CORS_ORIGINS=https://<vercel-domain>, ...)
-#   2. Set API_DOMAIN below (or export it) and point a DNS A record at this VPS.
-#   3. docker compose up -d
+# Setup on the VPS:
+#   1. cp backend/.env.example backend/.env  and fill in production values
+#      (JWT_SECRET, DB_PASSWORD, FLW_SECRET_HASH, PUBLIC_URL, OPENROUTER_API_KEY…)
+#   2. Create a root .env next to this file:
+#        APP_DOMAIN=campaignhub.et
+#        DB_PASSWORD=<a strong password; the API is given this too>
+#      Then put your HeroUI Pro CI/CD licence key in ./heroui-ci-token.txt
+#      — or skip it and build the frontend from a local dist/ instead:
+#        cd frontend && VITE_API_BASE_URL=/api npm run build && cd ..
+#        FRONTEND_DOCKERFILE=Dockerfile.prebuilt docker compose up -d --build
+#   3. Point a DNS A record for APP_DOMAIN at this VPS.
+#   4. docker compose up -d --build
 #
-# Local dev shortcut: `docker compose up db` and run the backend natively.
+# First boot only: run the backend once with DB_SYNCHRONIZE=true so the
+# schema is created, then remove it so a deploy can never alter live tables.
+#
+# Local dev shortcut: `docker compose up db` and run both apps natively.
 
 services:
   db:
@@ -30,9 +40,20 @@ services:
     restart: unless-stopped
     env_file: ./backend/.env
     environment:
+      # Database credentials come from the root .env, the same values the db
+      # service is created with — one source of truth. Anything set here wins
+      # over backend/.env, so the two cannot drift apart and leave the API
+      # unable to authenticate against its own database.
       DB_HOST: db
       DB_PORT: '5432'
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-campaignhub}
       UPLOADS_DIR: /data/public
+      # Same-origin deployment: the browser only ever calls APP_DOMAIN.
+      CORS_ORIGINS: https://${APP_DOMAIN:?set APP_DOMAIN in .env}
+      FRONTEND_URL: https://${APP_DOMAIN}
+      PUBLIC_URL: https://${APP_DOMAIN}
     volumes:
       - uploads:/data/public
     depends_on:
@@ -41,6 +62,23 @@ services:
     expose:
       - '3001'
 
+  frontend:
+    build:
+      context: ./frontend
+      # Dockerfile          — builds from source; needs a HeroUI Pro CI/CD
+      #                       licence key in HEROUI_AUTH_TOKEN.
+      # Dockerfile.prebuilt — ships a dist/ you built on your own machine.
+      dockerfile: ${FRONTEND_DOCKERFILE:-Dockerfile}
+      args:
+        # Relative on purpose — the app and the API share an origin, so the
+        # bundle carries no hostname and cannot point at the wrong one.
+        VITE_API_BASE_URL: /api
+      secrets:
+        - heroui_token
+    restart: unless-stopped
+    expose:
+      - '80'
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -48,16 +86,24 @@ services:
       - '80:80'
       - '443:443'
     environment:
-      API_DOMAIN: ${API_DOMAIN:-api.localhost}
+      APP_DOMAIN: ${APP_DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - backend
+      - frontend
 
 volumes:
   pgdata:
   uploads:
   caddy_data:
   caddy_config:
+
+secrets:
+  # The HeroUI Pro CI/CD licence key, read at build time only. Create the
+  # file next to this one (and keep it out of git — .gitignore covers it).
+  # Not needed when building with Dockerfile.prebuilt.
+  heroui_token:
+    file: ./heroui-ci-token.txt

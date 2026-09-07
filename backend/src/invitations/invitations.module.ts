@@ -12,10 +12,11 @@ import { ManagerProfile } from '../managers/manager-profile.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ContractsModule } from '../contracts/contracts.module';
 import { Campaign } from '../campaigns/campaign.entity';
+import { Application } from '../applications/application.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Invitation, BrandTeam, PayoutAccount, User, ManagerProfile, Campaign]),
+    TypeOrmModule.forFeature([Invitation, BrandTeam, PayoutAccount, User, ManagerProfile, Campaign, Application]),
     NotificationsModule,
     ContractsModule,
   ],

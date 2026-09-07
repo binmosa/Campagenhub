@@ -6,14 +6,15 @@ import type { Role } from './accounts';
  * leaking into the page text, and the hero heading itself must be in
  * Amharic (Ethiopic script), which catches hard-coded English titles.
  */
-const PAGES: Record<Role, string[]> = {
+/* Roles the sweep skips (creator2/creator3/manager2 are fixtures for other
+   flows) simply have no entry. */
+const PAGES: Partial<Record<Role, string[]>> = {
   admin: ['/dashboard', '/dashboard/users', '/dashboard/campaigns', '/dashboard/applications', '/dashboard/payouts', '/dashboard/roles', '/dashboard/support', '/dashboard/site-control', '/dashboard/telegram', '/dashboard/profile'],
   brand: ['/dashboard', '/dashboard/campaigns', '/dashboard/applications', '/dashboard/profile', '/dashboard/workspace', '/dashboard/offers', '/dashboard/contracts', '/dashboard/payments', '/dashboard/messages', '/dashboard/analytics', '/dashboard/ai', '/dashboard/my-team'],
   creator: ['/dashboard', '/dashboard/campaigns', '/dashboard/applications', '/dashboard/profile', '/dashboard/payments', '/dashboard/invitations', '/dashboard/workspace', '/dashboard/offers', '/dashboard/contracts'],
-  manager: ['/dashboard', '/dashboard/profile', '/dashboard/invitations', '/dashboard/offers', '/dashboard/messages'],
+  manager: ['/dashboard', '/dashboard/campaigns', '/dashboard/profile', '/dashboard/invitations', '/dashboard/offers', '/dashboard/messages'],
   support: ['/dashboard'],
   finance: ['/dashboard'],
-  creator2: [],
 };
 
 const ETHIOPIC = /[ሀ-፿]/;

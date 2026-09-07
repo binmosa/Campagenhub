@@ -10,12 +10,14 @@ import { CreatorProfile } from '../creators/creator-profile.entity';
 import { BrandProfile } from '../brands/brand-profile.entity';
 import { ManagerProfile } from '../managers/manager-profile.entity';
 import { Role } from '../roles/role.entity';
+import { BrandTeam } from '../invitations/brand-team.entity';
+import { User } from '../users/user.entity';
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
-    TypeOrmModule.forFeature([CreatorProfile, BrandProfile, ManagerProfile, Role]),
+    TypeOrmModule.forFeature([CreatorProfile, BrandProfile, ManagerProfile, Role, BrandTeam, User]),
     JwtModule.register({
       secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '24h' },

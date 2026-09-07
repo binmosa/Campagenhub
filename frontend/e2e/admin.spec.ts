@@ -1,5 +1,5 @@
 import { test, expect, expectHero, expectNoRawKeys, confirmDialog, toast } from './fixtures';
-import { ACCOUNTS } from './accounts';
+import { ACCOUNTS, PASSWORD } from './accounts';
 
 const ADMIN_PAGES: [string, RegExp][] = [
   ['/dashboard', /Good (morning|afternoon|evening),/],
@@ -35,15 +35,68 @@ test.describe('admin', () => {
     await expect(page.locator('text=Community mix')).toBeVisible();
   });
 
+  /**
+   * The back office is server-paged. These screens used to fetch whole
+   * tables and slice them in the browser, so "Load more" only revealed rows
+   * already downloaded — fine on seed data, fatal on a real database.
+   */
+  test('back-office lists are paged by the API, and the totals still count the whole table', async ({ page, request, baseURL }) => {
+    const login = await request.post(`${baseURL}/api/auth/login`, { data: { email: ACCOUNTS.admin, password: PASSWORD } });
+    const token = (await login.json()).access_token as string;
+    const auth = { headers: { authorization: `Bearer ${token}` } };
+
+    for (const path of ['users', 'campaigns', 'applications', 'payouts']) {
+      const res = await request.get(`${baseURL}/api/admin/${path}?limit=2`, auth);
+      expect(res.ok(), `${path} responds`).toBeTruthy();
+      const body = await res.json();
+      expect(Array.isArray(body.items), `${path} returns a page`).toBeTruthy();
+      expect(body.items.length, `${path} respects limit`).toBeLessThanOrEqual(2);
+      expect(typeof body.total, `${path} reports a total`).toBe('number');
+      expect(body.total, `${path} total covers more than the page`).toBeGreaterThanOrEqual(body.items.length);
+      expect(body.stats, `${path} carries whole-table stats`).toBeTruthy();
+    }
+
+    // a second page never repeats the first
+    const first = await (await request.get(`${baseURL}/api/admin/payouts?limit=3&offset=0`, auth)).json();
+    if (first.total > 3) {
+      const second = await (await request.get(`${baseURL}/api/admin/payouts?limit=3&offset=3`, auth)).json();
+      const ids = new Set(first.items.map((p: any) => p.id));
+      expect(second.items.some((p: any) => ids.has(p.id)), 'pages must not overlap').toBeFalsy();
+    }
+
+    // and the browser asks for one page, then appends the next
+    const calls: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().includes('/api/admin/payouts')) calls.push(r.url().split('/api')[1]);
+    });
+    await page.goto('/dashboard/payouts');
+    await expectHero(page, /Payout desk/);
+    const rows = page.locator('ul > li.v-talent-card');
+    await expect(rows.first()).toBeVisible();
+    const shown = await rows.count();
+    expect(calls.some((c) => c.includes('limit=')), 'the page requests a limit').toBeTruthy();
+
+    const more = page.getByRole('button', { name: /load more/i });
+    if (await more.count()) {
+      await more.click();
+      await expect.poll(() => rows.count(), { timeout: 10_000 }).toBeGreaterThan(shown);
+      expect(calls.some((c) => /offset=[1-9]/.test(c)), 'load more asks for the next page').toBeTruthy();
+    }
+    await expectNoRawKeys(page);
+  });
+
   test('users: role chips filter and KYC requirement round-trips with confirmation', async ({ page }) => {
     await page.goto('/dashboard/users');
     const rows = page.locator('ul > li.v-talent-card');
     await expect(rows.first()).toBeVisible();
     const total = await rows.count();
 
+    // The directory is server-paged, so a filter narrows the query rather
+    // than the rendered array — assert what is true at any table size.
     await page.getByRole('button', { name: /^Brand/ }).click();
-    await expect(rows).toHaveCount(1);
-    await expect(rows.first()).toContainText(ACCOUNTS.brand);
+    await expect(rows.filter({ hasText: ACCOUNTS.brand })).toHaveCount(1);
+    const roleChips = page.locator('ul > li.v-talent-card [data-slot="chip"]').filter({ hasText: /^(Creator|Brand|Manager)$/ });
+    await expect(roleChips.filter({ hasText: 'Creator' })).toHaveCount(0);
     await page.getByRole('button', { name: /^All roles/ }).click();
     await expect(rows).toHaveCount(total);
 

@@ -9,6 +9,8 @@ import { Contract } from '../contracts/contract.entity';
 import { BrandTeam } from '../invitations/brand-team.entity';
 import { toPublicUser } from '../users/public-user';
 import { ContractsService } from '../contracts/contracts.service';
+import { assignedCampaignIds, engagementFor, isManager, managedBrandIds } from '../managers/manager-access';
+import { In } from 'typeorm';
 
 /** Applicant pipeline: pending → shortlisted → offered (contract sent) → accepted | rejected.
  *  `accepted` is only reached when the creator signs the contract; `refunded` is set by the payments flow. */
@@ -91,6 +93,16 @@ export class ApplicationsService {
    *    (id/email/status + creator profile — never the User row's password
    *    hash or KYC documents), filterable by campaign and status.
    */
+
+  /** Campaigns an engaged manager may act on: assigned by the brand, or created by them. */
+  private async managedCampaignIds(user: any): Promise<string[]> {
+    const brands = managedBrandIds(user);
+    if (brands.length === 0) return [];
+    const assigned = brands.flatMap((b) => assignedCampaignIds(engagementFor(user, b)));
+    const created = await this.campaignsRepository.find({ where: { created_by: { id: user.userId }, brand: { id: In(brands) } } });
+    return [...new Set([...assigned, ...created.map((c) => c.id)])];
+  }
+
   async getApplications(
     user: any,
     filters: { campaignId?: string; status?: string } = {},
@@ -109,6 +121,25 @@ export class ApplicationsService {
         .getMany()
         .then(withContracts);
     }
+    // An account manager sees only the applicants on campaigns inside their engagements.
+    if (isManager(user)) {
+      const ids = await this.managedCampaignIds(user);
+      if (ids.length === 0) return [];
+      const target = filters.campaignId && ids.includes(filters.campaignId) ? [filters.campaignId] : filters.campaignId ? [] : ids;
+      if (target.length === 0) return [];
+      const qb = this.applicationsRepository
+        .createQueryBuilder('a')
+        .innerJoin('a.campaign', 'c')
+        .leftJoin('a.creator', 'u')
+        .leftJoin('u.creatorProfile', 'cp')
+        .where('c.id IN (:...ids)', { ids: target })
+        .select(['a', 'c', 'u.id', 'u.email', 'u.account_status', 'u.created_at', 'cp'])
+        .leftJoinAndSelect('a.contracts', 'ct')
+        .orderBy('a.created_at', 'DESC');
+      const st = normalizeApplicationStatus(filters.status);
+      if (st) qb.andWhere('LOWER(a.status) = :st', { st });
+      return qb.getMany().then(withContracts);
+    }
     if (user.role === UserRole.BRAND) {
       const qb = this.applicationsRepository
         .createQueryBuilder('a')
@@ -126,6 +157,11 @@ export class ApplicationsService {
       return qb.getMany().then(withContracts);
     }
     return [];
+  }
+
+  /** Delegates to the contracts flow, which knows a manager's engagement. */
+  actingBrandFor(user: any, applicationId: string): Promise<string> {
+    return this.contractsService.actingBrandFor(user, applicationId);
   }
 
   async updateStatus(applicationId: string, brandId: string, rawStatus: string): Promise<Application> {

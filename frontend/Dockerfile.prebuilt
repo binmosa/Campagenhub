@@ -1,0 +1,23 @@
+# Ships a frontend that was built on a machine where the HeroUI Pro licence
+# already works — your laptop.
+#
+# Use this while you do not have a HeroUI Pro *CI/CD licence key*. The normal
+# Dockerfile installs from a clean lockfile, and @heroui-pro/react's
+# postinstall refuses to fetch the real bundle without that key, so a
+# from-source build fails on any server (Vercel included).
+#
+#   cd frontend
+#   VITE_API_BASE_URL=/api npm run build      # dist/ is produced locally
+#   cd .. && FRONTEND_DOCKERFILE=Dockerfile.prebuilt docker compose up -d --build
+#
+# Note the build-time API address: /api for the single-domain VPS stack, or
+# https://api.<your-domain>/api if the API lives on its own subdomain. Rebuild
+# dist/ whenever the frontend changes — this image copies, it does not compile.
+FROM caddy:2-alpine
+
+# Fails the build with a clear message rather than serving an empty site.
+COPY dist /srv
+RUN test -f /srv/index.html || (echo 'frontend/dist is missing or empty — run "npm run build" in frontend/ first' && exit 1)
+
+COPY deploy/static.Caddyfile /etc/caddy/Caddyfile
+EXPOSE 80

@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Country } from 'country-state-city';
 import { Campaign } from './campaign.entity';
+import { engagementFor, isManager, requireManagerPermission, assignedCampaignIds, managedBrandIds } from '../managers/manager-access';
 import { User, UserRole } from '../users/user.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TelegramService } from '../telegram/telegram.service';
@@ -799,11 +800,122 @@ export class CampaignsService implements OnModuleInit {
     }
   }
 
-  async createCampaign(user: any, input: any): Promise<Campaign> {
+  /** What an engaged manager has already created for one brand, against their grant. */
+  /**
+   * What a manager has already committed of a brand's money, in USD.
+   *
+   * `budget_usd` is the locked USD value; the raw `budget` is only a
+   * fallback for rows posted before the FX layer, and `?? ` rather than
+   * `||` so a real zero is not treated as missing.
+   */
+  async managerGrantUsage(managerId: string, brandId: string): Promise<{ campaigns: number; budget: number }> {
+    const created = await this.campaignsRepository.find({ where: { created_by: { id: managerId }, brand: { id: brandId } } });
+    const usd = (c: Campaign) => Number(c.budget_usd ?? c.budget ?? 0) || 0;
+    return {
+      campaigns: created.length,
+      budget: Math.round(created.reduce((sum, c) => sum + usd(c), 0) * 100) / 100,
+    };
+  }
+
+  /** A budget the manager is about to set, expressed in USD like the cap. */
+  private budgetInUsd(budget: any, currency?: string): number {
+    const raw = Number(budget) || 0;
+    const rate = this.fxService.getPerUsd((currency || 'USD').toUpperCase());
+    return rate && rate > 0 ? Math.round((raw / rate) * 100) / 100 : raw;
+  }
+
+  /** The campaigns a manager works on: the ones they created plus the ones the brand assigned. */
+  async getCampaignsForManager(user: any, filters: { status?: string; search?: string; brandId?: string } = {}): Promise<any[]> {
+    const brands = filters.brandId ? [filters.brandId] : managedBrandIds(user);
+    if (brands.length === 0) return [];
+    const assigned = brands.flatMap((b) => assignedCampaignIds(engagementFor(user, b)));
+    const qb = this.campaignsRepository
+      .createQueryBuilder('c')
+      .leftJoin('c.brand', 'b')
+      .leftJoin('b.brandProfile', 'bp')
+      .leftJoin('c.created_by', 'cb')
+      .where('b.id IN (:...brands)', { brands })
+      .andWhere(assigned.length ? '(cb.id = :managerId OR c.id IN (:...assigned))' : 'cb.id = :managerId', {
+        managerId: user.userId,
+        ...(assigned.length ? { assigned } : {}),
+      })
+      .select([...OWNER_SELECT, 'cb.id']);
+
+    const status = normalizeCampaignStatus(filters.status);
+    if (status) {
+      const aliases = [status, ...Object.entries(LEGACY_STATUS).filter(([, v]) => v === status).map(([k]) => k)];
+      qb.andWhere('LOWER(c.status) IN (:...st)', { st: aliases });
+    }
+    if (filters.search) qb.andWhere('(c.title ILIKE :s OR c.description ILIKE :s)', { s: `%${filters.search}%` });
+    this.addApplicantCounts(qb);
+    qb.orderBy('c.created_at', 'DESC').addOrderBy('c.id', 'ASC');
+    const { entities, raw } = await qb.getRawAndEntities();
+    return this.withCounts(entities, raw);
+  }
+
+  async updateCampaignAsManager(campaignId: string, user: any, input: any): Promise<Campaign> {
+    const campaign = await this.campaignsRepository.findOne({ where: { id: campaignId }, relations: ['brand', 'created_by'] });
+    if (!campaign?.brand?.id) throw new NotFoundException('Campaign not found');
+    const engagement = engagementFor(user, campaign.brand.id);
+    requireManagerPermission(engagement, 'can_add_campaigns', 'edit campaigns');
+    const mayEdit = campaign.created_by?.id === user.userId || assignedCampaignIds(engagement).includes(campaign.id);
+    if (!mayEdit) throw new UnauthorizedException('This campaign is not part of your engagement.');
+    /*
+     * A manager raising a budget must stay inside the grant — and so must a
+     * manager changing only the currency, which re-locks budget_usd and used
+     * to skip this check entirely (set 5,000 USD, switch to a weaker
+     * currency, and the USD commitment multiplied with no cap in sight).
+     */
+    if (input?.budget !== undefined || input?.currency !== undefined) {
+      const usage = await this.managerGrantUsage(user.userId, campaign.brand.id);
+      const cap = engagement.grant?.budget_cap;
+      if (cap != null) {
+        const currentUsd = Number(campaign.budget_usd ?? campaign.budget ?? 0) || 0;
+        const nextBudget = input?.budget !== undefined ? input.budget : campaign.budget;
+        const nextCurrency = input?.currency !== undefined ? input.currency : campaign.currency;
+        const nextUsd = this.budgetInUsd(nextBudget, nextCurrency);
+        /*
+         * Usage only counts what this manager created. Editing one of those
+         * swaps its old value for the new one; editing a campaign the brand
+         * assigned (never in usage — subtracting it used to push the total
+         * negative and hand out free headroom) charges only the increase.
+         */
+        const isTheirs = campaign.created_by?.id === user.userId;
+        const next = isTheirs
+          ? Math.round((Math.max(0, usage.budget - currentUsd) + nextUsd) * 100) / 100
+          : Math.round((usage.budget + Math.max(0, nextUsd - currentUsd)) * 100) / 100;
+        if (next > cap) {
+          throw new BadRequestException(`That budget would take you to ${next.toLocaleString('en-US')} of your ${cap.toLocaleString('en-US')} limit for this brand.`);
+        }
+      }
+    }
+    return this.updateCampaign(campaignId, campaign.brand.id, input);
+  }
+
+  async createCampaign(user: any, input: any, manager?: any): Promise<Campaign> {
     const data = this.normalizePlatformInput(pickWritable(input));
     normalizeAssets(data);
     this.validateWritable(data);
     if (!data.title) throw new BadRequestException('Title is required');
+
+    // A manager creates inside the grant the brand gave them.
+    if (manager && isManager(manager)) {
+      const engagement = engagementFor(manager, user.userId);
+      const usage = await this.managerGrantUsage(manager.userId, user.userId);
+      const limit = engagement.grant?.campaign_limit;
+      if (limit != null && usage.campaigns >= limit) {
+        throw new BadRequestException(`You have used all ${limit} campaign${limit === 1 ? '' : 's'} this brand allowed you to create.`);
+      }
+      const cap = engagement.grant?.budget_cap;
+      // The cap is a USD figure, so the new budget is converted before it is
+      // compared — otherwise "9,000" in a weak currency slipped under a
+      // 10,000 cap while committing far more of the brand's money.
+      const budget = this.budgetInUsd(data.budget, data.currency);
+      if (cap != null && usage.budget + budget > cap) {
+        const left = Math.max(0, cap - usage.budget);
+        throw new BadRequestException(`This brand capped you at ${cap.toLocaleString('en-US')}; ${left.toLocaleString('en-US')} is left, so this budget is too high.`);
+      }
+    }
 
     // Brands may save a draft (invisible to creators) or publish straight away.
     const status: CampaignStatus = normalizeCampaignStatus(data.status) === 'draft' ? 'draft' : 'active';
@@ -811,6 +923,7 @@ export class CampaignsService implements OnModuleInit {
     const campaign = this.campaignsRepository.create({
       ...data,
       brand: { id: user.userId } as User,
+      created_by: manager && isManager(manager) ? ({ id: manager.userId } as User) : null,
       status,
       cover_image: data.cover_image || this.pickCoverImage(data.title || '', data.description),
     });

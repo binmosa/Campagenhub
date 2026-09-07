@@ -91,6 +91,7 @@ const ManagerDashboard: React.FC = () => {
   const [contracts, setContracts] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [engagements, setEngagements] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -104,8 +105,9 @@ const ManagerDashboard: React.FC = () => {
       api.get('/contracts/mine').catch(() => ({ data: [] })),
       api.get('/tasks/mine').catch(() => ({ data: [] })),
       api.get('/payments/transactions').catch(() => ({ data: [] })),
+      api.get('/manager-applications/engagements').catch(() => ({ data: [] })),
     ])
-      .then(([meRes, prof, inv, snt, conts, tks, txs]) => {
+      .then(([meRes, prof, inv, snt, conts, tks, txs, eng]) => {
         setMe(meRes.data);
         setProfile(prof.data);
         setReceived(Array.isArray(inv.data) ? inv.data : []);
@@ -113,6 +115,7 @@ const ManagerDashboard: React.FC = () => {
         setContracts(Array.isArray(conts.data) ? conts.data : []);
         setTasks(Array.isArray(tks.data) ? tks.data : []);
         setTransactions(Array.isArray(txs.data) ? txs.data : []);
+        setEngagements(Array.isArray(eng.data) ? eng.data : []);
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
@@ -185,7 +188,7 @@ const ManagerDashboard: React.FC = () => {
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <MetricCard
         label={t('mdash.kpiClients')}
-        value={clients.length}
+        value={engagements.length}
         hint={t('mdash.kpiClientsHint', { n: pendingBrand.length })}
         series={series.clients}
         icon={Building2}
@@ -278,9 +281,9 @@ const ManagerDashboard: React.FC = () => {
           className="lg:col-span-2"
           icon={<Building2 size={15} />}
           title={t('mdash.clients')}
-          meta={clients.length ? t('mdash.clientsCount', { count: clients.length }) : undefined}
+          meta={engagements.length ? t('mdash.clientsCount', { count: engagements.length }) : undefined}
           action={
-            <Link to="/dashboard/invitations">
+            <Link to="/dashboard/campaigns">
               <Button variant="ghost" size="sm">
                 {t('dash.seeAll')} <ArrowRight size={11} />
               </Button>
@@ -289,36 +292,39 @@ const ManagerDashboard: React.FC = () => {
         >
           {loading ? (
             <PanelRowsSkeleton n={3} />
-          ) : clients.length === 0 ? (
+          ) : engagements.length === 0 ? (
             <PanelEmpty
               icon={<Building2 size={16} />}
               title={t('mdash.noClientsTitle')}
               desc={t('mdash.noClientsDesc')}
               action={
-                <Link to="/dashboard/profile">
-                  <Button variant="primary" size="sm">
-                    <Pencil size={12} /> {t('cdash.editProfile')}
-                  </Button>
+                <Link to="/dashboard/campaigns">
+                  <Button variant="primary" size="sm">{t('mcamp.browse')}</Button>
                 </Link>
               }
             />
           ) : (
             <PanelRows>
-              {clients.slice(0, 4).map((inv) => {
-                const name = brandName(inv) || t('side.roleBrand');
-                const logo = inv?.sender?.brandProfile?.logo_url || inv?.brand?.brandProfile?.logo_url;
-                const terms = inv.payment_amount
-                  ? `${formatBudget(inv.payment_amount, inv.currency || 'USD')}${inv.payment_frequency ? ` / ${t(`apps.freq.${inv.payment_frequency}`, { defaultValue: inv.payment_frequency })}` : ''}`
+              {engagements.slice(0, 4).map((e: any) => {
+                const name = e.brand?.brandProfile?.company_name || e.brand?.email?.split('@')[0] || t('side.roleBrand');
+                const cap = e.grant?.budget_cap;
+                const limit = e.grant?.campaign_limit;
+                const terms = e.payment_amount
+                  ? `${formatBudget(Number(e.payment_amount), e.currency || 'USD')}${e.payment_frequency && e.payment_frequency !== 'one_time' ? ` / ${t(`apps.freq.${e.payment_frequency}`, { defaultValue: e.payment_frequency })}` : ''}`
                   : '';
+                const scope = [
+                  limit == null ? t('mcamp.unlimitedCampaigns') : t('mcamp.campaignsUsed', { used: e.usage?.campaigns_created || 0, limit }),
+                  cap == null ? t('mcamp.noCap') : t('mcamp.budgetUsed', { used: formatBudget(e.usage?.budget_used || 0, 'USD'), cap: formatBudget(cap, 'USD') }),
+                ].join(' · ');
                 return (
                   <PanelRow
-                    key={inv.id}
-                    leading={<StoryAvatar src={logo} name={name} seed={inv?.sender?.id || name} size={36} />}
+                    key={e.id}
+                    leading={<StoryAvatar src={e.brand?.brandProfile?.logo_url} name={name} seed={e.brand?.id || name} size={36} />}
                     title={name}
-                    sub={[t('mdash.since', { when: postedLabel(inv.created_at) }), terms].filter(Boolean).join(' · ')}
+                    sub={[scope, terms].filter(Boolean).join(' · ')}
                     trailing={
-                      <Chip color={INV_COLOR[inv.status] || 'default'} variant="soft" size="sm">
-                        <Chip.Label>{t(`appStatus.${inv.status}`, { defaultValue: inv.status })}</Chip.Label>
+                      <Chip color="success" variant="soft" size="sm">
+                        <Chip.Label>{t('mcamp.campaignsManaged', { count: e.usage?.campaigns_managed || 0 })}</Chip.Label>
                       </Chip>
                     }
                   />

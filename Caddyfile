@@ -1,10 +1,51 @@
-# Reverse proxy with automatic HTTPS (Let's Encrypt).
-# API_DOMAIN comes from docker-compose (e.g. api.your-domain.com).
-{$API_DOMAIN} {
-	reverse_proxy backend:3001
+# Edge proxy for the single-VPS stack: automatic HTTPS (Let's Encrypt),
+# the SPA on the apex, the API under /api on the same origin.
+#
+# Same-origin is the point. The browser never makes a cross-site request,
+# so there is no CORS to configure, no second certificate, and no way to
+# ship a production build that talks to the wrong host.
+#
+# APP_DOMAIN comes from docker-compose (e.g. campaignhub.et).
 
-	# Payloads up to 50MB (base64 video pitches)
+{$APP_DOMAIN} {
+	encode gzip zstd
+
+	# Base64 pitch videos and KYC uploads.
 	request_body {
 		max_size 50MB
 	}
+
+	# The API and the files it serves.
+	handle /api/* {
+		reverse_proxy backend:3001
+	}
+	handle /uploads/* {
+		reverse_proxy backend:3001
+	}
+
+	# Everything else is the app.
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	header {
+		# The app is never framed; uploads are served with nosniff by the API.
+		X-Frame-Options DENY
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
 }
+
+# ── Split deployment (frontend on Vercel, API here) ──────────────────
+# If you keep the frontend on Vercel instead, comment out the block above,
+# uncomment this one, set API_DOMAIN, and build the Vercel project with
+# VITE_API_BASE_URL=https://api.<your-domain>/api.
+#
+# {$API_DOMAIN} {
+# 	reverse_proxy backend:3001
+# 	request_body {
+# 		max_size 50MB
+# 	}
+# }

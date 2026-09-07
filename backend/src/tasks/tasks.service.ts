@@ -23,12 +23,29 @@ export class TasksService {
     const savedTasks = [];
     if (!data.title || !String(data.title).trim()) throw new BadRequestException('Give the task a title.');
 
-    // Tasks live under the campaign the contract was signed for.
+    // Tasks live under the campaign the contract was signed for, and only a
+    // party to that contract may put work on it. Without this check anyone
+    // could inject tasks into another brand's workspace and fire a
+    // notification (and a Telegram push) at any user id they chose.
     let campaignId: string | null = data.campaign_id || null;
     let applicationId: string | null = null;
     if (data.contract_id) {
-      const contract = await this.contractsRepo.findOne({ where: { id: data.contract_id }, relations: ['application', 'application.campaign'] });
+      const contract = await this.contractsRepo.findOne({
+        where: { id: data.contract_id },
+        relations: ['application', 'application.campaign', 'application.campaign.brand', 'application.creator'],
+      });
       if (contract?.application) {
+        const brandId = (contract.application.campaign as any)?.brand?.id;
+        const creatorId = (contract.application as any)?.creator?.id;
+        const parties = [brandId, creatorId].filter(Boolean);
+        if (!parties.includes(userId)) {
+          throw new BadRequestException('You are not part of this contract.');
+        }
+        for (const assigneeId of assignees) {
+          if (!parties.includes(assigneeId)) {
+            throw new BadRequestException('Tasks can only be assigned to the people on this contract.');
+          }
+        }
         applicationId = contract.application.id;
         campaignId = campaignId || contract.application.campaign?.id || null;
       }
@@ -62,7 +79,19 @@ export class TasksService {
     return savedTasks.length === 1 ? (savedTasks[0] as any) : (savedTasks as any);
   }
 
+  /** The workplan of a contract is only for its two parties. `userId` used
+   *  to be accepted here and then ignored entirely. */
   async getTasksForContract(userId: string, contractId: string): Promise<Task[]> {
+    const contract = await this.contractsRepo.findOne({
+      where: { id: contractId },
+      relations: ['application', 'application.campaign', 'application.campaign.brand', 'application.creator'],
+    });
+    if (!contract) throw new BadRequestException('Contract not found');
+    const brandId = (contract.application?.campaign as any)?.brand?.id;
+    const creatorId = (contract.application as any)?.creator?.id;
+    if (userId !== brandId && userId !== creatorId) {
+      throw new BadRequestException('You are not part of this contract.');
+    }
     return this.tasksRepo.find({
       where: { contract_id: contractId },
       relations: ['assignedBy', 'assignedTo', 'campaign'],

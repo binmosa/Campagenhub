@@ -1,4 +1,5 @@
-import { Controller, Post, Body, Get, Query, Param, UseGuards, Request, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, Get, Query, Param, UseGuards, Request, Headers, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { timingSafeEqual } from 'crypto';
 import { PaymentService } from './payment.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -70,9 +71,12 @@ export class PaymentController {
     }
   }
 
+  // Re-checks a payment with the provider. It writes transaction state and
+  // echoes the provider's customer record, so it is not anonymous.
+  @UseGuards(JwtAuthGuard)
   @Post('verify')
-  async verifyPayment(@Body() body: { transactionId?: string; txRef?: string }) {
-    return this.paymentService.verifyPayment(body.transactionId, body.txRef);
+  async verifyPayment(@Request() req: any, @Body() body: { transactionId?: string; txRef?: string }) {
+    return this.paymentService.verifyPayment(body.transactionId, body.txRef, req.user);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -87,9 +91,26 @@ export class PaymentController {
     });
   }
 
-  // Flutterwave webhook (no auth — called by Flutterwave servers)
+  /**
+   * Flutterwave webhook. Unauthenticated by nature — it is called by
+   * Flutterwave, not by a user — so the only thing separating a real
+   * notification from a forged one is the shared hash they send in
+   * `verif-hash`. Without this check anyone could POST a tx_ref with
+   * `status: successful` and mint a payable payout the platform funds.
+   */
   @Post('webhook')
-  async handleWebhook(@Body() body: any) {
+  async handleWebhook(@Headers('verif-hash') signature: string, @Body() body: any) {
+    const expected = process.env.FLW_SECRET_HASH || '';
+    if (!expected) {
+      console.error('[Payments] FLW_SECRET_HASH is not set — refusing to trust a webhook.');
+      throw new UnauthorizedException('Webhook verification is not configured.');
+    }
+    const given = String(signature || '');
+    const a = Buffer.from(given);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new UnauthorizedException('Invalid webhook signature.');
+    }
     return this.paymentService.handleWebhook(body);
   }
 
@@ -154,19 +175,27 @@ export class PaymentController {
   // ========== PAYPAL ==========
   @UseGuards(JwtAuthGuard)
   @Post('paypal/capture/:orderId')
-  async capturePaypalOrder(@Param('orderId') orderId: string) {
-    return this.paymentService.capturePaypalOrder(orderId);
+  async capturePaypalOrder(@Request() req: any, @Param('orderId') orderId: string) {
+    return this.paymentService.capturePaypalOrder(orderId, req.user);
   }
 
-  // ========== TELEBIRR ==========
+  /**
+   * Telebirr posts a signed block that we cannot yet un-sign with their
+   * public key, so there is no way to tell a real callback from a forged
+   * one. Until that verification exists the route stays closed rather than
+   * completing payments on anyone's say-so.
+   */
   @Post('telebirr/webhook')
   async telebirrWebhook(@Body() body: any) {
+    if (process.env.TELEBIRR_WEBHOOK_ENABLED !== 'true') {
+      throw new UnauthorizedException('Telebirr callbacks are disabled until signature verification is in place.');
+    }
     return this.paymentService.handleTelebirrWebhook(body);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('telebirr/verify/:outTradeNo')
-  async verifyTelebirrPayment(@Param('outTradeNo') outTradeNo: string) {
-    return this.paymentService.verifyTelebirrPayment(outTradeNo);
+  async verifyTelebirrPayment(@Request() req: any, @Param('outTradeNo') outTradeNo: string) {
+    return this.paymentService.verifyTelebirrPayment(outTradeNo, req.user);
   }
 }

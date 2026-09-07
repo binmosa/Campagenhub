@@ -39,18 +39,18 @@ export class ApplicationsController {
   }
 
   @Patch(':id/status')
-  @Roles(UserRole.BRAND)
+  @Roles(UserRole.BRAND, UserRole.MANAGER)
   @TeamPermission('can_manage_applications')
   async updateStatus(
     @Request() req: any,
     @Param('id') id: string,
     @Body() body: { status: string },
   ) {
-    return this.applicationsService.updateStatus(id, req.user.brandId, body.status);
+    return this.applicationsService.updateStatus(id, await this.applicationsService.actingBrandFor(req.user, id), body.status);
   }
 
   @Patch(':id/payment-schedule')
-  @Roles(UserRole.BRAND)
+  @Roles(UserRole.BRAND, UserRole.MANAGER)
   @TeamPermission('can_manage_applications')
   async setPaymentSchedule(
     @Request() req: any,
@@ -65,6 +65,6 @@ export class ApplicationsController {
       ends_at?: string | null;
     },
   ) {
-    return this.applicationsService.setPaymentSchedule(id, req.user.brandId, body);
+    return this.applicationsService.setPaymentSchedule(id, await this.applicationsService.actingBrandFor(req.user, id), body);
   }
 }

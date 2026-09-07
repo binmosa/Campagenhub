@@ -162,7 +162,9 @@ export const CampaignWizard: React.FC<{
   brandCountryCode?: string;
   brandCountryName?: string;
   onSaved: (saved: any, mode: 'created' | 'updated') => void;
-}> = ({ isOpen, onClose, editing, brandName, brandCountryCode, brandCountryName, onSaved }) => {
+  /** An account manager creates for the brand that engaged them. */
+  brandId?: string;
+}> = ({ isOpen, onClose, editing, brandName, brandCountryCode, brandCountryName, onSaved, brandId }) => {
   const { t } = useTranslation();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<CampaignFormValues>(EMPTY_CAMPAIGN_FORM);
@@ -411,7 +413,7 @@ export const CampaignWizard: React.FC<{
         onSaved(res.data, 'updated');
       } else {
         payload.status = publish ? 'active' : 'draft';
-        const res = await api.post('/campaigns', payload);
+        const res = await api.post('/campaigns', brandId ? { ...payload, brand_id: brandId } : payload);
         onSaved(res.data, 'created');
       }
       onClose();

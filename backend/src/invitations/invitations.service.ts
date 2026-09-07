@@ -133,6 +133,14 @@ export class InvitationsService {
       throw new BadRequestException('Creators cannot send invitations. Only Brands and Managers can recruit talent.');
     }
 
+    // A manager recruits only once a brand has engaged them.
+    if (sender.role === 'manager') {
+      const engaged = await this.teamRepo.count({ where: { member: { id: senderId }, member_type: 'manager', is_active: true } });
+      if (engaged === 0) {
+        throw new BadRequestException('No brand has engaged you yet. Offer to manage one of their campaigns first, then you can recruit for it.');
+      }
+    }
+
     const effectiveBrandId = brand_id || (sender.role === 'brand' ? senderId : null);
     const isMgrSending = sender.role === 'manager';
 
@@ -200,7 +208,7 @@ export class InvitationsService {
       relations: ['sender', 'receiver', 'brand'],
     });
     if (!inv) throw new NotFoundException('Invitation not found');
-    return inv;
+    return sanitizeInvitation(inv);
   }
 
   // ─── Get Received Invitations ───────────────────────────────────────────────
@@ -349,12 +357,13 @@ export class InvitationsService {
   }
 
   // ─── Get Pending Approvals for brand ────────────────────────────────────────
-  async getPendingApprovals(brandId: string): Promise<Invitation[]> {
-    return this.invRepo.find({
+  async getPendingApprovals(brandId: string): Promise<any[]> {
+    const rows = await this.invRepo.find({
       where: { brand: { id: brandId }, payment_approved: false, status: 'pending' },
       relations: ['sender', 'receiver'],
       order: { created_at: 'DESC' },
     });
+    return rows.map(sanitizeInvitation);
   }
 
   // ─── Get My Team ────────────────────────────────────────────────────────────
@@ -366,10 +375,61 @@ export class InvitationsService {
     });
     // Members arrive with their profile (name, avatar, socials) and nothing
     // sensitive from the User row.
-    return rows.map(sanitizeInvitation);
+    const team = rows.map(sanitizeInvitation);
+
+    // A manager spends the brand's money, so each one carries what they have
+    // actually used against their grant — that is what a brand sets limits from.
+    const managerIds = team.filter((m) => m.member_type === 'manager' && m.member?.id).map((m) => m.member.id);
+    if (managerIds.length) {
+      const used = await this.campaignRepo
+        .createQueryBuilder('c')
+        .leftJoin('c.brand', 'b')
+        .leftJoin('c.created_by', 'cb')
+        .select('cb.id', 'managerId')
+        .addSelect('COUNT(c.id)', 'campaigns')
+        .addSelect('COALESCE(SUM(COALESCE(c.budget_usd, c.budget)), 0)', 'budget')
+        .where('b.id = :brandId', { brandId })
+        .andWhere('cb.id IN (:...managerIds)', { managerIds })
+        .groupBy('cb.id')
+        .getRawMany();
+      const byManager = new Map(used.map((r: any) => [r.managerId, r]));
+      for (const m of team) {
+        if (m.member_type !== 'manager') continue;
+        const hit: any = byManager.get(m.member?.id);
+        m.usage = {
+          campaigns_created: Number(hit?.campaigns) || 0,
+          budget_used: Math.round((Number(hit?.budget) || 0) * 100) / 100,
+        };
+      }
+    }
+    return team;
   }
 
   // ─── Update Team Member Permissions ─────────────────────────────────────────
+  /** The brand changes what a manager may create and spend. */
+  async updateGrant(brandId: string, teamId: string, grant: { campaign_limit?: number | null; budget_cap?: number | null; campaigns?: string[] }): Promise<BrandTeam> {
+    const row = await this.teamRepo.findOne({ where: { id: teamId, brand: { id: brandId } }, relations: ['member'] });
+    if (!row) throw new NotFoundException('Team member not found');
+    if (row.member_type !== 'manager') throw new BadRequestException('Only account managers have a grant.');
+    const limit = grant.campaign_limit == null || (grant.campaign_limit as any) === '' ? null : Math.max(0, Math.round(Number(grant.campaign_limit)));
+    const cap = grant.budget_cap == null || (grant.budget_cap as any) === '' ? null : Math.max(0, Number(grant.budget_cap));
+    if (limit != null && !Number.isFinite(limit)) throw new BadRequestException('Campaign limit must be a whole number.');
+    if (cap != null && !Number.isFinite(cap)) throw new BadRequestException('Budget cap must be a number.');
+    row.grant = {
+      campaign_limit: limit,
+      budget_cap: cap,
+      campaigns: Array.isArray(grant.campaigns) ? grant.campaigns.slice(0, 200) : row.grant?.campaigns || [],
+    };
+    const saved = await this.teamRepo.save(row);
+    await this.notifications.createNotification(
+      row.member.id,
+      'MANAGER_GRANT_UPDATED',
+      `Your limits were updated: ${limit == null ? 'unlimited campaigns' : `${limit} campaign${limit === 1 ? '' : 's'}`} and ${cap == null ? 'no budget cap' : `a ${cap.toLocaleString('en-US')} budget`}.`,
+      row.id,
+    ).catch(() => {});
+    return saved;
+  }
+
   async updatePermissions(brandId: string, teamId: string, permissions: any): Promise<BrandTeam> {
     const entry = await this.teamRepo.findOne({
       where: { id: teamId, brand: { id: brandId } },
@@ -462,6 +522,6 @@ export class InvitationsService {
       inv.id,
     );
 
-    return saved;
+    return sanitizeInvitation(saved);
   }
 }

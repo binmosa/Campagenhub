@@ -1,4 +1,4 @@
-import { test, expect, expectHero } from './fixtures';
+import { test, expect, expectHero, expectNoRawKeys } from './fixtures';
 import { ACCOUNTS, PASSWORD } from './accounts';
 
 test.describe('authentication — rejected login', () => {
@@ -60,4 +60,55 @@ test.describe('expired session', () => {
     await expect(page.getByRole('alert')).toContainText(/session expired/i);
     expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull();
   });
+});
+
+/**
+ * Password recovery. There was no way back into a locked-out account: the
+ * sign-in page's "Forgot password?" pointed at nothing and no endpoint
+ * existed behind it.
+ */
+test.describe('password recovery', () => {
+  test('the reset request never reveals who has an account', async ({ request, baseURL }) => {
+    const known = await request.post(`${baseURL}/api/auth/forgot-password`, { data: { email: ACCOUNTS.creator3 } });
+    const unknown = await request.post(`${baseURL}/api/auth/forgot-password`, { data: { email: 'definitely-nobody@example.com' } });
+    expect(known.status()).toBe(unknown.status());
+    expect(await known.text()).toBe(await unknown.text());
+  });
+
+  test('a reset link is single-use, and a bad one is refused', async ({ request, baseURL }) => {
+    const bad = await request.post(`${baseURL}/api/auth/reset-password`, {
+      data: { email: ACCOUNTS.creator3, token: 'f'.repeat(64), password: 'BrandNewPass1' },
+    });
+    expect(bad.status()).toBe(400);
+    expect((await bad.json()).message).toMatch(/expired or has already been used/i);
+
+    const short = await request.post(`${baseURL}/api/auth/reset-password`, {
+      data: { email: ACCOUNTS.creator3, token: 'f'.repeat(64), password: 'abc' },
+    });
+    expect(short.status()).toBe(400);
+    expect((await short.json()).message).toMatch(/at least 8 characters/i);
+  });
+
+  test('the sign-in page links to recovery, and the form confirms without leaking', async ({ page }) => {
+    await page.goto('/login');
+    await page.getByRole('link', { name: /forgot/i }).first().click();
+    await expect(page).toHaveURL(/\/forgot-password/);
+    await page.getByLabel(/email/i).first().fill(ACCOUNTS.creator3);
+    await page.getByRole('button', { name: /send reset link/i }).click();
+    await expect(page.locator('body')).toContainText(/reset link is on its way/i);
+    await expectNoRawKeys(page);
+  });
+
+  test('an incomplete reset link says so instead of rendering nothing', async ({ page }) => {
+    await page.goto('/reset-password');
+    await expect(page.locator('body')).toContainText(/that link is incomplete/i);
+    await expectNoRawKeys(page);
+  });
+});
+
+/** An unknown URL used to match no route and render a blank document. */
+test('an unknown path renders a real not-found page', async ({ page }) => {
+  await page.goto('/this/route/does/not/exist');
+  await expect(page.locator('body')).toContainText(/could not find that page/i);
+  await expectNoRawKeys(page);
 });

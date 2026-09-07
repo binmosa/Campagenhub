@@ -39,6 +39,18 @@ export class EmailService {
 
   // === Pre-built Email Templates ===
 
+  /** The one-time link that lets someone set a new password. */
+  async sendPasswordReset(to: string, resetUrl: string) {
+    return this.sendEmail(
+      to,
+      'Reset your CampaignHub password',
+      `<p>Someone asked to reset the password for this account.</p>
+       <p><a href="${resetUrl}" style="display:inline-block;padding:12px 20px;border-radius:8px;background:#6c63ff;color:#fff;text-decoration:none;font-weight:600">Choose a new password</a></p>
+       <p>The link works once and expires in 60 minutes.</p>
+       <p style="color:#667">If this wasn't you, nothing has changed — you can ignore this email.</p>`,
+    );
+  }
+
   async sendWelcomeEmail(to: string, role: string) {
     return this.sendEmail(to, 'Welcome to CampaignHub!', `
       <h2>Welcome to CampaignHub! 🎉</h2>

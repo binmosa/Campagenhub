@@ -13,6 +13,8 @@ import { EmptyPanel } from '../../components/common/EmptyPanel';
 import { CampaignCard, parsePlatforms, type PlatformId } from '../../components/common/CampaignCard';
 import { BriefDetails } from '../../components/common/BriefDetails';
 import { DirectoryToolbar, PlatformChipRow } from '../../components/common/filters';
+import { LoadMore, LoadMoreSkeleton } from '../../components/common/LoadMore';
+import { usePagedList, useDebounced } from '../../lib/usePagedList';
 import { StoryAvatar } from '../../components/common/StoryAvatar';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { Fact, money, userIdentity } from './shared';
@@ -35,81 +37,43 @@ const CampaignSkeleton: React.FC = () => (
 
 const AdminCampaigns: React.FC = () => {
   const { t } = useTranslation();
-  const [campaigns, setCampaigns] = useState<any[]>([]);
-  const [applications, setApplications] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [platform, setPlatform] = useState<'all' | PlatformId>('all');
   const [sort, setSort] = useState<SortKey>('newest');
-  const [limit, setLimit] = useState(PAGE);
   const [busy, setBusy] = useState<string | null>(null);
   const [open, setOpen] = useState<any>(null);
   const [confirmClose, setConfirmClose] = useState<any>(null);
 
-  const load = useCallback(() => {
-    setError(false);
-    Promise.all([api.get('/admin/campaigns'), api.get('/admin/applications').catch(() => ({ data: [] }))])
-      .then(([c, a]) => {
-        setCampaigns(Array.isArray(c.data) ? c.data : []);
-        setApplications(Array.isArray(a.data) ? a.data : []);
-      })
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, []);
-  useEffect(load, [load]);
+  /*
+   * Server-paged. This screen used to download every campaign AND every
+   * application in the system just to count applicants per brief; the
+   * funnel counts now arrive on each row, computed for that page alone.
+   */
+  const debouncedSearch = useDebounced(search);
+  const { items: enriched, total, hasMore, stats: serverStats, loading, loadingMore, error, loadMore, refresh } = usePagedList<any>(
+    '/admin/campaigns',
+    { search: debouncedSearch, status, platform, sort },
+    PAGE,
+  );
+  const load = refresh;
 
-  /* Applicant funnel per brief — the owner card reads these counts. */
-  const enriched = useMemo(() => {
-    const funnel = new Map<string, { n: number; pending: number; accepted: number }>();
-    for (const a of applications) {
-      const id = a.campaign?.id;
-      if (!id) continue;
-      const f = funnel.get(id) || { n: 0, pending: 0, accepted: 0 };
-      f.n++;
-      const s = normalizeApplicationStatus(a.status);
-      if (s === 'pending' || s === 'shortlisted') f.pending++;
-      if (s === 'accepted') f.accepted++;
-      funnel.set(id, f);
-    }
-    return campaigns.map((c) => {
-      const f = funnel.get(c.id) || { n: 0, pending: 0, accepted: 0 };
-      return { ...c, applicants_count: f.n, pending_count: f.pending, accepted_count: f.accepted };
-    });
-  }, [campaigns, applications]);
-
-  const counts = useMemo(() => {
-    const by: Record<string, number> = {};
-    for (const c of enriched) {
-      const s = normalizeCampaignStatus(c.status);
-      by[s] = (by[s] || 0) + 1;
-    }
-    const liveUsd = enriched.filter((c) => normalizeCampaignStatus(c.status) === 'active').reduce((s, c) => s + (Number(c.budget_usd) || (String(c.currency || 'USD') === 'USD' ? Number(c.budget) || 0 : 0)), 0);
-    const brands = new Set(enriched.map((c) => c.brand?.id).filter(Boolean)).size;
-    return { by, liveUsd, brands };
-  }, [enriched]);
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const list = enriched.filter((c) => {
-      if (status !== 'all' && normalizeCampaignStatus(c.status) !== status) return false;
-      if (platform !== 'all' && !parsePlatforms(c.platform).includes(platform)) return false;
-      if (!q) return true;
-      const who = userIdentity(c.brand);
-      return [c.title, c.description, who.name, c.brand?.email].some((s) => String(s || '').toLowerCase().includes(q));
-    });
-    const key = (c: any) => (sort === 'budget' ? Number(c.budget_usd) || Number(c.budget) || 0 : sort === 'applicants' ? c.applicants_count : new Date(c.created_at || 0).getTime());
-    return list.sort((a, b) => key(b) - key(a));
-  }, [enriched, search, status, platform, sort]);
-  const shown = filtered.slice(0, limit);
+  /* Status tallies, live budget and brand count come from the API so they
+     describe every brief, not the page on screen. */
+  const counts = {
+    by: (serverStats?.by || {}) as Record<string, number>,
+    liveUsd: Number(serverStats?.liveUsd || 0),
+    brands: Number(serverStats?.brands || 0),
+    all: Number(serverStats?.all || 0),
+  };
+  const filtersOn = !!search || status !== 'all' || platform !== 'all';
 
   const setCampaignStatus = async (c: any, next: CampaignStatus) => {
     setBusy(c.id);
     try {
       await api.patch(`/admin/campaigns/${c.id}/status`, { status: next });
-      setCampaigns((prev) => prev.map((x) => (x.id === c.id ? { ...x, status: next } : x)));
       if (open?.id === c.id) setOpen((o: any) => ({ ...o, status: next }));
+      refresh();
       toast.success(t(`dash.statusChanged.${next}`, { title: c.title }));
     } catch (e: any) {
       toast.error(e?.response?.data?.message || t('dash.updateFailed'));
@@ -152,8 +116,8 @@ const AdminCampaigns: React.FC = () => {
 
   const stats = (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <MetricCard label={t('adm.camps.kpiAll')} value={enriched.length} hint={t('adm.camps.kpiAllHint', { n: counts.brands })} series={weekSeries(campaigns)} icon={Briefcase} />
-      <MetricCard label={t('dash.kpiActiveCampaigns')} value={counts.by.active || 0} hint={t('adm.camps.kpiLiveHint', { n: counts.by.paused || 0 })} icon={Radio} iconStatus={counts.by.active ? 'success' : undefined} chartColor="var(--chart-1, #00d4c7)" series={weekSeries(campaigns, (c) => normalizeCampaignStatus(c.status) === 'active')} />
+      <MetricCard label={t('adm.camps.kpiAll')} value={counts.all} hint={t('adm.camps.kpiAllHint', { n: counts.brands })} series={weekSeries(enriched)} icon={Briefcase} />
+      <MetricCard label={t('dash.kpiActiveCampaigns')} value={counts.by.active || 0} hint={t('adm.camps.kpiLiveHint', { n: counts.by.paused || 0 })} icon={Radio} iconStatus={counts.by.active ? 'success' : undefined} chartColor="var(--chart-1, #00d4c7)" series={weekSeries(enriched, (c: any) => normalizeCampaignStatus(c.status) === 'active')} />
       <MetricCard label={t('adm.camps.kpiDrafts')} value={counts.by.draft || 0} hint={t('adm.camps.kpiDraftsHint', { n: counts.by.closed || 0 })} icon={EyeOff} />
       <MetricCard label={t('adm.camps.kpiBudget')} value={money(counts.liveUsd)} hint={t('adm.camps.kpiBudgetHint')} icon={Globe} iconStatus={counts.liveUsd ? 'success' : undefined} />
     </div>
@@ -175,9 +139,9 @@ const AdminCampaigns: React.FC = () => {
       <div>
         <DirectoryToolbar
           search={{ value: search, onChange: setSearch, placeholder: t('adm.camps.searchPh'), widthClass: 'w-full sm:w-[300px]' }}
-          count={t('adm.camps.count', { shown: shown.length, total: filtered.length })}
+          count={loading ? t('common.searching') : t('adm.camps.count', { shown: enriched.length, total })}
           leading={
-            <Segment size="sm" selectedKey={status} onSelectionChange={(k) => { setStatus(k as StatusFilter); setLimit(PAGE); }} aria-label={t('adm.users.statusFilter')}>
+            <Segment size="sm" selectedKey={status} onSelectionChange={(k) => setStatus(k as StatusFilter)} aria-label={t('adm.users.statusFilter')}>
               <Segment.Item id="all">{t('dash.all')} · {enriched.length}</Segment.Item>
               {CAMPAIGN_STATUSES.map((s) => (
                 <Segment.Item key={s} id={s}>{t(`status.${s}`)} · {counts.by[s] || 0}</Segment.Item>
@@ -191,33 +155,28 @@ const AdminCampaigns: React.FC = () => {
             <Segment.Item id="budget">{t('board.sortBudget')}</Segment.Item>
           </Segment>
         </DirectoryToolbar>
-        <PlatformChipRow value={platform} onChange={(v) => { setPlatform(v); setLimit(PAGE); }} />
+        <PlatformChipRow value={platform} onChange={setPlatform} />
 
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{[0, 1, 2].map((i) => <CampaignSkeleton key={i} />)}</div>
         ) : error ? (
-          <EmptyPanel tone="error" icon={<AlertTriangle size={22} />} title={t('board.errTitle')} description={t('board.errDesc')} actions={<Button variant="primary" onPress={() => { setLoading(true); load(); }}>{t('common.tryAgain')}</Button>} />
-        ) : filtered.length === 0 ? (
+          <EmptyPanel tone="error" icon={<AlertTriangle size={22} />} title={t('board.errTitle')} description={t('board.errDesc')} actions={<Button variant="primary" onPress={refresh}>{t('common.tryAgain')}</Button>} />
+        ) : enriched.length === 0 ? (
           <EmptyPanel
             icon={<Briefcase size={22} />}
-            title={campaigns.length === 0 ? t('adm.camps.emptyTitle') : t('board.emptyTitle')}
-            description={campaigns.length === 0 ? t('adm.camps.emptyDesc') : t('board.emptyStatus')}
-            actions={campaigns.length > 0 ? <Button variant="tertiary" onPress={() => { setSearch(''); setStatus('all'); setPlatform('all'); }}>{t('board.resetFilters')}</Button> : undefined}
+            title={filtersOn ? t('board.emptyTitle') : t('adm.camps.emptyTitle')}
+            description={filtersOn ? t('board.emptyStatus') : t('adm.camps.emptyDesc')}
+            actions={filtersOn ? <Button variant="tertiary" onPress={() => { setSearch(''); setStatus('all'); setPlatform('all'); }}>{t('board.resetFilters')}</Button> : undefined}
           />
         ) : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {shown.map((c, i) => (
+              {enriched.map((c: any, i: number) => (
                 <CampaignCard key={c.id} camp={c} index={i} applied={false} loggedIn isCreator={false} onApply={() => {}} variant="owner" onOpen={setOpen} actions={moderation(c)} />
               ))}
             </div>
-            {filtered.length > shown.length && (
-              <div className="flex justify-center mt-6">
-                <button type="button" onClick={() => setLimit((n) => n + PAGE)} className="v-facet-btn !px-4 !py-2.5">
-                  {t('common.loadMore', { n: filtered.length - shown.length })}
-                </button>
-              </div>
-            )}
+            {loadingMore && <LoadMoreSkeleton n={2} />}
+            <LoadMore onLoadMore={loadMore} remaining={hasMore ? total - enriched.length : 0} pending={loadingMore} />
           </>
         )}
       </div>
