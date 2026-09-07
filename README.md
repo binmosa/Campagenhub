@@ -69,6 +69,22 @@ docker compose up -d --build
 DB_SYNCHRONIZE=true docker compose run --rm backend node dist/main   # Ctrl-C once it says "successfully started"
 docker compose up -d                                                 # then run normally
 ```
+### Your first administrator
+
+Public registration only grants creator, brand or manager — staff roles are
+deliberately unreachable from outside. Create the first admin from the
+server:
+
+```bash
+cd backend
+npm run create-admin -- you@yourdomain.com          # prompts for a password
+npm run create-admin -- money@yourdomain.com --role finance
+```
+
+Run it again on an existing address to promote that account and reset its
+password. If the API's `.env` lives somewhere other than `backend/`, point
+the script at it with `DOTENV_CONFIG_PATH=/path/to/.env`.
+
 
 #### Building the frontend image
 
