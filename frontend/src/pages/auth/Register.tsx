@@ -13,6 +13,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../../i18n';
 import { useNoIndex } from '../../lib/seo';
+import { Turnstile, turnstileEnabled } from '../../components/common/Turnstile';
 import api from '../../lib/api';
 import { buildTelegramLink, getTelegramBotUsername } from '../../lib/telegram';
 import LocationCascade, { EMPTY_LOCATION, type LocationValue } from '../../components/common/LocationCascade';
@@ -43,7 +44,7 @@ const EXPERIENCE_OPTIONS = [
 ];
 
 /**
- * Register — Campgains Hub simplified onboarding.
+ * Register — Campaign Hubz simplified onboarding.
  *
  * Two-step flow:
  *   1. Role + email + password + essential role-specific profile fields → submit.
@@ -67,6 +68,7 @@ const Register: React.FC = () => {
     return param === 'brand' || param === 'manager' || param === 'creator' ? param : 'creator';
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
   const [error, setError] = useState('');
 
   /* Role-specific essentials */
@@ -182,6 +184,7 @@ const Register: React.FC = () => {
         profile,
         language: i18n.language,
         ...(signupMarket ? { signup_market: signupMarket } : {}),
+        ...(turnstileToken ? { turnstileToken } : {}),
       });
       if (response.data.error) throw new Error(response.data.error);
 
@@ -234,7 +237,7 @@ const Register: React.FC = () => {
         <Link to="/" className="relative z-10 inline-flex items-center gap-2 self-start">
           <img
             src="/logo.png"
-            alt="Campgains Hub"
+            alt="Campaign Hubz"
             className="h-9 w-9 object-contain"
             style={{ filter: 'drop-shadow(0 1px 6px rgba(108,99,255,0.40))' }}
           />
@@ -242,7 +245,7 @@ const Register: React.FC = () => {
             className="font-medium tracking-tight"
             style={{ color: '#fff', fontSize: 16, letterSpacing: '-0.018em' }}
           >
-            Campgains <span style={{ color: 'var(--color-creator-teal)' }}>Hub</span>
+            Campaign <span style={{ color: 'var(--color-creator-teal)' }}>Hubz</span>
           </span>
         </Link>
 
@@ -358,12 +361,12 @@ const Register: React.FC = () => {
       <div className="w-full lg:w-1/2 flex flex-col items-center px-6 py-10 lg:p-12 v-bg-canvas relative overflow-y-auto">
         <div className="lg:hidden w-full max-w-md mb-6 flex items-center justify-between">
           <Link to="/" className="inline-flex items-center gap-2">
-            <img src="/logo.png" alt="Campgains Hub" className="h-7 w-7 object-contain" />
+            <img src="/logo.png" alt="Campaign Hubz" className="h-7 w-7 object-contain" />
             <span
               className="v-ink font-medium tracking-tight"
               style={{ fontSize: 15, letterSpacing: '-0.018em' }}
             >
-              Campgains <span style={{ color: 'var(--color-creator-teal-deep)' }}>Hub</span>
+              Campaign <span style={{ color: 'var(--color-creator-teal-deep)' }}>Hubz</span>
             </span>
           </Link>
           <span
@@ -784,11 +787,15 @@ const Register: React.FC = () => {
                 )}
               </div>
 
+              {/* Renders only when a Turnstile site key is configured. */}
+              <Turnstile onToken={setTurnstileToken} className="mb-3" />
+
               <Button
                 variant="primary"
                 size="lg"
                 fullWidth
                 isPending={isLoading}
+                isDisabled={turnstileEnabled && !turnstileToken}
                 onPress={handleRegisterSubmit}
                 className="!rounded-xl"
               >

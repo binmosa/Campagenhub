@@ -22,7 +22,7 @@ export class ErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('[CampaignHub] Render failed:', error, info.componentStack);
+    console.error('[Campaign Hubz] Render failed:', error, info.componentStack);
   }
 
   render() {

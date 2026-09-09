@@ -1,11 +1,13 @@
 import { BadRequestException, Body, Controller, Post, UseGuards } from '@nestjs/common';
-import { randomUUID } from 'crypto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import * as fs from 'fs';
-import * as path from 'path';
+import { StorageService } from './storage.service';
 
 /**
  * Base64 upload endpoint for avatars, campaign art and pitch media.
+ *
+ * Where the bytes end up is StorageService's decision — Cloudflare R2 when
+ * it is configured, local disk otherwise. Either way the response is a URL
+ * the browser can load, and callers do not care which backend produced it.
  *
  * The name a client sends is never used as a path. It used to be joined
  * straight onto the upload directory, so `filename: "../../dist/main.js"`
@@ -31,6 +33,8 @@ const MAX_BASE64_LENGTH = 34_000_000;
 
 @Controller('api/uploads')
 export class UploadsController {
+  constructor(private readonly storage: StorageService) {}
+
   @UseGuards(JwtAuthGuard)
   @Post()
   async uploadFile(@Body() body: { file: string; filename?: string }) {
@@ -50,13 +54,10 @@ export class UploadsController {
     const buffer = Buffer.from(data, 'base64');
     if (!buffer.length) throw new BadRequestException('That file is empty.');
 
-    const uploadDir = path.join(process.env.UPLOADS_DIR || path.join(process.cwd(), 'public'), 'uploads');
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+    // The name is generated server-side inside the storage layer, so
+    // nothing from the request can reach a path or an object key.
+    const url = await this.storage.put(buffer, ext, mimeType);
 
-    // Server-generated name: nothing from the request reaches the path.
-    const filename = `${Date.now()}-${randomUUID()}.${ext}`;
-    fs.writeFileSync(path.join(uploadDir, filename), buffer);
-
-    return { url: `/uploads/${filename}`, filename, mimeType };
+    return { url, filename: url.split('/').pop(), mimeType };
   }
 }

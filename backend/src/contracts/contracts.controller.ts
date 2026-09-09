@@ -22,14 +22,14 @@ export class ContractsController {
     const content =
 `COLLABORATION AGREEMENT
 
-This professional collaboration agreement is entered into between the Brand and ${body.talent_name || 'the Talent'} for executing content and campaign services on the CampaignHub platform.
+This professional collaboration agreement is entered into between the Brand and ${body.talent_name || 'the Talent'} for executing content and campaign services on the Campaign Hubz platform.
 
 SCOPE OF WORK
 The Talent agrees to create, publish, and promote content as agreed upon with the Brand. Deliverables and timelines shall be mutually confirmed prior to campaign launch.
 
 PAYMENT TERMS
 Compensation: ${body.currency || 'NGN'} ${body.amount || '[amount]'} per ${body.frequency || 'month'}.
-Payment Schedule: Funds will be transferred on the agreed payment date each ${({ one_time: 'one-time milestone', daily: 'day', weekly: 'week', monthly: 'month', quarterly: 'quarter', yearly: 'year' } as Record<string, string>)[String(body.frequency)] || 'month'} via the CampaignHub automated payment system.
+Payment Schedule: Funds will be transferred on the agreed payment date each ${({ one_time: 'one-time milestone', daily: 'day', weekly: 'week', monthly: 'month', quarterly: 'quarter', yearly: 'year' } as Record<string, string>)[String(body.frequency)] || 'month'} via the Campaign Hubz automated payment system.
 
 INTELLECTUAL PROPERTY
 All content created under this agreement remains the intellectual property of the Talent. The Brand is granted a non-exclusive license to use and distribute the content for the duration of this agreement.
@@ -41,7 +41,7 @@ TERMINATION
 Either party may terminate this agreement with 14-day written notice. All pending payments for delivered work will be honored upon termination.
 
 GOVERNING LAW
-This agreement is governed by the platform terms of CampaignHub and is legally binding upon digital acceptance.
+This agreement is governed by the platform terms of Campaign Hubz and is legally binding upon digital acceptance.
 
 Effective Date: ${new Date().toLocaleDateString()}
 `;

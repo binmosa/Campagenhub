@@ -52,6 +52,12 @@ export default defineConfig({
         CORS_ORIGINS: `http://localhost:${WEB_PORT},http://127.0.0.1:${WEB_PORT}`,
         ENABLE_TELEGRAM_POLLING: 'false',
         ENABLE_SEED: 'false',
+        // backend/.env may hold a real Turnstile secret for local
+        // development. An explicit empty value wins over dotenv (which never
+        // overwrites an existing process env var), so the suite exercises the
+        // forms without reaching Cloudflare — matching the frontend, which
+        // renders no widget under `--mode test`.
+        TURNSTILE_SECRET_KEY: '',
         // The suite signs in for every test and hammers the API far harder
         // than a person would. Production ceilings stay as they are; this
         // run raises them so throttling is not what the tests measure.
@@ -69,13 +75,16 @@ export default defineConfig({
       },
     },
     {
-      command: `npx vite --port ${WEB_PORT} --strictPort`,
+      command: `npx vite --port ${WEB_PORT} --strictPort --mode test`,
       url: `http://localhost:${WEB_PORT}/`,
       reuseExistingServer: true,
       timeout: 60_000,
       env: {
         VITE_API_BASE_URL: '/api',
         VITE_PROXY_TARGET: `http://127.0.0.1:${API_PORT}`,
+        // The widget is switched off for the suite via .env.test, which
+        // Vite loads in `--mode test` ahead of the .env holding a real
+        // site key for local development.
       },
     },
   ],

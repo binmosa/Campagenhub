@@ -10,7 +10,7 @@
 export type ToastTone = 'info' | 'success' | 'error';
 export type ToastItem = { id: number; tone: ToastTone; text: string };
 
-export const TOAST_EVENT = 'campgains:toast';
+export const TOAST_EVENT = 'campaignhubz:toast';
 let seq = 0;
 
 const push = (tone: ToastTone, text: string) => {

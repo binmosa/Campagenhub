@@ -13,9 +13,9 @@ const Privacy: React.FC = () => (
     updated="September 1, 2026"
     intro={
       <p>
-        This Privacy Policy explains how Campgains Hub Inc. (“CampaignHub”,
+        This Privacy Policy explains how Campaign Hubz Inc. (“Campaign Hubz”,
         “we”, “us”) collects, uses, and shares personal information when you use
-        the Campgains Hub platform (the “Platform”). By using the Platform you
+        the Campaign Hubz platform (the “Platform”). By using the Platform you
         agree to this Policy.
       </p>
     }
@@ -65,7 +65,7 @@ const Privacy: React.FC = () => (
         <li><strong className="v-ink">With other users</strong> — as inherent to the marketplace (public profiles, applications shown to the brand you applied to, messages with counterparties).</li>
         <li><strong className="v-ink">With service providers</strong> — payment processors, hosting and infrastructure, email delivery, Telegram (for notifications you opt into), and AI providers — each only for the services they perform for us.</li>
         <li><strong className="v-ink">For legal reasons</strong> — to comply with law, enforce our Terms, or protect the rights and safety of users and the Platform.</li>
-        <li><strong className="v-ink">In a business transfer</strong> — if CampaignHub is involved in a merger, acquisition, or asset sale, information may transfer as part of that transaction.</li>
+        <li><strong className="v-ink">In a business transfer</strong> — if Campaign Hubz is involved in a merger, acquisition, or asset sale, information may transfer as part of that transaction.</li>
       </ul>
       <p>We do not sell your personal information.</p>
     </LegalSection>

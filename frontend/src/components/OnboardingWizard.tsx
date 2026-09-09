@@ -10,19 +10,19 @@ interface Step {
 
 const STEPS: Record<string, Step[]> = {
   creator: [
-    { icon: Sparkles, title: 'Welcome to CampaignHub!', description: 'Your journey to brand collaborations starts here. Let us show you around.', tip: 'Complete your profile to get discovered by top brands.' },
+    { icon: Sparkles, title: 'Welcome to Campaign Hubz!', description: 'Your journey to brand collaborations starts here. Let us show you around.', tip: 'Complete your profile to get discovered by top brands.' },
     { icon: Users, title: 'Browse Campaigns', description: 'Explore live campaigns from brands looking for creators just like you. Apply with a compelling pitch.', tip: 'Campaigns with higher budgets get more applicants. Stand out!' },
     { icon: BarChart2, title: 'Track Your Progress', description: 'Monitor your applications, accepted deals, and earnings all in one dashboard.', tip: 'Use the Dashboard tab to see real-time stats.' },
     { icon: Zap, title: 'You\'re All Set!', description: 'Start exploring campaigns and land your first collaboration. Good luck!', tip: 'Keep your profile updated for better matching.' },
   ],
   brand: [
-    { icon: Sparkles, title: 'Welcome to CampaignHub!', description: 'Connect with high-impact creators and scale your campaigns effortlessly.', tip: 'Create your first campaign to start receiving applications.' },
+    { icon: Sparkles, title: 'Welcome to Campaign Hubz!', description: 'Connect with high-impact creators and scale your campaigns effortlessly.', tip: 'Create your first campaign to start receiving applications.' },
     { icon: Users, title: 'Create a Campaign', description: 'Define your brief, set a budget, and choose content types. Our platform will help you find the perfect creators.', tip: 'Detailed briefs attract more qualified creators.' },
     { icon: BarChart2, title: 'Review Applications', description: 'View creator profiles, followers, and reach. Accept the best fit and process payments securely.', tip: 'Check creator stats before accepting.' },
     { icon: Zap, title: 'You\'re All Set!', description: 'Launch your first campaign and watch your brand grow with creators. Let\'s go!', tip: 'Use the analytics dashboard to track campaign performance.' },
   ],
   admin: [
-    { icon: Sparkles, title: 'Welcome, Admin!', description: 'You have full control over the CampaignHub platform.', tip: 'Check the dashboard for an overview of all activity.' },
+    { icon: Sparkles, title: 'Welcome, Admin!', description: 'You have full control over the Campaign Hubz platform.', tip: 'Check the dashboard for an overview of all activity.' },
     { icon: Users, title: 'Manage Users & Campaigns', description: 'View all users, campaigns, applications, and payouts from your admin panel.', tip: 'Use the Users tab to manage accounts.' },
     { icon: BarChart2, title: 'Site Control', description: 'Configure landing page sections, trusted brands, and more from Site Settings.', tip: 'The Site Control page lets you manage public-facing content.' },
     { icon: Zap, title: 'You\'re All Set!', description: 'You have everything you need to manage the platform. Let\'s go!', tip: 'Monitor payouts to ensure timely creator payments.' },

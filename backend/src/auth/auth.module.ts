@@ -5,6 +5,7 @@ import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
+import { TurnstileGuard } from './turnstile.guard';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CreatorProfile } from '../creators/creator-profile.entity';
 import { BrandProfile } from '../brands/brand-profile.entity';
@@ -23,7 +24,7 @@ import { User } from '../users/user.entity';
       signOptions: { expiresIn: '24h' },
     }),
   ],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, TurnstileGuard],
   controllers: [AuthController],
 })
 export class AuthModule {}

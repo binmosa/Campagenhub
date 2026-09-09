@@ -1,5 +1,6 @@
 import { Controller, Request, Post, UseGuards, Body, Get, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { TurnstileGuard } from './turnstile.guard';
 import { AuthService } from './auth.service';
 import { UserRole } from '../users/user.entity';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -18,6 +19,7 @@ export class AuthController {
   /* Credential endpoints are the ones worth guessing at, so they get a
      much tighter allowance than the app-wide default. */
   @Throttle({ short: { ttl: 60_000, limit: authLimit('THROTTLE_REGISTER', 5) }, medium: { ttl: 3_600_000, limit: authLimit('THROTTLE_REGISTER_HOUR', 20) } })
+  @UseGuards(TurnstileGuard)
   @Post('register')
   async register(@Body() body: any) {
     const { email, password, role, profile } = body;
@@ -36,6 +38,7 @@ export class AuthController {
      the same way for every address is what keeps it from confirming who
      has an account. */
   @Throttle({ short: { ttl: 60_000, limit: authLimit('THROTTLE_FORGOT', 3) }, medium: { ttl: 3_600_000, limit: authLimit('THROTTLE_FORGOT_HOUR', 10) } })
+  @UseGuards(TurnstileGuard)
   @Post('forgot-password')
   async forgotPassword(@Body() body: { email: string }) {
     await this.authService.requestPasswordReset(body?.email);

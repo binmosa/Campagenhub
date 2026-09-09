@@ -1,5 +1,5 @@
 /**
- * Markets — the single source of truth for where CampaignHub operates.
+ * Markets — the single source of truth for where Campaign Hubz operates.
  *
  * Launching a new country = add a row here (+ translations if it brings a
  * new language). Everything downstream is data-driven: the /:market landing

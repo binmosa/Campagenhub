@@ -5,7 +5,7 @@ import i18n from '../i18n';
  * (public /campaigns board + landing ActiveCampaigns).
  */
 
-/** ISO-4217 → display symbol for the markets CampaignHub operates in. */
+/** ISO-4217 → display symbol for the markets Campaign Hubz operates in. */
 export const CURRENCY_SYMBOLS: Record<string, string> = {
   USD: '$',
   ETB: 'Br ',

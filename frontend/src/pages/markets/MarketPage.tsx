@@ -34,7 +34,7 @@ export const MarketPage: React.FC = () => {
 
   useEffect(() => {
     if (!market) return;
-    document.title = `CampaignHub ${market.name}`;
+    document.title = `Campaign Hubz ${market.name}`;
     let saved: string | null = null;
     try {
       saved = localStorage.getItem('lang');
@@ -48,7 +48,7 @@ export const MarketPage: React.FC = () => {
       setLanguage(market.default_language);
     }
     return () => {
-      document.title = 'CampaignHub';
+      document.title = 'Campaign Hubz';
     };
   }, [market]);
 

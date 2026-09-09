@@ -15,8 +15,8 @@ const Terms: React.FC = () => (
     intro={
       <p>
         These Terms of Service (the “Terms”) govern your access to and use of the
-        Campgains Hub platform, websites, and services (the “Platform”), operated
-        by Campgains Hub Inc. (“CampaignHub”, “we”, “us”). By creating an account
+        Campaign Hubz platform, websites, and services (the “Platform”), operated
+        by Campaign Hubz Inc. (“Campaign Hubz”, “we”, “us”). By creating an account
         or using the Platform you agree to these Terms. If you do not agree, do
         not use the Platform.
       </p>
@@ -33,7 +33,7 @@ const Terms: React.FC = () => (
 
     <LegalSection title="2. What the Platform is (and is not)">
       <p>
-        CampaignHub is a marketplace that connects brands, content creators, and
+        Campaign Hubz is a marketplace that connects brands, content creators, and
         talent managers for marketing collaborations. We provide discovery,
         matching, communication, contract-drafting, payment-facilitation, and
         tracking tools.
@@ -41,7 +41,7 @@ const Terms: React.FC = () => (
       <p>
         <strong className="v-ink">We are an intermediary only.</strong> Collaboration
         agreements are entered into directly between users (for example, between a
-        brand and a creator). CampaignHub is not a party to those agreements, is
+        brand and a creator). Campaign Hubz is not a party to those agreements, is
         not an employer, agency, broker, or guarantor of any user, and does not
         guarantee the quality, safety, legality, or outcome of any campaign,
         content, or collaboration, nor that any user will find matches, work, or
@@ -87,7 +87,7 @@ const Terms: React.FC = () => (
         The Platform can generate draft contracts and other documents, including
         with AI assistance. <strong className="v-ink">These drafts are templates
         provided for convenience only — they are not legal advice, and
-        CampaignHub does not warrant that they are complete, accurate, or
+        Campaign Hubz does not warrant that they are complete, accurate, or
         enforceable in your jurisdiction.</strong> Review them (with your own
         counsel where appropriate) before relying on them.
       </p>
@@ -95,9 +95,9 @@ const Terms: React.FC = () => (
 
     <LegalSection title="7. Payments, escrow, and fees">
       <ul className="list-disc pl-5 space-y-2">
-        <li>Payments are processed by third-party payment providers (currently including Flutterwave, PayPal, and Telebirr). Your use of those providers is subject to their own terms, and CampaignHub is not responsible for their acts, omissions, or outages.</li>
+        <li>Payments are processed by third-party payment providers (currently including Flutterwave, PayPal, and Telebirr). Your use of those providers is subject to their own terms, and Campaign Hubz is not responsible for their acts, omissions, or outages.</li>
         <li>Where escrow-style handling is offered, campaign budgets are held and released according to the campaign flow (for example, on acceptance and delivery). Release timing may depend on the payment provider.</li>
-        <li>CampaignHub may charge platform or service fees, which will be shown before you commit to a transaction and may change on notice.</li>
+        <li>Campaign Hubz may charge platform or service fees, which will be shown before you commit to a transaction and may change on notice.</li>
         <li>You are solely responsible for any taxes, levies, or reporting obligations that arise from amounts you pay or receive.</li>
         <li>Chargebacks, refunds, and payment disputes are handled per the applicable provider’s rules; we may suspend accounts involved in payment abuse.</li>
       </ul>
@@ -105,7 +105,7 @@ const Terms: React.FC = () => (
 
     <LegalSection title="8. Content and intellectual property">
       <p>
-        You retain ownership of content you create. You grant CampaignHub a
+        You retain ownership of content you create. You grant Campaign Hubz a
         worldwide, non-exclusive, royalty-free license to host, store, reproduce,
         display, and distribute content you submit to the Platform (profiles,
         briefs, pitches, submissions) for the purposes of operating, promoting,
@@ -115,7 +115,7 @@ const Terms: React.FC = () => (
       </p>
       <p>
         The Platform, including its software, design, and branding, is owned by
-        CampaignHub or its licensors. If you send us feedback, we may use it
+        Campaign Hubz or its licensors. If you send us feedback, we may use it
         without restriction or compensation.
       </p>
     </LegalSection>
@@ -186,7 +186,7 @@ const Terms: React.FC = () => (
 
     <LegalSection title="15. Indemnification">
       <p>
-        You will defend, indemnify, and hold harmless CampaignHub and its
+        You will defend, indemnify, and hold harmless Campaign Hubz and its
         officers, employees, and agents from claims, damages, and expenses
         (including reasonable legal fees) arising from your content, your use of
         the Platform, your collaborations with other users, or your breach of
@@ -199,7 +199,7 @@ const Terms: React.FC = () => (
         Disputes about a collaboration (quality, delivery, payment terms) are
         between the users involved. We may — but are not obligated to — assist,
         mediate, or make a determination regarding escrowed funds in good faith,
-        and you release CampaignHub from claims arising out of disputes with
+        and you release Campaign Hubz from claims arising out of disputes with
         other users.
       </p>
     </LegalSection>
@@ -215,8 +215,8 @@ const Terms: React.FC = () => (
     <LegalSection title="18. Governing law and disputes with us">
       <p>
         These Terms are governed by the laws of the jurisdiction in which
-        Campgains Hub Inc. is incorporated, without regard to conflict-of-law
-        rules. Any dispute with CampaignHub will be brought in the courts of that
+        Campaign Hubz Inc. is incorporated, without regard to conflict-of-law
+        rules. Any dispute with Campaign Hubz will be brought in the courts of that
         jurisdiction, and where permitted, resolved on an individual basis and
         not as part of a class or representative action.
       </p>

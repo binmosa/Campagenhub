@@ -81,24 +81,24 @@ export const CREATOR_WORKFLOW_STEPS: WorkflowStep[] = [
 
 export const MOCK_TESTIMONIALS: Testimonial[] = [
   {
-    quote: 'CampaignHub has been our system of record for influencer marketing for over 5 years. The matching engine and automated payments have saved us thousands of hours.',
+    quote: 'Campaign Hubz has been our system of record for influencer marketing for over 5 years. The matching engine and automated payments have saved us thousands of hours.',
     name: 'Ahmed K.', role: 'VP of Marketing', affiliation: 'Global Retailer',
   },
   {
-    quote: 'As a creator, reliability and trust are everything. CampaignHub provides the most transparent, professional platform in the industry. The guaranteed payout system is flawless.',
+    quote: 'As a creator, reliability and trust are everything. Campaign Hubz provides the most transparent, professional platform in the industry. The guaranteed payout system is flawless.',
     name: 'Lina M.', role: 'Content Creator', affiliation: '2.5M Followers',
   },
   {
-    quote: 'We required a SOC-2 compliant platform that could handle our scale. CampaignHub completely revolutionized our discovery workflow.',
+    quote: 'We needed a platform that could handle our scale. Campaign Hubz completely revolutionized our discovery workflow.',
     name: 'Omar S.', role: 'Director of Digital', affiliation: 'Fortune 500 Agency',
   },
 ];
 
 export const MOCK_FAQS: Faq[] = [
-  { question: 'How much does it cost to get started?',                       answer: 'CampaignHub is completely free to join for creators. Brands can start creating campaigns immediately. You only pay the budget you set for each campaign. No hidden fees or subscriptions.' },
-  { question: 'How does CampaignHub match me with the right creators?',     answer: 'Our smart matching looks at creator categories, audience size, past campaign performance, and your campaign goals to recommend the best-fit creators for your brand.' },
-  { question: 'How do payments work on CampaignHub?',                       answer: "When a brand accepts a creator's application, the campaign budget is securely processed. Creators receive their payout directly through the platform, no chasing invoices." },
-  { question: 'Can I run campaigns on multiple platforms?',                  answer: 'CampaignHub supports campaigns across Instagram, TikTok, YouTube, Twitter, and Twitch. You can target specific platforms or run cross-platform campaigns.' },
+  { question: 'How much does it cost to get started?',                       answer: 'Campaign Hubz is completely free to join for creators. Brands can start creating campaigns immediately. You only pay the budget you set for each campaign. No hidden fees or subscriptions.' },
+  { question: 'How does Campaign Hubz match me with the right creators?',     answer: 'Our smart matching looks at creator categories, audience size, past campaign performance, and your campaign goals to recommend the best-fit creators for your brand.' },
+  { question: 'How do payments work on Campaign Hubz?',                       answer: "When a brand accepts a creator's application, the campaign budget is securely processed. Creators receive their payout directly through the platform, no chasing invoices." },
+  { question: 'Can I run campaigns on multiple platforms?',                  answer: 'Campaign Hubz supports campaigns across Instagram, TikTok, YouTube, Twitter, and Twitch. You can target specific platforms or run cross-platform campaigns.' },
   { question: 'How quickly will I start getting applications?',              answer: "Most campaigns start receiving creator applications within the first 24 hours of publishing. The more detailed your brief, the better quality applications you'll attract." },
 ];
 

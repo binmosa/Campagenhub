@@ -1,7 +1,7 @@
 import React from 'react';
 
 /**
- * BrandLogo — the real Campgains Hub mark (`/public/logo.png`) + wordmark.
+ * BrandLogo — the real Campaign Hubz mark (`/public/logo.png`) + wordmark.
  *
  * One component for every surface (portal sidebar, loading screen, auth
  * screens, legacy shells) so the brand never drifts: the same PNG the
@@ -46,14 +46,14 @@ export const Wordmark: React.FC<{ font?: number; tone?: 'ink' | 'light'; classNa
     className={`font-medium tracking-tight whitespace-nowrap leading-none ${className}`}
     style={{ fontSize: font, letterSpacing: '-0.018em', color: tone === 'light' ? '#fff' : 'var(--color-deep-navy, #0b1736)' }}
   >
-    Campgains <span style={{ color: tone === 'light' ? 'var(--color-creator-teal)' : 'var(--color-creator-teal-deep, #00a89d)' }}>Hub</span>
+    Campaign <span style={{ color: tone === 'light' ? 'var(--color-creator-teal)' : 'var(--color-creator-teal-deep, #00a89d)' }}>Hubz</span>
   </span>
 );
 
 export const BrandLogo: React.FC<BrandLogoProps> = ({ size = 'md', showWordmark = true, tone = 'ink', className = '' }) => {
   const { mark, font, gap } = SIZE_MAP[size];
   return (
-    <span className={`inline-flex items-center ${gap} min-w-0 ${className}`} aria-label="Campgains Hub" role="img">
+    <span className={`inline-flex items-center ${gap} min-w-0 ${className}`} aria-label="Campaign Hubz" role="img">
       <LogoMark size={mark} />
       {showWordmark && <Wordmark font={font} tone={tone} />}
     </span>

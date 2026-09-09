@@ -23,7 +23,7 @@ export class EmailService {
       }
 
       await this.transporter.sendMail({
-        from: `"CampaignHub" <${process.env.GMAIL_USER}>`,
+        from: `"Campaign Hubz" <${process.env.GMAIL_USER}>`,
         to,
         subject,
         html: this.wrapInTemplate(subject, htmlBody),
@@ -43,7 +43,7 @@ export class EmailService {
   async sendPasswordReset(to: string, resetUrl: string) {
     return this.sendEmail(
       to,
-      'Reset your CampaignHub password',
+      'Reset your Campaign Hubz password',
       `<p>Someone asked to reset the password for this account.</p>
        <p><a href="${resetUrl}" style="display:inline-block;padding:12px 20px;border-radius:8px;background:#6c63ff;color:#fff;text-decoration:none;font-weight:600">Choose a new password</a></p>
        <p>The link works once and expires in 60 minutes.</p>
@@ -52,8 +52,8 @@ export class EmailService {
   }
 
   async sendWelcomeEmail(to: string, role: string) {
-    return this.sendEmail(to, 'Welcome to CampaignHub!', `
-      <h2>Welcome to CampaignHub! 🎉</h2>
+    return this.sendEmail(to, 'Welcome to Campaign Hubz!', `
+      <h2>Welcome to Campaign Hubz! 🎉</h2>
       <p>Your <strong>${role}</strong> account has been created successfully.</p>
       <p>Your account is currently <strong>pending admin verification</strong>. We'll notify you once your KYC documents have been reviewed and approved.</p>
       <p>In the meantime, please connect your Telegram account for instant notifications.</p>
@@ -67,7 +67,7 @@ export class EmailService {
     return this.sendEmail(to, 'Account Verified! ✅', `
       <h2>Your Account is Verified! ✅</h2>
       <p>Great news! Your KYC verification has been approved by our admin team.</p>
-      <p>You now have full access to all CampaignHub features. Start exploring campaigns, connecting with creators, and growing your brand.</p>
+      <p>You now have full access to all Campaign Hubz features. Start exploring campaigns, connecting with creators, and growing your brand.</p>
       <div style="text-align:center; margin: 30px 0;">
         <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard" style="background:#22c55e; color:white; padding:12px 32px; border-radius:8px; text-decoration:none; font-weight:bold;">Open Dashboard</a>
       </div>
@@ -94,7 +94,7 @@ export class EmailService {
     return this.sendEmail(to, `Payment Received - $${amount}`, `
       <h2>Payment Received! 💰</h2>
       <p>Your payout of <strong>$${amount.toLocaleString()}</strong> for "<em>${campaign}</em>" has been successfully transferred to your bank account!</p>
-      <p>Thank you for your amazing work on CampaignHub.</p>
+      <p>Thank you for your amazing work on Campaign Hubz.</p>
     `);
   }
 
@@ -145,7 +145,7 @@ export class EmailService {
           </div>
           <!-- Footer -->
           <div style="padding:20px 32px; background:#f8fafc; border-top:1px solid #e2e8f0; text-align:center;">
-            <p style="margin:0; color:#94a3b8; font-size:12px;">© ${new Date().getFullYear()} CampaignHub. All rights reserved.</p>
+            <p style="margin:0; color:#94a3b8; font-size:12px;">© ${new Date().getFullYear()} Campaign Hubz. All rights reserved.</p>
             <p style="margin:4px 0 0; color:#94a3b8; font-size:11px;">This is an automated notification. Please do not reply directly.</p>
           </div>
         </div>

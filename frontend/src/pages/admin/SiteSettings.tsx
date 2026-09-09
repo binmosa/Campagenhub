@@ -61,7 +61,7 @@ const DEFAULTS: SettingsMap = {
 };
 
 const THEMES = [
-  { id: 'theme-brand', label: 'Campgains Hub', hex: '#5b5cf6', lightHex: '#36d7dc' },
+  { id: 'theme-brand', label: 'Campaign Hubz', hex: '#5b5cf6', lightHex: '#36d7dc' },
   { id: 'theme-yellow', label: 'Golden Yellow', hex: '#ca8a04', lightHex: '#facc15' },
   { id: 'theme-blue', label: 'Ocean Blue', hex: '#2563eb', lightHex: '#60a5fa' },
   { id: 'theme-green', label: 'Growth Green', hex: '#16a34a', lightHex: '#4ade80' },
@@ -287,7 +287,7 @@ const SiteSettings: React.FC = () => {
               </Panel>
               <Panel icon={<Bot size={15} />} title={t('adm.site.howItWorks')}>
                 <div className="space-y-3">
-                  <Text k="how_it_works_title" label={t('adm.site.headline')} ph="How Campgains Hub works" />
+                  <Text k="how_it_works_title" label={t('adm.site.headline')} ph="How Campaign Hubz works" />
                   <Area k="how_it_works_desc" label={t('adm.site.description')} />
                   <Image k="how_it_works_image" label={t('adm.site.sectionImage')} />
                 </div>
@@ -355,7 +355,7 @@ const SiteSettings: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Text k="contact_badge" label={t('adm.site.badge')} ph="Let's talk" />
                 <Text k="contact_title" label={t('adm.site.headline')} ph="Get in touch" />
-                <Text k="contact_email" label={t('adm.site.companyEmail')} ph="hello@campgainshub.com" type="email" />
+                <Text k="contact_email" label={t('adm.site.companyEmail')} ph="info@campaignhubz.com" type="email" />
                 <Text k="contact_phone" label={t('adm.site.companyPhone')} ph="+251 …" />
                 <Text k="contact_loc" label={t('adm.site.companyLocation')} ph="Addis Ababa, Ethiopia" />
               </div>

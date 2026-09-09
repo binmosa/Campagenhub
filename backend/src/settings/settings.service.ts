@@ -47,7 +47,7 @@ export class SettingsService implements OnModuleInit {
       { key: 'hero_title', value: '' },
       { key: 'hero_subtitle', value: '' },
       { key: 'about_text', value: '' },
-      { key: 'contact_email', value: '' },
+      { key: 'contact_email', value: 'info@campaignhubz.com' },
       { key: 'contact_phone', value: '' },
       { key: 'contact_loc', value: '' },
       { key: 'showcase_demo_enabled', value: 'false' },

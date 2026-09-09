@@ -111,7 +111,7 @@ export const Footer: React.FC = () => {
           <Link
             to="/"
             className="inline-flex items-center gap-2"
-            aria-label="Campgains Hub — home"
+            aria-label="Campaign Hubz — home"
           >
             <img
               src="/logo.png"
@@ -120,7 +120,7 @@ export const Footer: React.FC = () => {
               style={{ filter: 'drop-shadow(0 1px 4px rgba(108,99,255,0.30))' }}
             />
             <span className="v-ink font-medium" style={{ fontSize: 15, letterSpacing: '-0.018em' }}>
-              Campgains <span style={{ color: 'var(--color-creator-teal-deep)' }}>Hub</span>
+              Campaign <span style={{ color: 'var(--color-creator-teal-deep)' }}>Hubz</span>
             </span>
           </Link>
           <p className="mt-4 v-body v-muted max-w-[280px]">{t('footer.promise')}</p>
@@ -190,7 +190,7 @@ export const Footer: React.FC = () => {
       >
         <div className="flex items-center gap-4 flex-wrap justify-center">
           <p className="v-caption v-quiet">
-            © {new Date().getFullYear()} Campgains Hub Inc. {t('footer.rights')}
+            © {new Date().getFullYear()} Campaign Hubz Inc. {t('footer.rights')}
           </p>
           <Link to="/legal/terms" className="v-caption v-link">
             {t('footer.terms')}

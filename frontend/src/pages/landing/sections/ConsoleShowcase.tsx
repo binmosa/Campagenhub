@@ -653,7 +653,7 @@ export const ConsoleShowcase: React.FC = () => {
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: '#ff5f57' }} />
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: '#febc2e' }} />
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: '#28c840' }} />
-                <span className="ml-3 v-caption v-quiet">campgainshub.app/{tab}</span>
+                <span className="ml-3 v-caption v-quiet">campaignhubz.com/{tab}</span>
               </div>
               <div className="hidden sm:flex items-center gap-2">
                 <Chip color="success" variant="soft" size="sm">

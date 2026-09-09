@@ -7,6 +7,7 @@ import { useNoIndex } from '../../lib/seo';
 import api from '../../lib/api';
 import { Notice } from '../../components/common/Notice';
 import { AuthShell, authFieldClass, authFieldStyle } from './AuthShell';
+import { Turnstile, turnstileEnabled } from '../../components/common/Turnstile';
 
 /**
  * ForgotPassword — asks for the address, then says the same thing either
@@ -18,6 +19,7 @@ const ForgotPassword: React.FC = () => {
   useNoIndex();
   const [email, setEmail] = useState('');
   const [sending, setSending] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
 
@@ -27,7 +29,10 @@ const ForgotPassword: React.FC = () => {
     setSending(true);
     setError('');
     try {
-      await api.post('/auth/forgot-password', { email: email.trim() });
+      await api.post('/auth/forgot-password', {
+        email: email.trim(),
+        ...(turnstileToken ? { turnstileToken } : {}),
+      });
       setSent(true);
     } catch (err: any) {
       const status = err?.response?.status;
@@ -69,7 +74,17 @@ const ForgotPassword: React.FC = () => {
               />
             </div>
           </div>
-          <Button type="submit" variant="primary" size="lg" isPending={sending} isDisabled={!email.trim()} fullWidth>
+          {/* Renders only when a Turnstile site key is configured. */}
+          <Turnstile onToken={setTurnstileToken} />
+
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            isPending={sending}
+            isDisabled={!email.trim() || (turnstileEnabled && !turnstileToken)}
+            fullWidth
+          >
             {t('auth.sendResetLink')}
           </Button>
           <p className="v-caption v-quiet inline-flex items-start gap-1.5" style={{ fontSize: 12 }}>

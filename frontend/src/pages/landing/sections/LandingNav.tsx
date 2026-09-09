@@ -8,7 +8,7 @@ import api from '../../../lib/api';
 import { NAV_SECTIONS } from '../copy';
 
 /**
- * LandingNav — Campgains Hub floating pill nav.
+ * LandingNav — Campaign Hubz floating pill nav.
  *
  * Dark Deep-Navy pill centered on canvas. When the visitor is logged-in
  * the right cluster shows a HeroUI `Dropdown` with avatar trigger →
@@ -260,12 +260,12 @@ export const LandingNav: React.FC = () => {
             if (isLanding) scrollTo('home');
             else navigate('/');
           }}
-          aria-label="Campgains Hub — home"
+          aria-label="Campaign Hubz — home"
           className="flex items-center gap-2 cursor-pointer select-none"
         >
           <img
             src="/logo.png"
-            alt="Campgains Hub"
+            alt="Campaign Hubz"
             className="h-8 w-8 object-contain shrink-0"
             style={{ filter: 'drop-shadow(0 1px 4px rgba(108,99,255,0.45))' }}
           />
@@ -277,8 +277,8 @@ export const LandingNav: React.FC = () => {
               letterSpacing: '-0.018em',
             }}
           >
-            Campgains{' '}
-            <span style={{ color: 'var(--color-creator-teal)' }}>Hub</span>
+            Campaign{' '}
+            <span style={{ color: 'var(--color-creator-teal)' }}>Hubz</span>
           </span>
         </button>
 

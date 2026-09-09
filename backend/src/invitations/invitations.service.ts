@@ -93,8 +93,8 @@ export class InvitationsService {
         receiver: { id: best.user.id } as any,
         brand: { id: brandUserId } as any,
         type: 'manager_assign',
-        message: `Welcome to the CampaignHub team! You have been matched as the dedicated Social Manager for ${brand.email}. Please review and accept this collaboration.`,
-        contract_content: `SOCIAL MANAGER ENGAGEMENT AGREEMENT\n\nThis agreement is between the Brand (${brand.email}) and Social Manager (${best.full_name || best.user.id}). The manager agrees to provide campaign management services as assigned by CampaignHub platform. Terms are subject to platform policies.`,
+        message: `Welcome to the Campaign Hubz team! You have been matched as the dedicated Social Manager for ${brand.email}. Please review and accept this collaboration.`,
+        contract_content: `SOCIAL MANAGER ENGAGEMENT AGREEMENT\n\nThis agreement is between the Brand (${brand.email}) and Social Manager (${best.full_name || best.user.id}). The manager agrees to provide campaign management services as assigned by Campaign Hubz platform. Terms are subject to platform policies.`,
         payment_approved: true,
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       });

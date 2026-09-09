@@ -21,7 +21,7 @@ export const AuthShell: React.FC<{
     <Link to="/" className="inline-flex items-center gap-2 self-start lg:self-center mb-10">
       <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
       <span className="v-ink font-medium" style={{ fontSize: 16, letterSpacing: '-0.015em' }}>
-        Campgains <span style={{ color: 'var(--color-creator-teal-deep, #00a89d)' }}>Hub</span>
+        Campaign <span style={{ color: 'var(--color-creator-teal-deep, #00a89d)' }}>Hubz</span>
       </span>
     </Link>
 

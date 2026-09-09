@@ -77,7 +77,7 @@ export const PayoutTicker: React.FC<Props> = ({ settings }) => {
     <section
       className="relative py-6 border-y"
       style={{ borderColor: 'var(--color-cool-gray)', background: 'rgba(244,242,255,0.35)' }}
-      aria-label="Example payouts settling on CampaignHub"
+      aria-label="Example payouts settling on Campaign Hubz"
     >
       <div className="max-w-[1100px] mx-auto px-6 lg:px-10 mb-3">
         <span className="v-caption v-quiet" style={{ letterSpacing: '0.06em', textTransform: 'uppercase' }}>

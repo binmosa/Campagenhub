@@ -685,7 +685,7 @@ const PayModal: React.FC<{
         : await api.post('/payments/initiate', {
             amount: total,
             currency: 'USD',
-            email: single!.email || 'team@campaignhub.com',
+            email: single!.email || 'team@campaignhubz.com',
             name: single!.name,
             campaignTitle: `Instant Payment: ${note || 'Team Payment'}`,
             applicationId: single!.primaryId,
@@ -963,7 +963,7 @@ function doCheckout(data: any, publicKey: string, onSettled: (result: CheckoutRe
     amount: data.amount,
     currency: data.currency || 'USD',
     customer: data.customer,
-    customizations: data.customizations || { title: 'CampaignHub Payment' },
+    customizations: data.customizations || { title: 'Campaign Hubz Payment' },
     callback: async (response: any) => {
       const transactionId = response?.transaction_id || response?.id;
       const txRef = String(response?.tx_ref || data?.tx_ref || '');

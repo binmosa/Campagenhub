@@ -414,7 +414,7 @@ export class PaymentService {
           name: data.name,
         },
         customizations: {
-          title: 'CampaignHub Payment',
+          title: 'Campaign Hubz Payment',
           description: `Payment for campaign: ${data.campaignTitle}`,
           logo: '',
         },
@@ -453,7 +453,7 @@ export class PaymentService {
           redirect_url: data.redirectUrl,
           customer: { email: data.email, name: data.name },
           customizations: {
-            title: 'CampaignHub Payment',
+            title: 'Campaign Hubz Payment',
             description: `Payment for campaign: ${data.campaignTitle}`,
           },
         },
@@ -927,7 +927,7 @@ export class PaymentService {
           intent: 'CAPTURE',
           purchase_units: [{
             reference_id: txRef,
-            description: `CampaignHub: ${data.campaignTitle}`,
+            description: `Campaign Hubz: ${data.campaignTitle}`,
             amount: {
               currency_code: data.currency || 'USD',
               value: data.amount.toFixed(2),
@@ -936,7 +936,7 @@ export class PaymentService {
           application_context: {
             return_url: `${data.redirectUrl}?tx_ref=${txRef}&method=paypal`,
             cancel_url: `${data.redirectUrl}?cancelled=true`,
-            brand_name: 'CampaignHub',
+            brand_name: 'Campaign Hubz',
           },
         },
         { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } },
@@ -1106,7 +1106,7 @@ export class PaymentService {
         appid: this.telebirrConfig.merchantAppId,
         merch_code: this.telebirrConfig.merchantCode,
         merch_order_id: txRef,
-        title: `CampaignHub: ${data.campaignTitle}`.substring(0, 100),
+        title: `Campaign Hubz: ${data.campaignTitle}`.substring(0, 100),
         total_amount: data.amount.toString(),
         trans_currency: "ETB",
         timeout_express: "120m",

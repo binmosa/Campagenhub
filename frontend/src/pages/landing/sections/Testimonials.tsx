@@ -69,7 +69,7 @@ const RICH_SLIDES: Slide[] = [
   },
   {
     quote:
-      "We needed a SOC-2 compliant platform that could handle our scale. Campgains Hub completely revolutionized our discovery workflow — we shortlist in 20 minutes now.",
+      "We needed a platform that could handle our scale. Campaign Hubz completely revolutionized our discovery workflow — we shortlist in 20 minutes now.",
     name: 'Omar S.',
     handle: '@omarcreates',
     role: 'Director of Digital',
@@ -230,7 +230,7 @@ export const Testimonials: React.FC<TestimonialsProps> = ({
         role: r.user_role || 'Member',
         initial: (r.user_name?.[0] || 'U').toUpperCase(),
         avatarColor: AVATAR_COLORS[i % AVATAR_COLORS.length],
-        brand: 'Campgains Hub',
+        brand: 'Campaign Hubz',
         brandColor: BRAND_COLORS[i % BRAND_COLORS.length],
         rating: r.rating ?? 5,
       }))

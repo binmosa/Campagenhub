@@ -177,7 +177,7 @@ export class AdminService {
 
     if (status === 'active') {
       if (user.telegram_chat_id) {
-        await this.telegramService.sendNotification(user.telegram_chat_id, `🎉 *Verification Approved!*\n\nYour account on CampaignHub has been fully verified. You can now access all features.`);
+        await this.telegramService.sendNotification(user.telegram_chat_id, `🎉 *Verification Approved!*\n\nYour account on Campaign Hubz has been fully verified. You can now access all features.`);
       }
       await this.emailService.sendVerificationApproved(user.email);
     } else if (status === 'rejected') {
@@ -236,7 +236,7 @@ export class AdminService {
         if (user.telegram_chat_id) {
           await this.telegramService.sendNotification(
             user.telegram_chat_id,
-            `🔒 *Identity verification required*\n\nPlease open your profile on CampaignHub and complete KYC to keep your account active.`,
+            `🔒 *Identity verification required*\n\nPlease open your profile on Campaign Hubz and complete KYC to keep your account active.`,
           );
         }
       } catch (e) {
@@ -639,7 +639,7 @@ export class AdminService {
       if (status === 'paid') {
         await this.telegramService.sendNotification(
           payout.creator.telegram_chat_id,
-          `✅ *Payment Received!*\n\nYour payout of $${amountNum.toLocaleString()} for "${campaignTitle}" has been successfully transferred to your bank account!\n\nThank you for your work on CampaignHub.`
+          `✅ *Payment Received!*\n\nYour payout of $${amountNum.toLocaleString()} for "${campaignTitle}" has been successfully transferred to your bank account!\n\nThank you for your work on Campaign Hubz.`
         );
       } else if (status === 'approved') {
         await this.telegramService.sendNotification(

@@ -49,6 +49,7 @@ test('the public site makes no claim it cannot back', async ({ page }) => {
   for (const figure of ['12,847', '$2.4M', '1.8B', '1,287 collabs']) {
     expect(text, `the invented figure ${figure} must be gone`).not.toContain(figure);
   }
+  // The old placeholders — not the real contact details, which are legitimate.
   for (const contact of ['555) 123-4567', 'campgainshub.com', 'San Francisco, CA']) {
     expect(text, `the placeholder contact ${contact} must be gone`).not.toContain(contact);
   }

@@ -5,7 +5,7 @@
 #   1. cp backend/.env.example backend/.env  and fill in production values
 #      (JWT_SECRET, DB_PASSWORD, FLW_SECRET_HASH, PUBLIC_URL, OPENROUTER_API_KEY…)
 #   2. Create a root .env next to this file:
-#        APP_DOMAIN=campaignhub.et
+#        APP_DOMAIN=campaignhubz.com
 #        DB_PASSWORD=<a strong password; the API is given this too>
 #      Then put your HeroUI Pro CI/CD licence key in ./heroui-ci-token.txt
 #      — or skip it and build the frontend from a local dist/ instead:

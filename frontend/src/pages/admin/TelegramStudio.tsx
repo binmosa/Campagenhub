@@ -158,7 +158,7 @@ const TelegramStudio: React.FC = () => {
           <Panel icon={<Sparkles size={15} />} title={t('adm.tg.preview')} desc={t('adm.tg.previewDesc')}>
             <div className="rounded-2xl p-3" style={{ background: '#e7f0f9' }}>
               <div className="rounded-2xl rounded-tl-sm px-3.5 py-2.5 bg-white v-hairline" style={{ maxWidth: 300 }}>
-                <div className="v-caption font-medium mb-0.5" style={{ fontSize: 11.5, color: '#2a9df4' }}>Campgains Hub</div>
+                <div className="v-caption font-medium mb-0.5" style={{ fontSize: 11.5, color: '#2a9df4' }}>Campaign Hubz</div>
                 {message.trim() ? (
                   <div className="v-ink" style={{ fontSize: 13, lineHeight: 1.45, wordBreak: 'break-word' }} dangerouslySetInnerHTML={{ __html: preview }} />
                 ) : (

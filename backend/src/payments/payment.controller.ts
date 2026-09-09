@@ -19,7 +19,7 @@ export class PaymentController {
         amount: body.amount,
         currency: body.currency || 'USD',
         email: body.email || req.user.email,
-        name: body.name || 'CampaignHub User',
+        name: body.name || 'Campaign Hubz User',
         campaignTitle: body.campaignTitle || 'Campaign Payment',
         applicationId: body.applicationId,
         redirectUrl: body.redirectUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard`,
@@ -60,7 +60,7 @@ export class PaymentController {
       return await this.paymentService.initiateBulk({
         userId: req.user.brandId || req.user.userId,
         email: req.user.email,
-        name: 'CampaignHub Brand',
+        name: 'Campaign Hubz Brand',
         items: body.items,
         paymentMethod: body.paymentMethod || 'flutterwave',
         redirectUrl: body.redirectUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard/payments?payment=completed`,

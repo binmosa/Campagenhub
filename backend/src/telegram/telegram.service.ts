@@ -35,7 +35,7 @@ export class TelegramService {
             await this.bot.telegram.sendMessage(referrer.telegram_chat_id, `🎉 Someone joined using your invite link! You earned 250 points!`);
           }
         }
-        await ctx.reply(`👋 Welcome to CampaignHub! You were referred by someone awesome. Please log in to the website to connect this Telegram account completely.`);
+        await ctx.reply(`👋 Welcome to Campaign Hubz! You were referred by someone awesome. Please log in to the website to connect this Telegram account completely.`);
         return;
       }
 
@@ -48,12 +48,12 @@ export class TelegramService {
         user.points += 100; // Award points for connecting!
         await this.usersRepository.save(user);
 
-        await ctx.reply(`✅ Successfully Connected! Welcome to CampaignHub, ${username}.\n🎁 We've also awarded you 100 pts for connecting your account!\n\nUse /commands to see available actions.`);
+        await ctx.reply(`✅ Successfully Connected! Welcome to Campaign Hubz, ${username}.\n🎁 We've also awarded you 100 pts for connecting your account!\n\nUse /commands to see available actions.`);
       } else {
         await ctx.reply(`❌ Invalid or expired connection token. Please generate a new one from your dashboard.`);
       }
     } else {
-      await ctx.reply(`👋 Welcome to the CampaignHub Bot! \n\nTo connect your account, please use the "Connect Telegram" button in your Profile Dashboard.`);
+      await ctx.reply(`👋 Welcome to the Campaign Hubz Bot! \n\nTo connect your account, please use the "Connect Telegram" button in your Profile Dashboard.`);
     }
   }
 
@@ -64,13 +64,13 @@ export class TelegramService {
     if (user) {
       await ctx.reply(`👤 You are securely connected as ${user.email} (${user.role}).`);
     } else {
-      await ctx.reply(`⚠️ You are not connected to any CampaignHub account.`);
+      await ctx.reply(`⚠️ You are not connected to any Campaign Hubz account.`);
     }
   }
 
   @Command('help')
   async onHelp(@Ctx() ctx: Context) {
-    await ctx.reply(`💡 *CampaignHub Bot Commands:*\n\n/start - Connect your account (requires link from dashboard)\n/me - Check your connection status\n/points - Check your balance\n/challenge - Get today's quest\n/invite - Generate referral link\n/help - Show this message`);
+    await ctx.reply(`💡 *Campaign Hubz Bot Commands:*\n\n/start - Connect your account (requires link from dashboard)\n/me - Check your connection status\n/points - Check your balance\n/challenge - Get today's quest\n/invite - Generate referral link\n/help - Show this message`);
   }
 
   @Command('points')
@@ -124,7 +124,7 @@ export class TelegramService {
       return ctx.reply('⚠️ Referral links are not configured on this deployment yet.');
     }
     const inviteLink = `https://t.me/${botUsername}?start=REF_${user.referral_code}`;
-    await ctx.reply(`🚀 *Refer & Earn*\n\nShare this link to invite users to CampaignHub via Telegram:\n${inviteLink}\n\nEarn 250 points when someone connects their account using your link!`, { parse_mode: 'Markdown' });
+    await ctx.reply(`🚀 *Refer & Earn*\n\nShare this link to invite users to Campaign Hubz via Telegram:\n${inviteLink}\n\nEarn 250 points when someone connects their account using your link!`, { parse_mode: 'Markdown' });
   }
 
   async sendNotification(chatId: string, message: string) {

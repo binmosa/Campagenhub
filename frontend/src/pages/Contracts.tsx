@@ -86,7 +86,7 @@ const ContractCard: React.FC<{ contract: Contract; onChange: () => void }> = ({
     contract.content || contract.contract_content || contract.terms || '';
 
   const downloadContract = () => {
-    const fallback = `COLLABORATION AGREEMENT\n\nContract #${contract.id}\nStatus: ${contract.status}\nPayment: ${contract.currency || 'USD'} ${contract.payment_amount || contract.monthly_payment || 0}\n\nBound by the platform terms of Campgains Hub, digitally accepted.`;
+    const fallback = `COLLABORATION AGREEMENT\n\nContract #${contract.id}\nStatus: ${contract.status}\nPayment: ${contract.currency || 'USD'} ${contract.payment_amount || contract.monthly_payment || 0}\n\nBound by the platform terms of Campaign Hubz, digitally accepted.`;
     const blob = new Blob([text || fallback], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

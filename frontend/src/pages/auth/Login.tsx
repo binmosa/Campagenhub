@@ -8,14 +8,14 @@ import { useNoIndex } from '../../lib/seo';
 import api from '../../lib/api';
 
 /**
- * Login — Campgains Hub brand-aligned sign-in.
+ * Login — Campaign Hubz brand-aligned sign-in.
  *
  * Two-pane layout:
  *   Left  — Deep Navy panel with signature-gradient atmospheric wash,
  *           original /logo.png, headline, three quick proof rows.
  *   Right — White form pane with hairline inputs and HeroUI primary CTA.
  *
- * Wrapped in `.landing-visitors` so it inherits Fredoka + the Campgains
+ * Wrapped in `.landing-visitors` so it inherits Fredoka + the Campaign
  * brand palette + the scoped HeroUI accent override.
  */
 const Login: React.FC = () => {
@@ -91,7 +91,7 @@ const Login: React.FC = () => {
         <Link to="/" className="relative z-10 inline-flex items-center gap-2 self-start">
           <img
             src="/logo.png"
-            alt="Campgains Hub"
+            alt="Campaign Hubz"
             className="h-9 w-9 object-contain"
             style={{ filter: 'drop-shadow(0 1px 6px rgba(108,99,255,0.40))' }}
           />
@@ -99,8 +99,8 @@ const Login: React.FC = () => {
             className="font-medium tracking-tight"
             style={{ color: '#fff', fontSize: 16, letterSpacing: '-0.018em' }}
           >
-            Campgains{' '}
-            <span style={{ color: 'var(--color-creator-teal)' }}>Hub</span>
+            Campaign{' '}
+            <span style={{ color: 'var(--color-creator-teal)' }}>Hubz</span>
           </span>
         </Link>
 
@@ -212,12 +212,12 @@ const Login: React.FC = () => {
       <div className="w-full lg:w-1/2 flex flex-col items-center px-6 py-10 lg:p-12 v-bg-canvas relative">
         {/* Mobile-only brand mark */}
         <Link to="/" className="lg:hidden self-start inline-flex items-center gap-2 mb-8">
-          <img src="/logo.png" alt="Campgains Hub" className="h-7 w-7 object-contain" />
+          <img src="/logo.png" alt="Campaign Hubz" className="h-7 w-7 object-contain" />
           <span
             className="v-ink font-medium tracking-tight"
             style={{ fontSize: 15, letterSpacing: '-0.018em' }}
           >
-            Campgains <span style={{ color: 'var(--color-creator-teal-deep)' }}>Hub</span>
+            Campaign <span style={{ color: 'var(--color-creator-teal-deep)' }}>Hubz</span>
           </span>
         </Link>
 

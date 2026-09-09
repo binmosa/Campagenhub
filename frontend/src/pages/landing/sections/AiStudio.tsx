@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import type { LandingSettings } from '../useLandingData';
 
 /**
- * AiStudio — Campgains Hub creative-partner showcase.
+ * AiStudio — Campaign Hubz creative-partner showcase.
  *
  * Layout: left "feature cards" column (proper hairline borders, signature
  * gradient accent bar on the active card) + right preview card with full

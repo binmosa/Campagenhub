@@ -40,7 +40,7 @@ import { NotificationsDropdown } from './NotificationsDropdown';
 import { ToastHost } from '../common/ToastHost';
 
 /**
- * Layout — Campgains Hub authenticated workspace shell.
+ * Layout — Campaign Hubz authenticated workspace shell.
  *
  * HeroUI Pro AppLayout + Sidebar + Navbar wearing the same design system
  * as the public site (scope class on <body>): gradient-washed rail, a

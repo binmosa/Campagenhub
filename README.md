@@ -1,4 +1,4 @@
-# CampaignHub
+# Campaign Hubz
 
 A web platform for managing campaign collaboration between brands and creators, with AI-assisted matching, ranking, and content generation powered by OpenRouter.
 
