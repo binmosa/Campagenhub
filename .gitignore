@@ -19,3 +19,6 @@ heroui-ci-token.txt
 
 # Runtime state — never commit user uploads
 backend/public/uploads/
+
+# local deploy target for scripts/deploy-frontend.sh
+.deploy.env
