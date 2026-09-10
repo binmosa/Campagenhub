@@ -23,6 +23,14 @@ const IGNORED = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i];
 
 export const test = base.extend<Fixtures>({
   ignoreConsole: [[], { option: true }],
+  /* The cookie banner is answered up front so it never sits over a button a
+     test wants to click; cookie.spec covers the banner itself. */
+  page: async ({ page }, use) => {
+    await page.context().addInitScript(() => {
+      if (!localStorage.getItem('cookie_consent')) localStorage.setItem('cookie_consent', 'accepted');
+    });
+    await use(page);
+  },
   consoleErrors: [
     async ({ page, ignoreConsole }, use) => {
       const errors: string[] = [];

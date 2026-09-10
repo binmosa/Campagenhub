@@ -2,6 +2,7 @@ import React from 'react';
 import { Zap } from 'lucide-react';
 import { Chip } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
+import { usePageMeta } from '../lib/seo';
 import LandingNav from './landing/sections/LandingNav';
 import Footer from './landing/sections/Footer';
 import { TalentDirectory } from '../components/common/TalentDirectory';
@@ -15,6 +16,7 @@ import { TalentDirectory } from '../components/common/TalentDirectory';
  */
 const TalentNetwork: React.FC = () => {
   const { t } = useTranslation();
+  usePageMeta({ title: t('meta.talentTitle'), description: t('meta.talent'), path: '/talent' });
   // Market pages deep-link the directory: /talent?country=Ethiopia
   const initialCountry = new URLSearchParams(window.location.search).get('country') || '';
 

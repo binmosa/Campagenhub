@@ -6,7 +6,7 @@ import api from './api';
  * dropdowns never refetch the same list twice in a session.
  */
 
-export type GeoCountry = { iso2: string; name: string };
+export type GeoCountry = { iso2: string; name: string; dial?: string; flag?: string };
 export type GeoState = { iso2: string; name: string };
 
 let countriesCache: GeoCountry[] | null = null;

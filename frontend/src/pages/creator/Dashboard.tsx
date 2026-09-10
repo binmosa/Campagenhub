@@ -29,6 +29,7 @@ import { EmptyPanel } from '../../components/common/EmptyPanel';
 import { DashPanel, PanelEmpty, PanelRow, PanelRows, PanelRowsSkeleton } from '../../components/common/DashPanel';
 import { StoryAvatar } from '../../components/common/StoryAvatar';
 import PayoutSummary from '../../components/PayoutSummary';
+import { StarterHome } from '../../components/creator/StarterHome';
 
 /**
  * CreatorDashboard — the creator's overview: application funnel with
@@ -64,6 +65,16 @@ const CreatorDashboard: React.FC = () => {
   const [picked, setPicked] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  /* Until something is happening (an application or a contract) the home
+     is a simple "what next" page. A creator can opt into the full board;
+     the choice is remembered on this device. */
+  const [fullBoard, setFullBoard] = useState<boolean>(() => {
+    try { return localStorage.getItem('creator_full_board') === '1'; } catch { return false; }
+  });
+  const setBoard = (full: boolean) => {
+    setFullBoard(full);
+    try { localStorage.setItem('creator_full_board', full ? '1' : '0'); } catch { /* private mode */ }
+  };
 
   const load = () => {
     setError(false);
@@ -208,6 +219,11 @@ const CreatorDashboard: React.FC = () => {
     </div>
   );
 
+  const quiet = !loading && !error && applications.length === 0 && contracts.length === 0;
+  if (quiet && !fullBoard) {
+    return <StarterHome me={me} profile={profile} onRefresh={load} onShowFull={() => setBoard(true)} />;
+  }
+
   return (
     <PageShell
       hero
@@ -218,6 +234,11 @@ const CreatorDashboard: React.FC = () => {
       icon={<LayoutDashboard size={18} />}
       actions={
         <>
+          {quiet && (
+            <Button variant="ghost" size="md" onPress={() => setBoard(false)} data-testid="starter-show-simple">
+              {t('starter.simpleDashboard')}
+            </Button>
+          )}
           <Link to="/dashboard/profile">
             <Button variant="tertiary" size="md">
               <Pencil size={13} /> {t('cdash.editProfile')}

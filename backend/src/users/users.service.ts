@@ -18,6 +18,11 @@ export class UsersService {
     return this.usersRepository.findOne({ where: { id } });
   }
 
+  /** Stamp guided onboarding as finished (idempotent). */
+  async markOnboardingComplete(id: string, at: Date = new Date()): Promise<void> {
+    await this.usersRepository.update({ id }, { onboarding_completed_at: at });
+  }
+
   async findByIdWithProfiles(id: string): Promise<User | null> {
     return this.usersRepository.findOne({
       where: { id },

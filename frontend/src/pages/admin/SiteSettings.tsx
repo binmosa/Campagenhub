@@ -360,6 +360,25 @@ const SiteSettings: React.FC = () => {
                 <Text k="contact_loc" label={t('adm.site.companyLocation')} ph="Addis Ababa, Ethiopia" />
               </div>
             </Panel>
+            <Panel icon={<Megaphone size={15} />} title={t('adm.site.socials')} desc={t('adm.site.socialsDesc')}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <Toggle label={t('adm.site.followToggle')} desc={t('adm.site.followToggleDesc')} value={on('onboarding_follow_enabled')} onChange={(v) => toggle('onboarding_follow_enabled', v)} />
+                <Toggle label={t('adm.site.postToggle')} desc={t('adm.site.postToggleDesc')} value={on('onboarding_post_enabled')} onChange={(v) => toggle('onboarding_post_enabled', v)} />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Text k="social_telegram" label="Telegram" ph="https://t.me/…" type="url" />
+                <Text k="social_instagram" label="Instagram" ph="https://instagram.com/…" type="url" />
+                <Text k="social_tiktok" label="TikTok" ph="https://tiktok.com/@…" type="url" />
+                <Text k="social_youtube" label="YouTube" ph="https://youtube.com/@…" type="url" />
+                <Text k="social_facebook" label="Facebook" ph="https://facebook.com/…" type="url" />
+                <Text k="social_twitter" label="X / Twitter" ph="https://x.com/…" type="url" />
+                <Text k="social_linkedin" label="LinkedIn" ph="https://linkedin.com/company/…" type="url" />
+              </div>
+              <div className="mt-3">
+                <Area k="onboarding_post_text" label={t('adm.site.onboardingCaption')} ph={t('onb.postCaptionDefault')} rows={3} />
+                <p className="v-caption v-quiet mt-1" style={{ fontSize: 12 }}>{t('adm.site.onboardingCaptionDesc')}</p>
+              </div>
+            </Panel>
             <Panel icon={<Mail size={15} />} title={t('adm.site.newsletter')}>
               <div className="space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

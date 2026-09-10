@@ -57,6 +57,68 @@ export class CreatorsController {
     return this.creatorsService.getPublicProfile(id);
   }
 
+  /** Live handle availability while the creator types (own handle counts as free). */
+  @Get('handle-check')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.CREATOR)
+  async checkHandle(@Request() req: any, @Query('u') u?: string) {
+    return this.creatorsService.checkHandle(req.user.userId, u);
+  }
+
+  /* ── Onboarding — the creator's first-session setup ─────────────── */
+  @Get('onboarding')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.CREATOR)
+  async getOnboarding(@Request() req: any) {
+    return this.creatorsService.getOnboarding(req.user.userId);
+  }
+
+  @Post('onboarding/followed')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.CREATOR)
+  async recordFollowed(@Request() req: any, @Body() body: { platforms?: string[] }) {
+    return this.creatorsService.recordFollowed(req.user.userId, body?.platforms);
+  }
+
+  @Post('onboarding/welcome-post')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.CREATOR)
+  async submitWelcomePost(@Request() req: any, @Body() body: { url?: string }) {
+    return this.creatorsService.submitWelcomePost(req.user.userId, body?.url);
+  }
+
+  @Post('onboarding/accept-terms')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.CREATOR)
+  async acceptTerms(@Request() req: any, @Body() body: { version?: string }) {
+    const forwarded = String(req.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
+    return this.creatorsService.acceptTerms(req.user.userId, body?.version, { ip: forwarded || req.ip, userAgent: req.headers?.['user-agent'] });
+  }
+
+  @Post('onboarding/complete')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.CREATOR)
+  async completeOnboarding(@Request() req: any) {
+    return this.creatorsService.completeOnboarding(req.user.userId);
+  }
+
+  /* ── Welcome posts — admin / support review queue ───────────────── */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPPORT)
+  @Get('admin/welcome-posts')
+  async listWelcomePosts(@Query('status') status?: string) {
+    const s = status === 'approved' || status === 'rejected' ? status : 'pending';
+    return this.creatorsService.listWelcomePosts(s);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPPORT)
+  @Patch('admin/welcome-posts/:userId')
+  async decideWelcomePost(@Param('userId') userId: string, @Body() body: { action: 'approve' | 'reject'; note?: string }) {
+    const action = body?.action === 'reject' ? 'reject' : 'approve';
+    return this.creatorsService.decideWelcomePost(userId, { action, note: body?.note });
+  }
+
   /* ── Follower claims — admin / support review queue ─────────────── */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPPORT)

@@ -4,6 +4,7 @@ import { Button } from '@heroui/react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import api from '../../../lib/api';
+import { Turnstile, turnstileEnabled } from '../../../components/common/Turnstile';
 import type { LandingSettings } from '../useLandingData';
 
 /**
@@ -27,6 +28,7 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
   const [form, setForm] = useState({ name: '', email: '', message: '' });
   const [sent, setSent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
   const [newsletterEmail, setNewsletterEmail] = useState('');
   const [newsletterSent, setNewsletterSent] = useState(false);
 
@@ -38,6 +40,7 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
         sender_name: form.name,
         sender_email: form.email,
         message: form.message,
+        ...(turnstileToken ? { turnstileToken } : {}),
       });
       setSent(true);
       setForm({ name: '', email: '', message: '' });
@@ -114,7 +117,8 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
                 </motion.div>
               )}
             </AnimatePresence>
-            <Button variant="primary" type="submit" isPending={submitting}>
+            <Turnstile onToken={setTurnstileToken} />
+            <Button variant="primary" type="submit" isPending={submitting} isDisabled={turnstileEnabled && !turnstileToken}>
               {t('contact.send')} <Send size={14} />
             </Button>
           </form>
@@ -122,17 +126,20 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
           {/* Only real contact details, set by an admin in Site control. The
               fallbacks here used to be a misspelled address on a domain
               nobody owns, a 555 test number and a city with no office. */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-10">
+          {/* Rows wrap instead of sharing three fixed columns, so a single
+              address gets the full width and never truncates. Email and phone
+              are real links. */}
+          <div className="flex flex-wrap gap-x-8 gap-y-4 mt-10">
             {[
-              { icon: Mail, value: settings.contact_email },
-              { icon: Phone, value: settings.contact_phone },
-              { icon: MapPin, value: settings.contact_loc },
+              { icon: Mail, value: settings.contact_email, href: `mailto:${String(settings.contact_email || '').trim()}` },
+              { icon: Phone, value: settings.contact_phone, href: `tel:${String(settings.contact_phone || '').replace(/[^\d+]/g, '')}` },
+              { icon: MapPin, value: settings.contact_loc, href: '' },
             ]
               .filter((row) => !!row.value && String(row.value).trim())
               .map((row, i) => {
               const Icon = row.icon;
-              return (
-                <div key={i} className="flex items-center gap-3 v-body v-muted">
+              const inner = (
+                <>
                   <span
                     className="inline-flex h-9 w-9 items-center justify-center rounded-lg shrink-0"
                     style={{
@@ -142,7 +149,16 @@ export const Contact: React.FC<ContactProps> = ({ settings }) => {
                   >
                     <Icon size={14} strokeWidth={1.75} />
                   </span>
-                  <span className="font-normal truncate v-ink">{row.value}</span>
+                  <span className="font-normal v-ink break-all">{row.value}</span>
+                </>
+              );
+              return row.href ? (
+                <a key={i} href={row.href} className="flex items-center gap-3 v-body v-muted min-w-0 hover:underline">
+                  {inner}
+                </a>
+              ) : (
+                <div key={i} className="flex items-center gap-3 v-body v-muted min-w-0">
+                  {inner}
                 </div>
               );
             })}

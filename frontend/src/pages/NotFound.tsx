@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Compass } from 'lucide-react';
 import { Button } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
-import { useNoIndex } from '../lib/seo';
+import { useNoIndex, usePageMeta } from '../lib/seo';
 
 /**
  * NotFound — the catch-all route.
@@ -14,6 +14,7 @@ import { useNoIndex } from '../lib/seo';
 const NotFound: React.FC = () => {
   const { t } = useTranslation();
   useNoIndex();
+  usePageMeta({ title: t('meta.notFoundTitle'), description: t('meta.notFound'), noindex: true });
   const signedIn = !!localStorage.getItem('token');
 
   return (

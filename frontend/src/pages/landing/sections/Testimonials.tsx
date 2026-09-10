@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Quote, Star } from 'lucide-react';
 import type { EmblaCarouselType } from 'embla-carousel';
-import { Avatar, Button, Chip, Modal } from '@heroui/react';
+import { Button, Chip, Modal } from '@heroui/react';
 import { Carousel } from '@heroui-pro/react';
 import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
+import Portrait from '../mocks/Portrait';
+import type { PortraitKey } from '../mocks/portraits';
 import api from '../../../lib/api';
 import type { LandingSettings, Review } from '../useLandingData';
 import { MOCK_TESTIMONIALS } from '../copy';
@@ -28,6 +30,8 @@ type Slide = {
   role: string;
   initial: string;
   avatarColor: string;
+  /** Illustrative portrait for mock slides; real reviews keep initials. */
+  portrait?: PortraitKey;
   brand: string;
   brandColor: string;
   rating: number;
@@ -45,6 +49,7 @@ const RICH_SLIDES: Slide[] = [
     quote:
       "We launched a UGC challenge on a Friday and had 38 creator applications by Monday morning. The match quality was uncanny — every single applicant fit the brief.",
     name: 'Ahmed K.',
+    portrait: 'kofi',
     handle: '@ahmed.fm',
     role: 'VP of Marketing',
     initial: 'A',
@@ -58,6 +63,7 @@ const RICH_SLIDES: Slide[] = [
     quote:
       "I used to chase three brands at once for invoices. Now my payouts settle the day my post ships, and the dashboard shows me my next collab before I close the app.",
     name: 'Lina M.',
+    portrait: 'amara',
     handle: '@linaeats',
     role: 'Content Creator · 2.5M',
     initial: 'L',
@@ -71,6 +77,7 @@ const RICH_SLIDES: Slide[] = [
     quote:
       "We needed a platform that could handle our scale. Campaign Hubz completely revolutionized our discovery workflow — we shortlist in 20 minutes now.",
     name: 'Omar S.',
+    portrait: 'ravi',
     handle: '@omarcreates',
     role: 'Director of Digital',
     initial: 'O',
@@ -84,6 +91,7 @@ const RICH_SLIDES: Slide[] = [
     quote:
       "The AI brief shortcut wrote our holiday push in four seconds. We tweaked one line and shipped it the same day — the creators applying clearly understood what we wanted.",
     name: 'Maya R.',
+    portrait: 'mei',
     handle: '@studioveda',
     role: 'Brand Lead',
     initial: 'M',
@@ -97,6 +105,7 @@ const RICH_SLIDES: Slide[] = [
     quote:
       "Managing my roster used to mean four spreadsheets and a calendar. Now every creator under me has their pipeline, deadlines, and commissions in one inbox. I just collect.",
     name: 'Yara H.',
+    portrait: 'leila',
     handle: '@yaramanages',
     role: 'Talent Manager',
     initial: 'Y',
@@ -183,17 +192,7 @@ const SlideCard: React.FC<{ slide: Slide }> = ({ slide }) => (
         className="mt-7 pt-5 flex items-center gap-3 flex-wrap"
         style={{ borderTop: '1px solid var(--color-cool-gray)' }}
       >
-        <Avatar size="sm">
-          <Avatar.Fallback
-            style={{
-              background: slide.avatarColor,
-              color: '#fff',
-              fontWeight: 500,
-            }}
-          >
-            {slide.initial}
-          </Avatar.Fallback>
-        </Avatar>
+        <Portrait id={slide.portrait} initials={slide.initial} size={40} color={slide.avatarColor} />
         <div className="min-w-0 flex-1">
           <div className="v-body v-ink font-medium truncate">{slide.name}</div>
           <div className="v-caption v-quiet truncate">

@@ -2,18 +2,54 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Browser-tab / home-screen icons, all cut from the same mark as the in-app logo (logo.png). -->
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#7c3aed" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@400;500;700;900&family=Noto+Sans+Ethiopic:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <title>Campaign Hubz</title>
+    <title>Campaign Hubz — Brands and creators, working together</title>
+    <meta name="description" content="Campaign Hubz connects brands with verified content creators across Africa and beyond. Post a brief, get matched creators, pay through escrow. Creators apply in one tap and get paid on delivery." />
+    <link rel="canonical" href="https://campaignhubz.com/" />
+    <!-- Social preview card (WhatsApp, Telegram, LinkedIn, X). Per-route
+         overrides come from src/lib/seo.ts; the image is /public/og-image.png. -->
+    <meta property="og:site_name" content="Campaign Hubz" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Campaign Hubz — Brands and creators, working together" />
+    <meta property="og:description" content="Post a brief, get matched with verified creators, pay through escrow. Creators apply in one tap and get paid on delivery." />
+    <meta property="og:url" content="https://campaignhubz.com/" />
+    <meta property="og:image" content="https://campaignhubz.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Campaign Hubz — brands and creators, working together" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Campaign Hubz — Brands and creators, working together" />
+    <meta name="twitter:description" content="Post a brief, get matched with verified creators, pay through escrow. Creators apply in one tap and get paid on delivery." />
+    <meta name="twitter:image" content="https://campaignhubz.com/og-image.png" />
+    <!-- Google Tag Manager — container GTM-MNK28SBQ. Skipped on localhost so
+         dev and e2e traffic never reaches production analytics; route changes
+         and key events are pushed to dataLayer from src/lib/analytics.ts. -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});if(/^(localhost|127\.0\.0\.1)$/.test(location.hostname))return;var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-MNK28SBQ');</script>
+    <!-- End Google Tag Manager -->
     <script src="https://checkout.flutterwave.com/v3.js"></script>
   </head>
   <!-- `landing-visitors` = the Campaign design system scope (tokens, type,
        story-ring cards, gradients). On <body> so the dashboard, the public
        site AND portaled overlays (modals, sheets, popovers) all inherit it. -->
   <body class="landing-visitors">
+    <!-- Google Tag Manager (noscript) -->
+    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-MNK28SBQ"
+    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+    <!-- End Google Tag Manager (noscript) -->
     <div id="app"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

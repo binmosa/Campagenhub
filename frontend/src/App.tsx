@@ -1,7 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
-import Layout from './components/layout/Layout';
 import AuthGuard from './guards/AuthGuard';
 import Landing from './pages/landing';
 import GeoGate from './components/common/GeoGate';
@@ -11,12 +10,49 @@ import Register from './pages/auth/Register';
 import NotFound from './pages/NotFound';
 import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword from './pages/auth/ResetPassword';
-import CreatorDashboard from './pages/creator/Dashboard';
-import CreatorProfile from './pages/creator/Profile';
-import BrandDashboard from './pages/brand/Dashboard';
-import ManagerCampaigns from './pages/manager/Campaigns';
-import BrandProfile from './pages/brand/Profile';
-import AdminDashboard from './pages/admin/Dashboard';
+
+/* Everything behind login (and the heavier public directories) is
+   code-split so a first-time visitor downloads the landing page, not the
+   admin console. Vite emits one chunk per import() below. */
+const Layout = React.lazy(() => import('./components/layout/Layout'));
+const CreatorDashboard = React.lazy(() => import('./pages/creator/Dashboard'));
+const CreatorProfile = React.lazy(() => import('./pages/creator/Profile'));
+const CreatorOnboarding = React.lazy(() => import('./pages/creator/Onboarding'));
+const BrandDashboard = React.lazy(() => import('./pages/brand/Dashboard'));
+const ManagerCampaigns = React.lazy(() => import('./pages/manager/Campaigns'));
+const BrandProfile = React.lazy(() => import('./pages/brand/Profile'));
+const AdminDashboard = React.lazy(() => import('./pages/admin/Dashboard'));
+const AdminUsers = React.lazy(() => import('./pages/admin/Users'));
+const AdminRoles = React.lazy(() => import('./pages/admin/Roles'));
+const AdminCampaigns = React.lazy(() => import('./pages/admin/Campaigns'));
+const AdminApplications = React.lazy(() => import('./pages/admin/Applications'));
+const AdminPayouts = React.lazy(() => import('./pages/admin/Payouts'));
+const AdminProfile = React.lazy(() => import('./pages/admin/Profile'));
+const SiteSettings = React.lazy(() => import('./pages/admin/SiteSettings'));
+const AdminSupport = React.lazy(() => import('./pages/admin/Support'));
+const AdminFollowerClaims = React.lazy(() => import('./pages/admin/FollowerClaims'));
+const TelegramStudio = React.lazy(() => import('./pages/admin/TelegramStudio'));
+const BrandCampaigns = React.lazy(() => import('./pages/brand/Campaigns'));
+const BrandApplications = React.lazy(() => import('./pages/brand/Applications'));
+const CreatorApplications = React.lazy(() => import('./pages/creator/Applications'));
+const PublicCampaigns = React.lazy(() => import('./pages/PublicCampaigns'));
+const Terms = React.lazy(() => import('./pages/legal/Terms'));
+const Privacy = React.lazy(() => import('./pages/legal/Privacy'));
+const MarketPage = React.lazy(() => import('./pages/markets/MarketPage'));
+const PublicManagers = React.lazy(() => import('./pages/PublicManagers'));
+const TalentNetwork = React.lazy(() => import('./pages/TalentNetwork'));
+const Messages = React.lazy(() => import('./pages/Messages'));
+const Analytics = React.lazy(() => import('./pages/Analytics'));
+const AiHub = React.lazy(() => import('./pages/AiHub'));
+const Invitations = React.lazy(() => import('./pages/Invitations'));
+const MyTeam = React.lazy(() => import('./pages/MyTeam'));
+const ContractsPage = React.lazy(() => import('./pages/Contracts'));
+const ManagerDashboard = React.lazy(() => import('./pages/manager/Dashboard'));
+const ManagerProfile = React.lazy(() => import('./pages/manager/Profile'));
+const WorkspacePage = React.lazy(() => import('./pages/Workspace'));
+const OffersPage = React.lazy(() => import('./pages/Offers'));
+const DashboardTalent = React.lazy(() => import('./pages/DashboardTalent'));
+const Payments = React.lazy(() => import('./pages/Payments'));
 
 const GuestGuard = ({ children }: { children: React.ReactNode }) => {
   if (localStorage.getItem('token')) {
@@ -24,41 +60,12 @@ const GuestGuard = ({ children }: { children: React.ReactNode }) => {
   }
   return <>{children}</>;
 };
-import AdminUsers from './pages/admin/Users';
-import AdminRoles from './pages/admin/Roles';
-import AdminCampaigns from './pages/admin/Campaigns';
-import AdminApplications from './pages/admin/Applications';
-import AdminPayouts from './pages/admin/Payouts';
-import AdminProfile from './pages/admin/Profile';
-import SiteSettings from './pages/admin/SiteSettings';
-import AdminSupport from './pages/admin/Support';
-import AdminFollowerClaims from './pages/admin/FollowerClaims';
-import TelegramStudio from './pages/admin/TelegramStudio';
 
-import BrandCampaigns from './pages/brand/Campaigns';
-import BrandApplications from './pages/brand/Applications';
-import CreatorApplications from './pages/creator/Applications';
-import PublicCampaigns from './pages/PublicCampaigns';
-import Terms from './pages/legal/Terms';
-import Privacy from './pages/legal/Privacy';
-import MarketPage from './pages/markets/MarketPage';
-import PublicManagers from './pages/PublicManagers';
 
-import TalentNetwork from './pages/TalentNetwork';
-import Messages from './pages/Messages';
-import Analytics from './pages/Analytics';
-import AiHub from './pages/AiHub';
-import Invitations from './pages/Invitations';
-import MyTeam from './pages/MyTeam';
-import ContractsPage from './pages/Contracts';
-import ManagerDashboard from './pages/manager/Dashboard';
-import ManagerProfile from './pages/manager/Profile';
-import WorkspacePage from './pages/Workspace';
-import OffersPage from './pages/Offers';
-import DashboardTalent from './pages/DashboardTalent';
-import Payments from './pages/Payments';
 
 import api from './lib/api';
+import { CookieBanner } from './components/common/CookieBanner';
+import { trackPageView } from './lib/analytics';
 
 function App() {
   const [settings, setSettings] = React.useState<any>(null);
@@ -99,6 +106,9 @@ function App() {
   return (
     <ThemeProvider>
     <BrowserRouter>
+      <RouteTracker />
+      <CookieBanner />
+      <React.Suspense fallback={<RouteFallback />}>
       {isMaintenance ? (
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -118,6 +128,9 @@ function App() {
         <Route path="/forgot-password" element={<GuestGuard><ForgotPassword /></GuestGuard>} />
         <Route path="/reset-password" element={<ResetPassword />} />
         
+        {/* A creator's first session — no sidebar, four steps, then home. */}
+        <Route path="/onboarding" element={<AuthGuard><CreatorOnboarding /></AuthGuard>} />
+
         {/* Protected Routes */}
         <Route path="/dashboard" element={<AuthGuard><Layout /></AuthGuard>}>
           <Route index element={<DashboardRouter />} />
@@ -147,10 +160,29 @@ function App() {
         <Route path="*" element={<NotFound />} />
         </Routes>
       )}
+      </React.Suspense>
     </BrowserRouter>
     </ThemeProvider>
   );
 }
+
+/** Shown for the few hundred ms while a lazy route chunk downloads. */
+const RouteFallback = () => (
+  <div className="min-h-screen flex items-center justify-center v-bg-dawn-subtle" aria-busy="true">
+    <span className="v-story-ring" style={{ padding: 3 }}>
+      <img src="/logo.png" alt="" className="h-10 w-10 object-contain" />
+    </span>
+  </div>
+);
+
+/** Pushes a GTM page_view on every client-side navigation (see lib/analytics). */
+const RouteTracker = () => {
+  const location = useLocation();
+  React.useEffect(() => {
+    trackPageView(location.pathname + location.search);
+  }, [location.pathname, location.search]);
+  return null;
+};
 
 const DashboardRouter = () => {
   const role = (localStorage.getItem('role') || 'creator').toLowerCase().trim();

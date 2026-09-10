@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { usePageMeta } from '../../lib/seo';
 import LandingNav from '../landing/sections/LandingNav';
 import Footer from '../landing/sections/Footer';
 
@@ -26,6 +27,7 @@ export const LegalPage: React.FC<{
   intro: React.ReactNode;
   children: React.ReactNode;
 }> = ({ title, updated, intro, children }) => {
+  usePageMeta({ title, description: `${title} for the Campaign Hubz platform — last updated ${updated}.`, type: 'article' });
   useEffect(() => {
     window.scrollTo({ top: 0 });
   }, []);

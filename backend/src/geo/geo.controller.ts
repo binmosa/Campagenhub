@@ -26,6 +26,9 @@ export class GeoController {
     return Country.getAllCountries().map((c) => ({
       iso2: c.isoCode,
       name: c.name,
+      /** Dial code without "+" (dataset gives "251", occasionally "1-684"). */
+      dial: String(c.phonecode || '').replace(/^\+/, ''),
+      flag: c.flag,
     }));
   }
 

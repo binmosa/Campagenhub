@@ -1,18 +1,23 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreatorProfile } from './creator-profile.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { FollowerVerificationService } from './follower-verification.service';
 import { decideClaim, parseSocialLinks, publicSocialLinks, reconcileSocialLinks } from './social-links';
-import { User } from '../users/user.entity';
+import { User, type OnboardingState } from '../users/user.entity';
 import { withDerivedFullName } from '../core/name.util';
+import { cleanFollowed, parseWelcomePostUrl } from './onboarding';
 
 const CREATOR_WRITABLE = [
   'first_name', 'last_name', 'full_name', 'username', 'category', 'location',
   'country', 'country_code', 'state', 'state_code', 'city',
-  'follower_range', 'social_links', 'bio', 'avatar_url',
+  'follower_range', 'social_links', 'bio', 'avatar_url', 'phone',
 ] as const;
+
+/** Creator handles: 3–30 chars of a-z 0-9 _ . — and nothing that reads as staff. */
+export const HANDLE_RE = /^[a-z0-9](?:[a-z0-9_.]{1,28})[a-z0-9]$/;
+const RESERVED_HANDLES = new Set(['admin', 'administrator', 'support', 'campaignhubz', 'campaign_hubz', 'staff', 'official', 'root', 'system', 'help', 'moderator', 'mod']);
 
 const pickWritableProfile = (data: any): Partial<CreatorProfile> => {
   const out: any = {};
@@ -204,6 +209,17 @@ export class CreatorsService {
     // unfiltered body could carry `id` and rewrite somebody else's profile.
     // Only these presentation fields are ever client-writable.
     data = withDerivedFullName(pickWritableProfile(data));
+    if (typeof data.username === 'string') {
+      const handle = data.username.trim().toLowerCase().replace(/^@+/, '');
+      if (handle && !HANDLE_RE.test(handle)) throw new BadRequestException('Handles are 3–30 letters, numbers, dots or underscores.');
+      if (RESERVED_HANDLES.has(handle)) throw new BadRequestException('That handle is reserved — pick another one.');
+      data.username = handle || (null as any);
+    }
+    if (typeof data.phone === 'string') {
+      const digits = data.phone.replace(/[^\d+]/g, '');
+      if (digits && !/^\+\d{6,15}$/.test(digits)) throw new BadRequestException('Enter the phone number with its country code.');
+      data.phone = digits || (null as any);
+    }
     let profile = await this.getProfile(userId);
 
     // Follower counts are claims: the server decides their verification
@@ -222,26 +238,43 @@ export class CreatorsService {
       this.profileRepository.merge(profile, data);
     }
     
-    const saved = await this.profileRepository.save(profile);
+    let saved: CreatorProfile;
+    try {
+      saved = await this.profileRepository.save(profile);
+    } catch (e: any) {
+      // Postgres unique violation — the only unique presentation field is `username`.
+      if (e?.code === '23505') throw new ConflictException('That handle is already taken — try another one.');
+      throw e;
+    }
     this.followerVerification.autoVerify(userId);
     return saved;
   }
 
   /* ── Follower claims (admin) ─────────────────────────────────────── */
 
-  /** Every platform entry currently awaiting review, newest claim first. */
+  /**
+   * Every platform entry currently awaiting review, newest claim first.
+   * "Pending" also includes channels with a link but no follower count
+   * (`unverified`) — creators from guided onboarding never type a number,
+   * so the reviewer looks the account up and enters the count they verify.
+   */
   async listFollowerClaims(status: 'pending' | 'rejected' | 'verified' = 'pending'): Promise<any[]> {
-    const rows = await this.profileRepository
+    const qb = this.profileRepository
       .createQueryBuilder('p')
       .innerJoin('p.user', 'u')
-      .where('p.social_links ILIKE :s', { s: `%"status":"${status}"%` })
-      .select(['p.id', 'p.full_name', 'p.username', 'p.avatar_url', 'p.category', 'p.location', 'p.social_links', 'u.id', 'u.email'])
-      .getMany();
+      .select(['p.id', 'p.full_name', 'p.username', 'p.avatar_url', 'p.category', 'p.location', 'p.social_links', 'p.updated_at', 'u.id', 'u.email']);
+    if (status === 'pending') {
+      qb.where('(p.social_links ILIKE :s1 OR p.social_links ILIKE :s2)', { s1: '%"status":"pending"%', s2: '%"status":"unverified"%' });
+    } else {
+      qb.where('p.social_links ILIKE :s', { s: `%"status":"${status}"%` });
+    }
+    const rows = await qb.getMany();
     const claims: any[] = [];
     for (const p of rows) {
       const map = parseSocialLinks(p.social_links);
       for (const [platform, e] of Object.entries(map)) {
-        if (e.status !== status) continue;
+        const unclaimed = e.status === 'unverified' && !!e.url;
+        if (!(e.status === status || (status === 'pending' && unclaimed))) continue;
         claims.push({
           user_id: p.user?.id,
           email: p.user?.email,
@@ -254,11 +287,13 @@ export class CreatorsService {
           url: e.url,
           followers: e.followers,
           verified_followers: e.verified_followers,
-          claimed_at: e.claimed_at,
+          claimed_at: e.claimed_at || (e.status === 'unverified' ? p.updated_at?.toISOString?.() : undefined),
           verified_at: e.verified_at,
           evidence_url: e.evidence_url,
           note: e.note,
-          status: e.status,
+          status: e.status === 'unverified' ? 'pending' : e.status,
+          /** false = the creator gave a link only; the reviewer supplies the count. */
+          has_count: !!e.followers,
         });
       }
     }
@@ -288,6 +323,146 @@ export class CreatorsService {
       )
       .catch(() => {});
     return { platform, ...result.entry };
+  }
+
+  /** Live availability for a creator handle (case-insensitive, own handle allowed). */
+  async checkHandle(userId: string, raw: unknown): Promise<{ handle: string; available: boolean; reason?: 'format' | 'reserved' | 'taken' }> {
+    const handle = String(raw || '').trim().toLowerCase().replace(/^@+/, '');
+    if (!HANDLE_RE.test(handle)) return { handle, available: false, reason: 'format' };
+    if (RESERVED_HANDLES.has(handle)) return { handle, available: false, reason: 'reserved' };
+    const other = await this.profileRepository
+      .createQueryBuilder('p')
+      .leftJoin('p.user', 'u')
+      .where('LOWER(p.username) = :h', { h: handle })
+      .andWhere('u.id != :me', { me: userId })
+      .getCount();
+    return other > 0 ? { handle, available: false, reason: 'taken' } : { handle, available: true };
+  }
+
+  /* ── Onboarding ──────────────────────────────────────────────────── */
+
+  /** Where a creator is in their first-session setup. */
+  async getOnboarding(userId: string): Promise<{ completed: boolean; completed_at: Date | null; state: OnboardingState; has_channels: boolean; terms_accepted_at: Date | null; terms_version: string | null }> {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    const profile = await this.getProfile(userId);
+    const hasChannels = Object.keys(parseSocialLinks(profile?.social_links)).length > 0;
+    return {
+      completed: !!user.onboarding_completed_at,
+      completed_at: user.onboarding_completed_at,
+      state: user.onboarding || {},
+      has_channels: hasChannels,
+      terms_accepted_at: user.terms_accepted_at,
+      terms_version: user.terms_version,
+    };
+  }
+
+  async recordFollowed(userId: string, platforms: unknown): Promise<OnboardingState> {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    user.onboarding = { ...(user.onboarding || {}), followed: cleanFollowed(platforms) };
+    await this.usersRepository.save(user);
+    return user.onboarding;
+  }
+
+  /** The creator's post about Campaign Hubz — queued for an admin to check. */
+  async submitWelcomePost(userId: string, rawUrl: unknown): Promise<OnboardingState> {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    const { url, platform } = parseWelcomePostUrl(rawUrl);
+    const prev = user.onboarding || {};
+    // Re-submitting the same approved link is a no-op; anything new is reviewed again.
+    if (prev.post_status === 'approved' && prev.post_url === url) return prev;
+    user.onboarding = { ...prev, post_url: url, post_platform: platform, post_submitted_at: new Date().toISOString(), post_status: 'pending', post_note: undefined, post_reviewed_at: undefined };
+    await this.usersRepository.save(user);
+    return user.onboarding;
+  }
+
+  /** Record acceptance of the creator agreement (version, time, origin). Idempotent per version. */
+  async acceptTerms(userId: string, version: unknown, origin: { ip?: string; userAgent?: string }): Promise<{ terms_accepted_at: Date; terms_version: string }> {
+    const v = String(version || '').trim().slice(0, 32);
+    if (!v) throw new BadRequestException('Terms version is required.');
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.terms_accepted_at || user.terms_version !== v) {
+      await this.usersRepository.update(
+        { id: userId },
+        {
+          terms_accepted_at: new Date(),
+          terms_version: v,
+          terms_accepted_ip: (origin.ip || '').slice(0, 64) || null,
+          terms_accepted_user_agent: (origin.userAgent || '').slice(0, 512) || null,
+        },
+      );
+      const fresh = await this.usersRepository.findOne({ where: { id: userId } });
+      return { terms_accepted_at: fresh!.terms_accepted_at!, terms_version: fresh!.terms_version! };
+    }
+    return { terms_accepted_at: user.terms_accepted_at, terms_version: user.terms_version! };
+  }
+
+  /** Finish onboarding. Needs at least one channel so verification has something to check. */
+  async completeOnboarding(userId: string): Promise<{ completed: boolean; completed_at: Date | null }> {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.onboarding_completed_at) {
+      const profile = await this.getProfile(userId);
+      if (Object.keys(parseSocialLinks(profile?.social_links)).length === 0) {
+        throw new BadRequestException('Add at least one social media channel first.');
+      }
+      if (!user.terms_accepted_at) throw new BadRequestException('Please accept the creator agreement first.');
+      user.onboarding_completed_at = new Date();
+      await this.usersRepository.save(user);
+    }
+    return { completed: true, completed_at: user.onboarding_completed_at };
+  }
+
+  /* ── Welcome posts (admin) ───────────────────────────────────────── */
+
+  async listWelcomePosts(status: 'pending' | 'approved' | 'rejected' = 'pending'): Promise<any[]> {
+    const rows = await this.usersRepository
+      .createQueryBuilder('u')
+      .leftJoinAndSelect('u.creatorProfile', 'p')
+      .where('u.role = :role', { role: 'creator' })
+      .andWhere('u.onboarding IS NOT NULL')
+      .andWhere("u.onboarding::text ILIKE :s", { s: `%"post_status":"${status}"%` })
+      .getMany();
+    return rows
+      .filter((u) => u.onboarding?.post_status === status && u.onboarding?.post_url)
+      .map((u) => ({
+        user_id: u.id,
+        email: u.email,
+        full_name: u.creatorProfile?.full_name,
+        username: u.creatorProfile?.username,
+        avatar_url: u.creatorProfile?.avatar_url,
+        category: u.creatorProfile?.category,
+        location: u.creatorProfile?.location,
+        followed: u.onboarding?.followed || [],
+        url: u.onboarding?.post_url,
+        platform: u.onboarding?.post_platform,
+        submitted_at: u.onboarding?.post_submitted_at,
+        reviewed_at: u.onboarding?.post_reviewed_at,
+        note: u.onboarding?.post_note,
+        status: u.onboarding?.post_status,
+      }))
+      .sort((a, b) => new Date(b.submitted_at || 0).getTime() - new Date(a.submitted_at || 0).getTime());
+  }
+
+  async decideWelcomePost(userId: string, decision: { action: 'approve' | 'reject'; note?: string }): Promise<OnboardingState> {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user || !user.onboarding?.post_url) throw new NotFoundException('No welcome post for that creator');
+    const approved = decision.action === 'approve';
+    user.onboarding = { ...user.onboarding, post_status: approved ? 'approved' : 'rejected', post_note: decision.note?.slice(0, 500) || undefined, post_reviewed_at: new Date().toISOString() };
+    await this.usersRepository.save(user);
+    await this.notificationsService
+      .createNotification(
+        userId,
+        approved ? 'WELCOME_POST_APPROVED' : 'WELCOME_POST_REJECTED',
+        approved
+          ? 'Thanks for sharing Campaign Hubz with your audience — your welcome post is approved.'
+          : `We could not accept your welcome post${decision.note ? `: ${decision.note}` : ''}. Share a new link from your home page.`,
+      )
+      .catch(() => {});
+    return user.onboarding;
   }
 
   async getPublicProfile(userId: string): Promise<any> {

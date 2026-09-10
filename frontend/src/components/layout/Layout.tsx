@@ -32,6 +32,7 @@ import { Avatar, Breadcrumbs, Dropdown, Label, Separator } from '@heroui/react';
 import { AppLayout, Navbar, Sidebar } from '@heroui-pro/react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
+import { CREATOR_AGREEMENT_VERSION } from '../../lib/creatorAgreement';
 import { SUPPORTED_LANGUAGES, setLanguage } from '../../i18n';
 import OnboardingWizard from '../OnboardingWizard';
 import { BrandLogo, LogoMark, Wordmark } from '../ui/BrandLogo';
@@ -510,11 +511,20 @@ const Layout: React.FC = () => {
     api
       .get('/auth/me')
       .then((res) => {
+        // A creator who has not finished guided onboarding is sent there
+        // before any dashboard page renders (see pages/creator/Onboarding).
+        if (
+          String(res.data?.role || '').toLowerCase() === 'creator' &&
+          (res.data?.onboarding_completed_at === null || (res.data?.terms_version !== undefined && res.data.terms_version !== CREATOR_AGREEMENT_VERSION && res.data.terms_version !== 'seed'))
+        ) {
+          navigate('/onboarding', { replace: true });
+          return;
+        }
         setUser(res.data);
         setLoadingUser(false);
       })
       .catch(() => setLoadingUser(false));
-  }, []);
+  }, [navigate]);
 
   /* An account manager only reaches the talent directory once a brand engages them. */
   const engaged = role !== 'manager' || (Array.isArray(user?.managedBrands) && user.managedBrands.length > 0);
@@ -612,7 +622,8 @@ const Layout: React.FC = () => {
         </div>
       </AppLayout>
 
-      <OnboardingWizard />
+      {/* Creators get the guided /onboarding flow instead of the slide tour. */}
+      {role !== 'creator' && <OnboardingWizard />}
       <ToastHost />
     </>
   );

@@ -12,9 +12,10 @@ import { Button } from '@heroui/react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../../i18n';
-import { useNoIndex } from '../../lib/seo';
+import { useNoIndex, usePageMeta } from '../../lib/seo';
 import { Turnstile, turnstileEnabled } from '../../components/common/Turnstile';
 import api from '../../lib/api';
+import { track } from '../../lib/analytics';
 import { buildTelegramLink, getTelegramBotUsername } from '../../lib/telegram';
 import LocationCascade, { EMPTY_LOCATION, type LocationValue } from '../../components/common/LocationCascade';
 import SearchSelect from '../../components/common/SearchSelect';
@@ -58,6 +59,7 @@ const EXPERIENCE_OPTIONS = [
 const Register: React.FC = () => {
   const { t } = useTranslation();
   useNoIndex();
+  usePageMeta({ title: t('meta.registerTitle'), description: t('meta.register'), noindex: true });
   const [step, setStep] = useState<1 | 2>(1);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -119,7 +121,7 @@ const Register: React.FC = () => {
       setError(t('auth.errAccount'));
       return;
     }
-    if ((role === 'creator' || role === 'manager') && !firstName.trim()) {
+    if (role === 'manager' && !firstName.trim()) {
       setError(t('auth.errFirstName'));
       return;
     }
@@ -131,10 +133,6 @@ const Register: React.FC = () => {
       setError(t('auth.errSector'));
       return;
     }
-    if (role === 'creator' && (!loc.country || !loc.city)) {
-      setError(t('auth.errLocation'));
-      return;
-    }
     if (role === 'manager' && mgrSectors.size === 0) {
       setError(t('auth.errMgrSectors'));
       return;
@@ -144,18 +142,11 @@ const Register: React.FC = () => {
     setError('');
 
     try {
+      // Creators give only email + password here; name, location, phone and
+      // channels are collected step by step in /onboarding right after.
       const profile =
         role === 'creator'
-          ? {
-              first_name: firstName,
-              last_name: lastName,
-              country: loc.country,
-              country_code: loc.countryCode,
-              state: loc.state,
-              state_code: loc.stateCode,
-              city: loc.city,
-              location: `${loc.city}, ${loc.country}`,
-            }
+          ? {}
           : role === 'brand'
           ? {
               company_name: companyName,
@@ -194,7 +185,12 @@ const Register: React.FC = () => {
       if (accessToken) {
         localStorage.setItem('token', accessToken);
         localStorage.setItem('role', returnedRole);
+        track('sign_up', { method: 'email', role: returnedRole });
         api.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+      }
+      if (returnedRole === 'creator') {
+        navigate('/onboarding', { replace: true });
+        return;
       }
       setTelegramToken(response.data?.user?.telegram_connect_token || '');
       setStep(2);
@@ -315,10 +311,16 @@ const Register: React.FC = () => {
             {t('auth.onboardingProgress')}
           </p>
           <div className="space-y-2">
-            {[
-              { n: 1, label: t('auth.step1') },
-              { n: 2, label: t('auth.step2') },
-            ].map((s) => {
+            {(role === 'creator'
+              ? [
+                  { n: 1, label: t('auth.stepAccount') },
+                  { n: 2, label: t('auth.stepSetup') },
+                ]
+              : [
+                  { n: 1, label: t('auth.step1') },
+                  { n: 2, label: t('auth.step2') },
+                ]
+            ).map((s) => {
               const active = step === s.n;
               const done = step > s.n;
               return (
@@ -411,7 +413,7 @@ const Register: React.FC = () => {
               {step === 1 ? t('auth.createTitle') : t('auth.doneTitle')}
             </h2>
             <p className="mt-3 v-body-lg v-muted">
-              {step === 1 ? t('auth.createSub') : t('auth.doneSub')}
+              {step === 1 ? (role === 'creator' ? t('auth.createSubCreator') : t('auth.createSub')) : t('auth.doneSub')}
             </p>
           </div>
 
@@ -561,7 +563,11 @@ const Register: React.FC = () => {
               </div>
 
               <div className="space-y-3">
-                {role === 'creator' || role === 'manager' ? (
+                {role === 'creator' ? (
+                  <p className="v-caption v-quiet" style={{ fontSize: 12.5 }}>
+                    {t('auth.creatorSetupNote')}
+                  </p>
+                ) : role === 'manager' ? (
                   <>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <input
@@ -583,15 +589,6 @@ const Register: React.FC = () => {
                         autoComplete="family-name"
                       />
                     </div>
-                    {role === 'creator' && (
-                      <div>
-                        <p className="v-caption v-quiet mb-2">
-                          {t('auth.whereBased')}
-                        </p>
-                        <LocationCascade value={loc} onChange={setLoc} layout="stack" />
-                      </div>
-                    )}
-
                     {role === 'manager' && (
                       <>
                         {/* Sectors they want to manage */}
@@ -883,7 +880,7 @@ const Register: React.FC = () => {
                 variant="primary"
                 size="lg"
                 fullWidth
-                onPress={() => navigate('/dashboard')}
+                onPress={() => navigate(role === 'creator' ? '/onboarding' : '/dashboard')}
                 className="!rounded-xl"
               >
                 {t('auth.goDashboard')} <ArrowRight size={14} />

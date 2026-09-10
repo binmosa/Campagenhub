@@ -1,4 +1,6 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
+import { usePageMeta } from '../../lib/seo';
 import { useLandingData } from './useLandingData';
 import { useMarket } from '../markets/MarketContext';
 import MarketCreatorsStrip from '../markets/MarketCreatorsStrip';
@@ -36,6 +38,8 @@ import Footer from './sections/Footer';
 const LandingPage: React.FC = () => {
   const { settings, reviews, activeCampaigns, campaignsLoading, platformStats, refetchReviews } = useLandingData();
   const market = useMarket();
+  const { t } = useTranslation();
+  usePageMeta({ title: t('meta.homeTitle'), description: t('meta.home'), path: '/' });
 
   return (
     <div className="landing-visitors min-h-screen flex flex-col">

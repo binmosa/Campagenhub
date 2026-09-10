@@ -52,6 +52,10 @@ export class CreatorProfile {
   @Column({ nullable: true })
   city: string;
 
+  /** E.164 phone ("+251911223344") — collected in onboarding, never shown publicly. */
+  @Column({ nullable: true, length: 24 })
+  phone: string;
+
   @Column({ nullable: true })
   follower_range: string;
 
