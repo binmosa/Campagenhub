@@ -845,6 +845,7 @@ export default {
     errTitle: 'Give the campaign a title.',
     errPlatform: 'Pick at least one platform.',
     errBudget: 'Enter a budget greater than zero.',
+    errBudgetMax: 'Budget cannot exceed 1,000,000,000. Check the figure for an extra digit.',
     errCoverSize: 'Cover image must be under 5 MB.',
     errAi: 'Could not draft the contract right now. Try again or paste your own terms.',
     saveFailed: 'Could not save the campaign.',

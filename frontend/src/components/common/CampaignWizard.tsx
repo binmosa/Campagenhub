@@ -132,6 +132,8 @@ type Step = (typeof STEPS)[number];
 
 const ETHIOPIC = /[ሀ-፿]/;
 const MAX_COVER_BYTES = 5 * 1024 * 1024;
+/** Mirrors MAX_BUDGET on the API: the budget columns hold at most 12 digits. */
+const MAX_BUDGET = 1_000_000_000;
 const URL_RE = /^https?:\/\/\S+$/i;
 
 const Field: React.FC<{ label: React.ReactNode; hint?: React.ReactNode; required?: boolean; children: React.ReactNode }> = ({
@@ -283,6 +285,7 @@ export const CampaignWizard: React.FC<{
     }
     if (s === 'budget') {
       if (!form.budget || !Number.isFinite(budgetNum) || budgetNum <= 0) return t('wizard.errBudget');
+      if (budgetNum > MAX_BUDGET) return t('wizard.errBudgetMax');
     }
     return '';
   }, [step, form, budgetNum, t]);
@@ -383,6 +386,7 @@ export const CampaignWizard: React.FC<{
     if (!form.title.trim()) return fail(t('wizard.errTitle'), 0);
     if (form.platforms.length === 0) return fail(t('wizard.errPlatform'), 0);
     if (!form.budget || !Number.isFinite(budgetNum) || budgetNum <= 0) return fail(t('wizard.errBudget'), 3);
+    if (budgetNum > MAX_BUDGET) return fail(t('wizard.errBudgetMax'), 3);
 
     setSaving(publish ? 'publish' : 'draft');
     setError('');
@@ -901,6 +905,7 @@ export const CampaignWizard: React.FC<{
                       <input
                         type="number"
                         min={0}
+                        max={MAX_BUDGET}
                         step="0.01"
                         inputMode="decimal"
                         className={fieldClass}
