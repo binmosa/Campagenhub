@@ -35,7 +35,8 @@ import LocationCascade, { EMPTY_LOCATION, type LocationValue } from '../../compo
 import { SearchSelect } from '../../components/common/SearchSelect';
 import PlatformIcon from '../landing/mocks/PlatformIcon';
 import { NICHES, PLATFORM_ICON_KEY, fieldClass } from '../talent/shared';
-import { SOCIAL_PLATFORMS, parseSocialLinks, serializeSocialLinks, type SocialMap, type SocialPlatformId } from '../../lib/socialLinks';
+import { SOCIAL_PLATFORMS, parseSocialLinks, serializeSocialLinks, type SocialMap } from '../../lib/socialLinks';
+import { PlatformPicker } from '../../components/creator/PlatformPicker';
 
 /**
  * CreatorOnboarding — the creator's first session. Signup asked only for
@@ -63,27 +64,6 @@ import { SOCIAL_PLATFORMS, parseSocialLinks, serializeSocialLinks, type SocialMa
  */
 type StepKey = 'about' | 'terms' | 'platforms' | 'share' | 'done';
 const MAX_NICHES = 3;
-
-/** What the creator types after the prefix, per platform — mirrors the real profile URL. */
-const PREFIX: Record<SocialPlatformId, { host: string; path: string }> = {
-  instagram: { host: 'instagram.com/', path: '' },
-  tiktok: { host: 'tiktok.com/', path: '@' },
-  youtube: { host: 'youtube.com/', path: '@' },
-  twitter: { host: 'x.com/', path: '' },
-  facebook: { host: 'facebook.com/', path: '' },
-  linkedin: { host: 'linkedin.com/', path: 'in/' },
-  twitch: { host: 'twitch.tv/', path: '' },
-};
-const buildUrl = (id: SocialPlatformId, name: string): string => {
-  const n = name.trim().replace(/^@+/, '').replace(/\s+/g, '');
-  return n ? `https://${PREFIX[id].host}${PREFIX[id].path}${n}` : '';
-};
-/** Reverse of buildUrl for prefilling — a stored URL becomes just the name. */
-const nameFromUrl = (id: SocialPlatformId, url: string): string => {
-  const path = url.replace(/^https?:\/\/(www\.|m\.)?[^/]+\//i, '').replace(/[?#].*$/, '').replace(/\/+$/, '');
-  const p = PREFIX[id].path;
-  return (p && path.startsWith(p) ? path.slice(p.length) : path).replace(/^@+/, '');
-};
 
 /** Platforms a creator can follow us on, keyed like the `social_<id>` settings. */
 const FOLLOW_ORDER = ['telegram', 'instagram', 'tiktok', 'youtube', 'facebook', 'twitter', 'linkedin'] as const;
@@ -132,12 +112,10 @@ const CreatorOnboarding: React.FC = () => {
   const [termsVersion, setTermsVersion] = useState<string | null>(null);
   const [termsOnly, setTermsOnly] = useState(false);
 
-  /* Platforms — `active` keeps activation order so "the first handle typed" is well defined. */
+  /* Platforms — `existing` is what is saved; `socialMap` is what the picker currently shows. */
   const [niches, setNiches] = useState<string[]>([]);
-  const [active, setActive] = useState<SocialPlatformId[]>([]);
-  const [sameForAll, setSameForAll] = useState(false);
-  const [names, setNames] = useState<Partial<Record<SocialPlatformId, string>>>({});
   const [existing, setExisting] = useState<SocialMap>({});
+  const [socialMap, setSocialMap] = useState<SocialMap>({});
 
   /* Step 3 */
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -197,16 +175,7 @@ const CreatorOnboarding: React.FC = () => {
         } else if (iso) setDialIso(iso);
         const map = parseSocialLinks(p.social_links);
         setExisting(map);
-        const on: SocialPlatformId[] = [];
-        const nm: Partial<Record<SocialPlatformId, string>> = {};
-        for (const p of SOCIAL_PLATFORMS) {
-          const e = map[p.id];
-          if (!e?.url) continue;
-          on.push(p.id);
-          nm[p.id] = nameFromUrl(p.id, e.url);
-        }
-        setActive(on);
-        setNames(nm);
+        setSocialMap(map);
         setSettings(pub.data || {});
         const onb = me.data?.onboarding || {};
         setFollowed(new Set<string>(Array.isArray(onb.followed) ? onb.followed : []));
@@ -276,17 +245,6 @@ const CreatorOnboarding: React.FC = () => {
     [countries],
   );
 
-  const socialMap = useMemo<SocialMap>(() => {
-    const next: SocialMap = {};
-    for (const p of SOCIAL_PLATFORMS) {
-      if (!active.includes(p.id)) continue;
-      const url = buildUrl(p.id, names[p.id] || '');
-      if (!url) continue;
-      const prev = existing[p.id];
-      next[p.id] = prev && prev.url === url ? prev : { url, status: 'unverified' };
-    }
-    return next;
-  }, [active, names, existing]);
   const channelCount = Object.keys(socialMap).length;
 
   /* ── saves ───────────────────────────────────────────────────────── */
@@ -425,25 +383,6 @@ const CreatorOnboarding: React.FC = () => {
 
   const toggleNiche = (n: string) =>
     setNiches((prev) => (prev.includes(n) ? prev.filter((x) => x !== n) : prev.length >= MAX_NICHES ? prev : [...prev, n]));
-  /** The first social handle the creator typed, in the order they switched platforms on. */
-  const firstHandle = active.map((id) => (names[id] || '').trim()).find(Boolean) || '';
-  const togglePlatform = (id: SocialPlatformId) =>
-    setActive((prev) => {
-      if (prev.includes(id)) return prev.filter((x) => x !== id);
-      // Switching a platform on with "use X for all" ticked prefills it.
-      if (sameForAll && firstHandle && !(names[id] || '').trim()) setNames((n) => ({ ...n, [id]: firstHandle }));
-      return [...prev, id];
-    });
-  const toggleSameForAll = (on: boolean) => {
-    setSameForAll(on);
-    if (on && firstHandle) {
-      setNames((prev) => {
-        const next = { ...prev };
-        for (const id of active) if (!(next[id] || '').trim()) next[id] = firstHandle;
-        return next;
-      });
-    }
-  };
   const toggleFollowed = (id: string) =>
     setFollowed((prev) => {
       const s = new Set(prev);
@@ -712,80 +651,7 @@ const CreatorOnboarding: React.FC = () => {
                       {t('onb.platformsNote')}
                     </span>
                   </div>
-                  {/* platform tiles — tap to switch a platform on */}
-                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 mb-3" role="group" aria-label={t('onb.platformsQ')}>
-                    {SOCIAL_PLATFORMS.map((p) => {
-                      const on = active.includes(p.id);
-                      return (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => togglePlatform(p.id)}
-                          className="v-niche-chip !flex-col !gap-1.5 !px-2 !py-3 justify-center"
-                          data-active={on || undefined}
-                          aria-pressed={on}
-                          data-testid={`onb-platform-${p.id}`}
-                          title={p.label}
-                        >
-                          <span className="inline-flex" style={{ color: on ? '#fff' : p.color }}>
-                            <PlatformIcon platform={PLATFORM_ICON_KEY[p.id]} size={18} />
-                          </span>
-                          <span className="truncate w-full text-center" style={{ fontSize: 11 }}>
-                            {p.label.replace(' / Twitter', '')}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {active.length > 0 && (
-                    <div className="space-y-2.5" data-testid="onb-handles">
-                      {firstHandle && (
-                        <label className="flex items-center gap-3 rounded-xl px-3 py-2.5 cursor-pointer" style={{ background: 'var(--color-soft-lavender)' }} data-testid="onb-same-handle">
-                          <Checkbox isSelected={sameForAll} onChange={(v) => toggleSameForAll(!!v)} aria-label={t('onb.sameHandle', { u: firstHandle })}>
-                            <Checkbox.Control>
-                              <Checkbox.Indicator />
-                            </Checkbox.Control>
-                          </Checkbox>
-                          <span className="min-w-0">
-                            <span className="v-ink font-medium block" style={{ fontSize: 13 }}>
-                              <Wand2 size={12} className="inline mr-1 -mt-0.5" /> {t('onb.sameHandle', { u: firstHandle })}
-                            </span>
-                            <span className="v-caption v-muted block" style={{ fontSize: 11.5 }}>
-                              {t('onb.sameHandleHint')}
-                            </span>
-                          </span>
-                        </label>
-                      )}
-                      {SOCIAL_PLATFORMS.filter((p) => active.includes(p.id)).map((p) => {
-                        const value = names[p.id] || '';
-                        const verified = existing[p.id]?.status === 'verified' && existing[p.id]?.url === buildUrl(p.id, value);
-                        const prefix = `${PREFIX[p.id].host}${PREFIX[p.id].path}`;
-                        return (
-                          <div key={p.id} className="rounded-xl p-2.5 v-hairline flex items-center gap-2.5" style={{ background: value ? 'rgba(244,242,255,0.45)' : 'var(--color-paper)' }}>
-                            <span className="v-social-tile shrink-0" style={{ color: p.color }}>
-                              <PlatformIcon platform={PLATFORM_ICON_KEY[p.id]} size={14} />
-                            </span>
-                            <div className="flex-1 min-w-0 flex items-stretch rounded-lg overflow-hidden v-hairline" style={{ background: '#fff' }}>
-                              <span className="inline-flex items-center px-2.5 v-quiet whitespace-nowrap select-none" style={{ fontSize: 12.5, background: 'var(--color-paper)', borderRight: '1px solid var(--color-cool-gray)' }}>
-                                {prefix}
-                              </span>
-                              <input
-                                className="flex-1 min-w-0 px-2.5 py-2 text-sm bg-transparent outline-none v-ink"
-                                value={value}
-                                onChange={(e) => setNames((n) => ({ ...n, [p.id]: e.target.value.replace(/^@+/, '').replace(/\s+/g, '') }))}
-                                placeholder={t('onb.handleOnly')}
-                                autoCapitalize="none"
-                                aria-label={p.label}
-                                data-testid={`onb-handle-${p.id}`}
-                              />
-                            </div>
-                            {verified ? <BadgeCheck size={16} style={{ color: 'var(--color-signal-green)' }} /> : value ? <Check size={16} className="v-quiet" /> : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <PlatformPicker value={existing} onChange={setSocialMap} />
                 </div>
               </div>
             )}

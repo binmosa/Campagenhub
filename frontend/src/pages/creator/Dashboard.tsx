@@ -6,6 +6,7 @@ import {
   BarChart3,
   Briefcase,
   CheckCircle2,
+  Clock,
   Circle,
   ClipboardList,
   DollarSign,
@@ -15,6 +16,7 @@ import {
   Megaphone,
   MessageSquare,
   Pencil,
+  Share2,
   Sparkles,
   Star,
   Users,
@@ -30,6 +32,8 @@ import { DashPanel, PanelEmpty, PanelRow, PanelRows, PanelRowsSkeleton } from '.
 import { StoryAvatar } from '../../components/common/StoryAvatar';
 import PayoutSummary from '../../components/PayoutSummary';
 import { StarterHome } from '../../components/creator/StarterHome';
+import { AddPlatformsModal } from '../../components/creator/AddPlatformsModal';
+import { SOCIAL_PLATFORMS, parseSocialLinks } from '../../lib/socialLinks';
 
 /**
  * CreatorDashboard — the creator's overview: application funnel with
@@ -57,6 +61,7 @@ const CreatorDashboard: React.FC = () => {
 
   const [me, setMe] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
+  const [addingPlatforms, setAddingPlatforms] = useState(false);
   const [applications, setApplications] = useState<any[]>([]);
   const [invitations, setInvitations] = useState<any[]>([]);
   const [contracts, setContracts] = useState<any[]>([]);
@@ -163,6 +168,12 @@ const CreatorDashboard: React.FC = () => {
     ];
     const done = items.filter((i) => i.done).length;
     return { items, done, total: items.length, pct: Math.round((done / items.length) * 100) };
+  }, [profile]);
+
+  /** Platforms our team has not verified yet — named, so a newly added one is visible at once. */
+  const waitingPlatforms = useMemo(() => {
+    const socials = parseSocialLinks(profile?.social_links);
+    return SOCIAL_PLATFORMS.filter((p) => socials[p.id]?.url && socials[p.id]?.status !== 'verified' && socials[p.id]?.status !== 'rejected').map((p) => p.label.replace(' / Twitter', ''));
   }, [profile]);
 
   const attention = useMemo(() => {
@@ -397,11 +408,21 @@ const CreatorDashboard: React.FC = () => {
               </li>
             ))}
           </ul>
-          <Link to="/dashboard/profile" className="block mt-auto">
-            <Button variant={completeness.pct >= 100 ? 'tertiary' : 'primary'} size="sm" fullWidth>
-              <Pencil size={12} /> {t('cdash.editProfile')}
+          {waitingPlatforms.length > 0 && (
+            <p className="v-caption mb-3 inline-flex items-start gap-1.5" style={{ fontSize: 12, color: '#9a6700' }} data-testid="dash-waiting-verification">
+              <Clock size={12} className="shrink-0 mt-0.5" /> {t('starter.waitingFor', { list: waitingPlatforms.join(', ') })}
+            </p>
+          )}
+          <div className="mt-auto grid grid-cols-2 gap-2">
+            <Button variant="tertiary" size="sm" fullWidth onPress={() => setAddingPlatforms(true)} data-testid="dash-add-platforms">
+              <Share2 size={12} /> {t('social.addPlatforms')}
             </Button>
-          </Link>
+            <Link to="/dashboard/profile" className="block">
+              <Button variant={completeness.pct >= 100 ? 'tertiary' : 'primary'} size="sm" fullWidth>
+                <Pencil size={12} /> {t('cdash.editProfile')}
+              </Button>
+            </Link>
+          </div>
         </DashPanel>
 
         {/* Row 2 — recent applications · pipeline */}
@@ -549,6 +570,9 @@ const CreatorDashboard: React.FC = () => {
           </Link>
         ))}
       </div>
+      {addingPlatforms && (
+        <AddPlatformsModal open onClose={() => setAddingPlatforms(false)} socialLinks={profile?.social_links} onSaved={load} />
+      )}
     </PageShell>
   );
 };

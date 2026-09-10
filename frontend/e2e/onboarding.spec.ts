@@ -7,6 +7,18 @@ import { ACCOUNTS, PASSWORD } from './accounts';
  * lands on the simplified starter home. Existing creators (seeded, with
  * channels already on file) skip it entirely.
  */
+/** Each run registers throwaway creators; delete them so they do not pile up in the admin directory. */
+const removeAccount = async (request: any, baseURL: string | undefined, token: string) => {
+  const me = await (await request.get(`${baseURL}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })).json();
+  const admin = await request.post(`${baseURL}/api/auth/login`, { data: { email: ACCOUNTS.admin, password: PASSWORD } });
+  const { access_token } = await admin.json();
+  // /auth/me spreads the JWT payload, so the id is `userId`.
+  const del = await request.delete(`${baseURL}/api/admin/users/${me.userId || me.id}`, { headers: { Authorization: `Bearer ${access_token}` } });
+  expect(del.ok(), 'throwaway creator deleted').toBeTruthy();
+  const gone = await request.post(`${baseURL}/api/auth/login`, { data: { email: me.email, password: PASSWORD } });
+  expect(gone.status(), 'deleted creator can no longer sign in').toBe(401);
+};
+
 test.describe('creator onboarding', () => {
   test('a new creator is guided through setup and lands on the starter home', async ({ page, request, baseURL }) => {
     const stamp = Date.now();
@@ -90,7 +102,23 @@ test.describe('creator onboarding', () => {
     await expect(cta).toHaveAttribute('data-kind', 'wait');
     await expect(page.getByTestId('starter-steps').locator('li[data-status="done"]')).toHaveCount(1);
     await expect(page.getByTestId('starter-steps')).not.toContainText(/welcome post/i);
+    // Every channel is named with where its verification stands.
+    await expect(page.getByTestId('starter-steps')).toContainText('Waiting for verification of Instagram, TikTok, LinkedIn');
+    await expect(page.getByTestId('starter-channel-states').locator('[data-state="waiting"]')).toHaveCount(3);
     await expectNoRawKeys(page);
+
+    // Platforms are not locked in at onboarding: add Facebook from the home page
+    // with the same picker — existing channels are already switched on.
+    await page.getByTestId('starter-add-platforms').click();
+    const modal = page.getByTestId('add-platforms');
+    await expect(modal).toBeVisible();
+    await expect(modal.getByTestId('addp-handle-instagram')).toHaveValue('binmosa');
+    await modal.getByTestId('addp-platform-facebook').click();
+    await modal.getByTestId('addp-handle-facebook').fill('sara.page');
+    await modal.getByTestId('add-platforms-save').click();
+    await expect(modal).toBeHidden();
+    await expect(page.getByTestId('starter-steps')).toContainText('Waiting for verification of Instagram, TikTok, Facebook, LinkedIn');
+    await expect(page.getByTestId('starter-channel-states').locator('[data-state="waiting"]')).toHaveCount(4);
 
     // Finished creators cannot land back in onboarding by deep link.
     await page.goto('/onboarding');
@@ -101,13 +129,13 @@ test.describe('creator onboarding', () => {
     await expect(page.getByTestId('starter-show-simple')).toBeVisible();
     await expect(page.locator('.v-hero-band h1')).toBeVisible();
 
-    // What got saved: profile fields, E.164 phone, three link-only channels in the admin queue.
+    // What got saved: profile fields, E.164 phone, four link-only channels in the admin queue.
     const admin = await request.post(`${baseURL}/api/auth/login`, { data: { email: ACCOUNTS.admin, password: PASSWORD } });
     const { access_token } = await admin.json();
     const headers = { Authorization: `Bearer ${access_token}` };
     const claims = await (await request.get(`${baseURL}/api/creators/admin/follower-claims?status=pending`, { headers })).json();
     const mine = claims.filter((c: any) => c.username === handle);
-    expect(mine.map((c: any) => c.url).sort()).toEqual(['https://instagram.com/binmosa', 'https://linkedin.com/in/binmosa', 'https://tiktok.com/@sara.et'].sort());
+    expect(mine.map((c: any) => c.url).sort()).toEqual(['https://facebook.com/sara.page', 'https://instagram.com/binmosa', 'https://linkedin.com/in/binmosa', 'https://tiktok.com/@sara.et'].sort());
     expect(mine.every((c: any) => c.has_count === false)).toBeTruthy();
     const login = await request.post(`${baseURL}/api/auth/login`, { data: { email, password: PASSWORD } });
     const token = (await login.json()).access_token;
@@ -117,6 +145,8 @@ test.describe('creator onboarding', () => {
     const me = await (await request.get(`${baseURL}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })).json();
     expect(me.terms_version).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(me.terms_accepted_at).toBeTruthy();
+
+    await removeAccount(request, baseURL, token);
   });
 
   test('a creator who skipped the agreement cannot finish onboarding', async ({ request, baseURL }) => {
@@ -128,6 +158,8 @@ test.describe('creator onboarding', () => {
     const done = await request.post(`${baseURL}/api/creators/onboarding/complete`, { headers });
     expect(done.status()).toBe(400);
     expect((await done.json()).message).toMatch(/agreement/i);
+
+    await removeAccount(request, baseURL, token);
   });
 
   test('a creator who already has channels skips onboarding', async ({ page, loginAs }) => {
