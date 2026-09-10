@@ -171,6 +171,7 @@ export const CampaignWizard: React.FC<{
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<CampaignFormValues>(EMPTY_CAMPAIGN_FORM);
   const [coverTouched, setCoverTouched] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState<'idle' | 'draft' | 'publish'>('idle');
   const [generating, setGenerating] = useState(false);
@@ -309,6 +310,9 @@ export const CampaignWizard: React.FC<{
       platforms: f.platforms.includes(label) ? f.platforms.filter((p) => p !== label) : [...f.platforms, label],
     }));
 
+  // The cover goes to storage (R2) first and only its URL is kept on the
+  // campaign. It used to be saved as the raw base64 data URI, which put a
+  // multi-megabyte string on every campaign row and in every list response.
   const onCoverFile = (file?: File | null) => {
     if (!file) return;
     if (file.size > MAX_COVER_BYTES) {
@@ -316,9 +320,19 @@ export const CampaignWizard: React.FC<{
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => {
-      set('cover_image', String(reader.result || ''));
-      setCoverTouched(true);
+    reader.onload = async () => {
+      setCoverUploading(true);
+      setError('');
+      try {
+        const res = await api.post('/uploads', { file: String(reader.result || ''), filename: file.name });
+        if (!res.data?.url) throw new Error('no url');
+        set('cover_image', res.data.url);
+        setCoverTouched(true);
+      } catch {
+        setError(t('wizard.errCoverUpload'));
+      } finally {
+        setCoverUploading(false);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -880,10 +894,18 @@ export const CampaignWizard: React.FC<{
                           </span>
                         </span>
                         <span className="text-left">
-                          <span className="block v-body v-ink font-medium" style={{ fontSize: 13 }}>{t('wizard.coverDrop')}</span>
+                          <span className="block v-body v-ink font-medium" style={{ fontSize: 13 }}>
+                            {coverUploading ? t('wizard.coverUploading') : t('wizard.coverDrop')}
+                          </span>
                           <span className="block v-caption v-quiet" style={{ fontSize: 11 }}>{t('wizard.coverAuto')}</span>
                         </span>
-                        <input type="file" accept="image/*" className="hidden" onChange={(e) => onCoverFile(e.target.files?.[0])} />
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={coverUploading}
+                          onChange={(e) => onCoverFile(e.target.files?.[0])}
+                        />
                       </label>
                     )}
                   </Field>

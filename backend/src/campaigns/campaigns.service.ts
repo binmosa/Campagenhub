@@ -61,6 +61,9 @@ const WRITABLE_FIELDS = [
  *  strongest, KWD, only triples the figure). */
 export const MAX_BUDGET = 1_000_000_000;
 
+/** A cover is a link to storage, not a picture. Generous for any real URL. */
+const MAX_COVER_URL_LENGTH = 2048;
+
 const pickWritable = (data: any): Partial<Campaign> => {
   const out: any = {};
   if (!data || typeof data !== 'object') return out;
@@ -809,6 +812,14 @@ export class CampaignsService implements OnModuleInit {
     }
     if (data.status !== undefined && !normalizeCampaignStatus(data.status)) {
       throw new BadRequestException(`Status must be one of: ${CAMPAIGN_STATUSES.join(', ')}`);
+    }
+    // The cover is a URL from /api/uploads, never the image itself. Inline
+    // base64 covers used to land here and turned each row into megabytes.
+    if (data.cover_image) {
+      const cover = String(data.cover_image);
+      if (cover.length > MAX_COVER_URL_LENGTH || !/^(https?:\/\/|\/)/i.test(cover)) {
+        throw new BadRequestException('Cover image must be an uploaded file URL — send the picture to /api/uploads first');
+      }
     }
   }
 
