@@ -52,6 +52,15 @@ const WRITABLE_FIELDS = [
   'contract_template', 'post_to_telegram', 'status',
 ] as const;
 
+/** Largest budget accepted, in the campaign's own currency.
+ *
+ *  `budget` and `budget_usd` are numeric(12,2), so anything at or above ten
+ *  billion is a Postgres "numeric field overflow" — which surfaced as a bare
+ *  500 the first time a brand fat-fingered an extra digit. One billion keeps
+ *  the USD conversion inside the column for every real currency too (the
+ *  strongest, KWD, only triples the figure). */
+export const MAX_BUDGET = 1_000_000_000;
+
 const pickWritable = (data: any): Partial<Campaign> => {
   const out: any = {};
   if (!data || typeof data !== 'object') return out;
@@ -791,6 +800,9 @@ export class CampaignsService implements OnModuleInit {
     if (data.budget != null && data.budget !== undefined) {
       const n = Number(data.budget);
       if (!Number.isFinite(n) || n < 0) throw new BadRequestException('Budget must be a positive number');
+      if (n > MAX_BUDGET) {
+        throw new BadRequestException(`Budget cannot exceed ${MAX_BUDGET.toLocaleString('en-US')} (in any currency)`);
+      }
     }
     if (data.currency !== undefined && !/^[A-Za-z]{3}$/.test(String(data.currency))) {
       throw new BadRequestException('Currency must be a 3-letter ISO code');
