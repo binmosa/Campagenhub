@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom';
 import LandingNav from './landing/sections/LandingNav';
 import Footer from './landing/sections/Footer';
 import api from '../lib/api';
+import { useTranslation } from 'react-i18next';
+import { usePageMeta } from '../lib/seo';
 
 const SORT_OPTIONS = [
   { value: 'rating_desc', label: 'Highest Rated' },
@@ -18,6 +20,8 @@ const RATING_OPTIONS = [
 ];
 
 const PublicManagers: React.FC = () => {
+  const { t: tm } = useTranslation();
+  usePageMeta({ title: tm('meta.managersTitle'), description: tm('meta.managers'), path: '/managers' });
   const [managers, setManagers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);

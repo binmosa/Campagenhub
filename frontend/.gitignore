@@ -12,3 +12,4 @@ tailwind_debug.css
 test-results/
 playwright-report/
 blob-report/
+.env.local

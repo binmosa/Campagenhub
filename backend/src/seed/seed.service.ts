@@ -237,6 +237,8 @@ export class SeedService implements OnModuleInit {
         account_status: 'active',
         kyc_status: 'approved',
         is_banned: false,
+        terms_accepted_at: new Date(),
+        terms_version: 'seed',
         permissions: account.permissions ?? null,
       };
 

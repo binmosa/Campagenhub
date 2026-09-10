@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { UserRole } from '../users/user.entity';
+import { TurnstileGuard } from '../auth/turnstile.guard';
 
 /**
  * Tickets come from a public form, so the inbox holds the name, email and
@@ -18,6 +19,9 @@ export class SupportController {
   constructor(private readonly supportService: SupportService) {}
 
   // ========== PUBLIC TICKETS ==========
+  // The contact form is the one public write endpoint without a login, so it
+  // carries the same Turnstile challenge as signup (no-op when the secret is unset).
+  @UseGuards(TurnstileGuard)
   @Post('support/tickets')
   async createTicket(@Body() body: { sender_name: string; sender_email: string; subject?: string; message: string }) {
     return this.supportService.createTicket(body);

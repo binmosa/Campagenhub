@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SupportTicket } from './support-ticket.entity';
 import { Review } from './review.entity';
+import { PlatformSetting } from '../settings/setting.entity';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class SupportService {
@@ -11,12 +13,36 @@ export class SupportService {
     private ticketsRepo: Repository<SupportTicket>,
     @InjectRepository(Review)
     private reviewsRepo: Repository<Review>,
+    @InjectRepository(PlatformSetting)
+    private settingsRepo: Repository<PlatformSetting>,
+    private readonly emailService: EmailService,
   ) {}
 
   // ========== TICKETS ==========
+  /**
+   * Public contact form → a support ticket (Admin → Support) AND an email to
+   * the team inbox, so nobody has to watch the admin queue. The inbox is
+   * SUPPORT_INBOX, else the public `contact_email` site setting, else the
+   * sending Gmail account. Reply-To is the visitor, so replying in the mail
+   * client answers them directly.
+   */
   async createTicket(data: { sender_name: string; sender_email: string; subject?: string; message: string }) {
-    const ticket = this.ticketsRepo.create(data);
-    return this.ticketsRepo.save(ticket);
+    const ticket = await this.ticketsRepo.save(this.ticketsRepo.create(data));
+    void this.notifyTeam(ticket).catch((e) => console.error('[support] contact email failed:', e?.message));
+    return ticket;
+  }
+
+  private async notifyTeam(ticket: SupportTicket): Promise<void> {
+    const setting = await this.settingsRepo.findOne({ where: { key: 'contact_email' } });
+    const inbox = (process.env.SUPPORT_INBOX || setting?.value || process.env.GMAIL_USER || '').trim();
+    if (!inbox) return;
+    await this.emailService.sendContactMessageToTeam(inbox, {
+      name: ticket.sender_name,
+      email: ticket.sender_email,
+      subject: ticket.subject,
+      message: ticket.message,
+      ticketId: ticket.id,
+    });
   }
 
   async getAllTickets(status?: string) {

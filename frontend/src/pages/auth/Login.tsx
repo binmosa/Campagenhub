@@ -4,8 +4,9 @@ import { ArrowRight, Lock, Mail, ShieldCheck, Sparkles, Zap } from 'lucide-react
 import { Button } from '@heroui/react';
 import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import { useNoIndex } from '../../lib/seo';
+import { useNoIndex, usePageMeta } from '../../lib/seo';
 import api from '../../lib/api';
+import { track } from '../../lib/analytics';
 
 /**
  * Login — Campaign Hubz brand-aligned sign-in.
@@ -21,6 +22,7 @@ import api from '../../lib/api';
 const Login: React.FC = () => {
   const { t } = useTranslation();
   useNoIndex();
+  usePageMeta({ title: t('meta.loginTitle'), description: t('meta.login'), noindex: true });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -45,6 +47,7 @@ const Login: React.FC = () => {
         if (access_token) {
           localStorage.setItem('token', access_token);
           localStorage.setItem('role', user.role);
+          track('login', { method: 'email', role: String(user?.role || '').toLowerCase() || undefined });
           navigate('/dashboard');
         } else {
           throw new Error('No token received');

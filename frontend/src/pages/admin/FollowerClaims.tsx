@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BadgeCheck, Check, Clock, ExternalLink, ImageOff, MapPin, ShieldCheck, XCircle } from 'lucide-react';
+import { BadgeCheck, Check, Clock, ExternalLink, ImageOff, MapPin, Send, ShieldCheck, XCircle } from 'lucide-react';
 import { Button, Chip } from '@heroui/react';
 import { Segment } from '@heroui-pro/react';
 import { useTranslation } from 'react-i18next';
@@ -34,9 +34,111 @@ type Claim = {
   evidence_url?: string;
   note?: string;
   status: 'pending' | 'verified' | 'rejected';
+  /** false = link only (guided onboarding) — the reviewer enters the count. */
+  has_count?: boolean;
 };
 
-type Tab = 'pending' | 'verified' | 'rejected';
+type WelcomePost = {
+  user_id: string;
+  email?: string;
+  full_name?: string;
+  username?: string;
+  avatar_url?: string;
+  category?: string;
+  location?: string;
+  followed: string[];
+  url: string;
+  platform?: string;
+  submitted_at?: string;
+  reviewed_at?: string;
+  note?: string;
+  status: 'pending' | 'approved' | 'rejected';
+};
+
+type Tab = 'pending' | 'verified' | 'rejected' | 'posts';
+
+/** One creator's welcome post about Campaign Hubz — approve or send back. */
+const PostRow: React.FC<{ post: WelcomePost; onDone: () => void }> = ({ post, onDone }) => {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
+  const meta = SOCIAL_PLATFORMS.find((p) => p.id === post.platform);
+  const name = post.full_name || post.username || post.email?.split('@')[0] || 'Creator';
+  const accent = accentFor(String(post.user_id));
+
+  const decide = async (action: 'approve' | 'reject') => {
+    if (action === 'reject' && !note.trim()) return toast.error('Add a short reason so the creator knows what to fix.');
+    setBusy(action);
+    try {
+      await api.patch(`/creators/admin/welcome-posts/${post.user_id}`, { action, note: note.trim() || undefined });
+      toast.success(action === 'approve' ? `${name}'s welcome post approved.` : `${name}'s welcome post sent back.`);
+      onDone();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Could not save the decision.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <article className="v-talent-card p-4 grid grid-cols-1 lg:grid-cols-[minmax(220px,1.2fr)_minmax(240px,1.4fr)_minmax(280px,1.2fr)] gap-4 items-start" data-testid="welcome-post-row">
+      <div className="flex items-start gap-3 min-w-0">
+        <span className="v-story-ring">
+          {post.avatar_url ? (
+            <img src={post.avatar_url} alt="" className="h-11 w-11 object-cover" />
+          ) : (
+            <span className="inline-flex h-11 w-11 items-center justify-center text-base font-medium text-white" style={{ background: accent.from }}>{name[0]?.toUpperCase()}</span>
+          )}
+        </span>
+        <div className="min-w-0">
+          <div className="v-ink font-medium truncate" style={{ fontSize: 14.5 }}>{name}</div>
+          <div className="v-caption v-quiet truncate" style={{ fontSize: 11.5 }}>
+            {post.username ? `@${post.username}` : post.email}
+            {post.location && (<>{' · '}<MapPin size={10} className="inline" /> {post.location}</>)}
+          </div>
+          {post.followed?.length > 0 && (
+            <div className="v-caption v-quiet truncate" style={{ fontSize: 11 }}>follows us on {post.followed.join(', ')}</div>
+          )}
+        </div>
+      </div>
+
+      <div className="min-w-0">
+        <a href={post.url} target="_blank" rel="noreferrer" className="v-social-chip !h-auto py-1.5 max-w-full" title={post.url}>
+          <span className="inline-flex" style={{ color: meta?.color }}>
+            <PlatformIcon platform={PLATFORM_ICON_KEY[post.platform || ''] || 'instagram'} size={13} />
+          </span>
+          <span className="v-ink truncate" style={{ fontSize: 12 }}>{post.url.replace(/^https?:\/\/(www\.)?/, '')}</span>
+          <ExternalLink size={10} className="v-quiet shrink-0" />
+        </a>
+        <div className="mt-2 v-caption v-quiet" style={{ fontSize: 11 }}>
+          {post.submitted_at ? `shared ${new Date(post.submitted_at).toLocaleDateString()}` : ''}
+          {post.reviewed_at ? ` · reviewed ${new Date(post.reviewed_at).toLocaleDateString()}` : ''}
+        </div>
+        {post.note && <div className="mt-1 v-caption" style={{ fontSize: 11.5, color: post.status === 'rejected' ? '#b3261e' : 'var(--color-graphite)' }}>{post.note}</div>}
+      </div>
+
+      <div>
+        {post.status === 'pending' ? (
+          <div className="space-y-2">
+            <input className={fieldClass} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason if sending back (sent to the creator)" />
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" size="sm" className="!text-danger" onPress={() => decide('reject')} isPending={busy === 'reject'} isDisabled={busy === 'approve'}>
+                <XCircle size={12} /> Send back
+              </Button>
+              <Button variant="primary" size="sm" onPress={() => decide('approve')} isPending={busy === 'approve'} isDisabled={busy === 'reject'}>
+                <BadgeCheck size={12} /> Approve
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Chip color={post.status === 'approved' ? 'success' : 'danger'} variant="soft" size="sm">
+            {post.status === 'approved' ? <ShieldCheck size={11} /> : <XCircle size={11} />}
+            <Chip.Label>{post.status === 'approved' ? 'Approved' : 'Sent back'}</Chip.Label>
+          </Chip>
+        )}
+      </div>
+    </article>
+  );
+};
 
 const ClaimRow: React.FC<{ claim: Claim; onDone: () => void }> = ({ claim, onDone }) => {
   const { t } = useTranslation();
@@ -104,8 +206,14 @@ const ClaimRow: React.FC<{ claim: Claim; onDone: () => void }> = ({ claim, onDon
           <ExternalLink size={10} className="v-quiet shrink-0" />
         </a>
         <div className="mt-2 flex items-baseline gap-1.5">
-          <span className="v-ink font-medium tabular-nums" style={{ fontSize: 22, letterSpacing: '-0.02em' }}>{formatCompact(claim.followers || 0)}</span>
-          <span className="v-caption v-quiet" style={{ fontSize: 11.5 }}>claimed · {Number(claim.followers || 0).toLocaleString()}</span>
+          {claim.followers ? (
+            <>
+              <span className="v-ink font-medium tabular-nums" style={{ fontSize: 22, letterSpacing: '-0.02em' }}>{formatCompact(claim.followers)}</span>
+              <span className="v-caption v-quiet" style={{ fontSize: 11.5 }}>claimed · {Number(claim.followers).toLocaleString()}</span>
+            </>
+          ) : (
+            <span className="v-caption" style={{ fontSize: 12, color: 'var(--color-graphite)' }}>No count given — open the profile and enter what you verify.</span>
+          )}
         </div>
         <div className="v-caption v-quiet" style={{ fontSize: 11 }}>
           {claim.claimed_at ? `claimed ${new Date(claim.claimed_at).toLocaleDateString()}` : ''}
@@ -174,22 +282,27 @@ const FollowerClaims: React.FC = () => {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('pending');
   const [claims, setClaims] = useState<Claim[]>([]);
-  const [counts, setCounts] = useState<Record<Tab, number>>({ pending: 0, verified: 0, rejected: 0 });
+  const [posts, setPosts] = useState<WelcomePost[]>([]);
+  const [postTab, setPostTab] = useState<WelcomePost['status']>('pending');
+  const [counts, setCounts] = useState<Record<Tab, number>>({ pending: 0, verified: 0, rejected: 0, posts: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
-  const load = useCallback(async (which: Tab) => {
+  const load = useCallback(async (which: Tab, postStatus: WelcomePost['status'] = 'pending') => {
     setLoading(true);
     setError(false);
     try {
-      const [cur, pend, ver, rej] = await Promise.all([
-        api.get('/creators/admin/follower-claims', { params: { status: which } }),
+      const [cur, pend, ver, rej, pendingPosts, curPosts] = await Promise.all([
+        api.get('/creators/admin/follower-claims', { params: { status: which === 'posts' ? 'pending' : which } }),
         api.get('/creators/admin/follower-claims', { params: { status: 'pending' } }),
         api.get('/creators/admin/follower-claims', { params: { status: 'verified' } }),
         api.get('/creators/admin/follower-claims', { params: { status: 'rejected' } }),
+        api.get('/creators/admin/welcome-posts', { params: { status: 'pending' } }).catch(() => ({ data: [] })),
+        api.get('/creators/admin/welcome-posts', { params: { status: postStatus } }).catch(() => ({ data: [] })),
       ]);
       setClaims(Array.isArray(cur.data) ? cur.data : []);
-      setCounts({ pending: pend.data?.length || 0, verified: ver.data?.length || 0, rejected: rej.data?.length || 0 });
+      setPosts(Array.isArray(curPosts.data) ? curPosts.data : []);
+      setCounts({ pending: pend.data?.length || 0, verified: ver.data?.length || 0, rejected: rej.data?.length || 0, posts: pendingPosts.data?.length || 0 });
     } catch {
       setError(true);
     } finally {
@@ -197,8 +310,8 @@ const FollowerClaims: React.FC = () => {
     }
   }, []);
   useEffect(() => {
-    load(tab);
-  }, [tab, load]);
+    load(tab, postTab);
+  }, [tab, postTab, load]);
 
   const totalVerified = useMemo(() => claims.reduce((s, c) => s + (c.status === 'verified' ? c.verified_followers || 0 : 0), 0), [claims]);
 
@@ -211,10 +324,11 @@ const FollowerClaims: React.FC = () => {
       description="Creators' follower counts are claims until you confirm them. Check the profile link and the evidence, then verify the number you can stand behind — the badge shows on their card immediately."
       icon={<BadgeCheck size={18} />}
       stats={
-        <div className="grid grid-cols-3 gap-3">
-          <MetricCard label="Awaiting review" value={counts.pending} hint="platform claims" icon={Clock} iconStatus={counts.pending ? 'warning' : undefined} />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <MetricCard label="Awaiting review" value={counts.pending} hint="channels to verify" icon={Clock} iconStatus={counts.pending ? 'warning' : undefined} />
           <MetricCard label="Verified" value={counts.verified} hint={tab === 'verified' ? `${formatCompact(totalVerified)} followers on this page` : 'platform badges live'} icon={ShieldCheck} iconStatus="success" />
           <MetricCard label="Rejected" value={counts.rejected} hint="sent back with a reason" icon={XCircle} />
+          <MetricCard label="Welcome posts" value={counts.posts} hint="waiting for a look" icon={Send} iconStatus={counts.posts ? 'warning' : undefined} />
         </div>
       }
     >
@@ -222,16 +336,37 @@ const FollowerClaims: React.FC = () => {
         <Segment.Item id="pending">Pending · {counts.pending}</Segment.Item>
         <Segment.Item id="verified">Verified · {counts.verified}</Segment.Item>
         <Segment.Item id="rejected">Rejected · {counts.rejected}</Segment.Item>
+        <Segment.Item id="posts">Welcome posts · {counts.posts}</Segment.Item>
       </Segment>
 
-      {loading ? (
+      {tab === 'posts' ? (
+        <div className="space-y-3" data-testid="welcome-posts">
+          <Segment size="sm" selectedKey={postTab} onSelectionChange={(k) => setPostTab(k as WelcomePost['status'])} aria-label="Welcome post status">
+            <Segment.Item id="pending">Pending</Segment.Item>
+            <Segment.Item id="approved">Approved</Segment.Item>
+            <Segment.Item id="rejected">Sent back</Segment.Item>
+          </Segment>
+          {loading ? (
+            <div className="v-talent-card p-4"><div className="v-skel h-11 w-1/3 mb-2" /><div className="v-skel h-3 w-2/3" /></div>
+          ) : posts.length === 0 ? (
+            <EmptyPanel
+              tone={postTab === 'pending' ? 'success' : 'neutral'}
+              icon={<Send size={22} />}
+              title={postTab === 'pending' ? 'No welcome posts waiting' : `No ${postTab === 'rejected' ? 'sent-back' : postTab} posts`}
+              description="Creators share one post about Campaign Hubz during onboarding. New links land here for a quick look."
+            />
+          ) : (
+            posts.map((p) => <PostRow key={p.user_id} post={p} onDone={() => load(tab, postTab)} />)
+          )}
+        </div>
+      ) : loading ? (
         <div className="space-y-3" aria-hidden>
           {[0, 1, 2].map((i) => (
             <div key={i} className="v-talent-card p-4"><div className="v-skel h-11 w-1/3 mb-2" /><div className="v-skel h-3 w-2/3" /></div>
           ))}
         </div>
       ) : error ? (
-        <EmptyPanel tone="error" title={t('board.errTitle')} description={t('board.errDesc')} actions={<Button variant="primary" onPress={() => load(tab)}>{t('common.tryAgain')}</Button>} />
+        <EmptyPanel tone="error" title={t('board.errTitle')} description={t('board.errDesc')} actions={<Button variant="primary" onPress={() => load(tab, postTab)}>{t('common.tryAgain')}</Button>} />
       ) : claims.length === 0 ? (
         <EmptyPanel
           tone={tab === 'pending' ? 'success' : 'neutral'}
@@ -242,7 +377,7 @@ const FollowerClaims: React.FC = () => {
       ) : (
         <div className="space-y-3">
           {claims.map((c) => (
-            <ClaimRow key={`${c.user_id}-${c.platform}`} claim={c} onDone={() => load(tab)} />
+            <ClaimRow key={`${c.user_id}-${c.platform}`} claim={c} onDone={() => load(tab, postTab)} />
           ))}
         </div>
       )}

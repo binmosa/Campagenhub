@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Globe, LayoutDashboard, LogOut, Menu, User, X } from 'lucide-react';
+import { Globe, LayoutDashboard, LogOut, Menu, User, UserPlus, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SUPPORTED_LANGUAGES, setLanguage } from '../../../i18n';
 import { Avatar, Button, Dropdown, Label, Separator } from '@heroui/react';
@@ -340,12 +340,13 @@ export const LandingNav: React.FC = () => {
 
         {/* Right cluster — Profile dropdown if logged-in, else login/get started */}
         <div className="flex items-center gap-1.5">
-          {/* Language switcher — shows the language you'd switch TO */}
+          {/* Language switcher — shows the language you'd switch TO. On phones it
+              lives inside the burger menu so the wordmark keeps its full width. */}
           <button
             type="button"
             onClick={() => setLanguage(otherLang.code)}
             aria-label={`Switch language to ${otherLang.label}`}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] font-medium rounded-full"
+            className="hidden lg:inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] font-medium rounded-full"
             style={{ color: 'rgba(255,255,255,0.85)', background: 'rgba(255,255,255,0.08)' }}
           >
             <Globe size={12} />
@@ -364,9 +365,15 @@ export const LandingNav: React.FC = () => {
                   {t('nav.signIn')}
                 </button>
               </Link>
-              <Link to="/register">
+              <Link to="/register" className="hidden sm:inline-flex">
                 <Button variant="primary" size="sm" className="!rounded-full">
                   {t('nav.getStarted')}
+                </Button>
+              </Link>
+              {/* Phone: the same CTA as a compact icon button */}
+              <Link to="/register" className="sm:hidden" aria-label={t('nav.getStarted')} title={t('nav.getStarted')}>
+                <Button variant="primary" size="sm" isIconOnly className="!rounded-full" aria-label={t('nav.getStarted')}>
+                  <UserPlus size={15} />
                 </Button>
               </Link>
             </>
@@ -420,6 +427,23 @@ export const LandingNav: React.FC = () => {
                 </li>
               );
             })}
+            <li className="mt-1 pt-3 border-t" style={{ borderColor: 'var(--color-cool-gray)' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setLanguage(otherLang.code);
+                  setMenuOpen(false);
+                }}
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm v-ink"
+                style={{ letterSpacing: '-0.013em' }}
+                aria-label={`Switch language to ${otherLang.label}`}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Globe size={14} className="v-quiet" /> {otherLang.label}
+                </span>
+                <span className="v-caption v-quiet" style={{ fontSize: 11.5 }}>{otherLang.short}</span>
+              </button>
+            </li>
             <li
               className="mt-1 pt-3 border-t"
               style={{ borderColor: 'var(--color-cool-gray)' }}

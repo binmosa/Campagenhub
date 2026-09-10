@@ -4,9 +4,10 @@ import { SupportService } from './support.service';
 import { SupportController } from './support.controller';
 import { SupportTicket } from './support-ticket.entity';
 import { Review } from './review.entity';
+import { PlatformSetting } from '../settings/setting.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([SupportTicket, Review])],
+  imports: [TypeOrmModule.forFeature([SupportTicket, Review, PlatformSetting])],
   providers: [SupportService],
   controllers: [SupportController],
   exports: [SupportService],

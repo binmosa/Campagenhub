@@ -4,6 +4,7 @@ import { TurnstileGuard } from './turnstile.guard';
 import { AuthService } from './auth.service';
 import { UserRole } from '../users/user.entity';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { parseSocialLinks } from '../creators/social-links';
 
 
 /** Same idea as the app-wide ceilings: production defaults, raisable for a test run. */
@@ -73,9 +74,23 @@ export class AuthController {
       user?.email?.split('@')[0] ||
       'User';
 
+    // Creators who already had channels before guided onboarding existed
+    // are treated as done, so the new flow only meets genuinely new accounts.
+    if (user && user.role === UserRole.CREATOR && !user.onboarding_completed_at) {
+      if (Object.keys(parseSocialLinks(user.creatorProfile?.social_links)).length > 0) {
+        user.onboarding_completed_at = new Date();
+        await this.authService['usersService'].markOnboardingComplete(user.id, user.onboarding_completed_at);
+      }
+    }
+
     return {
       ...req.user,
       account_status: user?.account_status,
+      telegram_connected: !!user?.telegram_chat_id,
+      terms_accepted_at: user?.terms_accepted_at ?? null,
+      terms_version: user?.terms_version ?? null,
+      onboarding_completed_at: user?.onboarding_completed_at ?? null,
+      onboarding: user?.onboarding ?? null,
       kyc_required: user?.kyc_required ?? false,
       kyc_status: user?.kyc_status,
       has_kyc_submission: !!(user?.kyc_video_url || user?.kyc_id_front),

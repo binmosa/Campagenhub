@@ -14,6 +14,7 @@ import {
 import { Button, Chip, Modal } from '@heroui/react';
 import { Segment } from '@heroui-pro/react';
 import { useTranslation } from 'react-i18next';
+import { usePageMeta } from '../lib/seo';
 import api from '../lib/api';
 import { formatBudget } from '../lib/campaignFormat';
 import LandingNav from './landing/sections/LandingNav';
@@ -71,6 +72,7 @@ const GRID = 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4';
 const PublicCampaigns: React.FC<PublicCampaignsProps> = ({ isDashboard = false }) => {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  usePageMeta({ title: t('meta.campaignsTitle'), description: t('meta.campaigns'), path: '/campaigns', noindex: isDashboard });
   const loggedIn = !!localStorage.getItem('token');
   const role = localStorage.getItem('role') || '';
   const isCreator = role === 'creator';

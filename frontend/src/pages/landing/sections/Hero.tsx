@@ -20,6 +20,8 @@ import { Segment } from '@heroui-pro/react';
 import { AnimatePresence, animate, motion, useMotionValue, useSpring } from 'motion/react';
 import type { LucideIcon } from 'lucide-react';
 import PlatformIcon, { type PlatformKey } from '../mocks/PlatformIcon';
+import Portrait from '../mocks/Portrait';
+import { PORTRAIT_STRIP, type PortraitKey } from '../mocks/portraits';
 import { useTranslation } from 'react-i18next';
 import { useMarket } from '../../markets/MarketContext';
 import type { LandingSettings } from '../useLandingData';
@@ -170,11 +172,14 @@ const BUDGETS: { key: BudgetKey; label: string; multiplier: number; escrow: stri
 ];
 
 /* Brand: ranked applicant rows shown in the phone */
-const APPLICANTS = [
-  { handle: '@mara.moves', followers: '48K', er: '6.2%', fit: 97, color: BRAND.purple },
-  { handle: '@jai.frames', followers: '210K', er: '4.1%', fit: 93, color: BRAND.teal },
-  { handle: '@nova.daily', followers: '96K', er: '5.4%', fit: 88, color: BRAND.warning },
+const APPLICANTS: { handle: string; followers: string; er: string; fit: number; color: string; portrait: PortraitKey }[] = [
+  { handle: '@mara.moves', followers: '48K', er: '6.2%', fit: 97, color: BRAND.purple, portrait: 'amara' },
+  { handle: '@jai.frames', followers: '210K', er: '4.1%', fit: 93, color: BRAND.teal, portrait: 'ravi' },
+  { handle: '@nova.daily', followers: '96K', er: '5.4%', fit: 88, color: BRAND.warning, portrait: 'selam' },
 ];
+
+/** Faces on the creator-side brief rows — the people behind the brand accounts. */
+const BRIEF_FACES: PortraitKey[] = ['ravi', 'amara', 'selam'];
 
 const roundTo10 = (n: number) => Math.round(n / 10) * 10;
 const fmtMoney = (n: number) =>
@@ -307,11 +312,15 @@ const CreatorPhone: React.FC<{
                   boxShadow: 'rgba(11,23,54,0.05) 0 4px 14px -6px',
                 }}
               >
-                <span
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl font-medium shrink-0"
-                  style={{ background: b.color, color: '#fff', fontSize: 11 }}
-                >
-                  {b.brand.slice(0, 2).toUpperCase()}
+                {/* the brand's account: a face, with the brand mark tucked on the corner */}
+                <span className="relative shrink-0">
+                  <Portrait id={BRIEF_FACES[i % BRIEF_FACES.length]} initials={b.brand.slice(0, 2).toUpperCase()} size={36} color={b.color} />
+                  <span
+                    className="absolute -bottom-1 -right-1 inline-flex h-4 min-w-4 px-0.5 items-center justify-center rounded-md font-medium"
+                    style={{ background: b.color, color: '#fff', fontSize: 7.5, border: '1.5px solid #fff' }}
+                  >
+                    {b.brand.slice(0, 2).toUpperCase()}
+                  </span>
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="v-ink font-medium truncate" style={{ fontSize: 12.5, letterSpacing: '-0.01em' }}>
@@ -419,12 +428,7 @@ const BrandPhone: React.FC<{
                   boxShadow: 'rgba(11,23,54,0.05) 0 4px 14px -6px',
                 }}
               >
-                <span
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full font-medium shrink-0"
-                  style={{ background: a.color, color: '#fff', fontSize: 11 }}
-                >
-                  {a.handle.slice(1, 3).toUpperCase()}
-                </span>
+                <Portrait id={a.portrait} initials={a.handle.slice(1, 3).toUpperCase()} size={36} color={a.color} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1">
                     <span className="v-ink font-medium truncate" style={{ fontSize: 12.5, letterSpacing: '-0.01em' }}>
@@ -734,6 +738,18 @@ export const Hero: React.FC<HeroProps> = ({ settings }) => {
                     </a>
                   </>
                 )}
+              </div>
+
+              {/* Faces — a strip of creators (illustrative portraits) as social proof */}
+              <div className="mt-6 flex items-center gap-3" data-testid="hero-creator-strip">
+                <div className="flex -space-x-2.5">
+                  {PORTRAIT_STRIP.slice(0, 6).map((k, i) => (
+                    <Portrait key={k} id={k} initials={k[0].toUpperCase()} size={34} color={['#6c63ff', '#00d4c7', '#4f7cff', '#ffb547', '#7b61ff', '#16c784'][i % 6]} style={{ border: '2px solid #fff', boxShadow: 'rgba(11,23,54,0.12) 0 2px 6px' }} />
+                  ))}
+                </div>
+                <span className="text-[12.5px] v-muted" style={{ letterSpacing: '-0.01em' }}>
+                  {t(isCreator ? 'hero.stripCreator' : 'hero.stripBrand')}
+                </span>
               </div>
 
               <div className="mt-5 flex items-center gap-4 text-[12px] v-quiet flex-wrap">

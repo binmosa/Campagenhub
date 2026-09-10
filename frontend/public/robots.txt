@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+# App and account pages are not useful in search results.
+Disallow: /dashboard
+Disallow: /onboarding
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /reset-password
+
+Sitemap: https://campaignhubz.com/sitemap.xml

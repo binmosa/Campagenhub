@@ -15,7 +15,7 @@ export class EmailService {
     });
   }
 
-  async sendEmail(to: string, subject: string, htmlBody: string): Promise<boolean> {
+  async sendEmail(to: string, subject: string, htmlBody: string, opts: { replyTo?: string } = {}): Promise<boolean> {
     try {
       if (!process.env.GMAIL_APP_PASSWORD || !process.env.GMAIL_USER) {
         console.log(`[Email Service] Skipping email (no credentials configured). To: ${to}, Subject: ${subject}`);
@@ -27,6 +27,7 @@ export class EmailService {
         to,
         subject,
         html: this.wrapInTemplate(subject, htmlBody),
+        ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
       });
 
       console.log(`[Email Service] Sent email to ${to}: ${subject}`);
@@ -124,6 +125,19 @@ export class EmailService {
         <a href="https://app.flutterwave.com/dashboard/payments/transfers/new/" style="background:#f97316; color:white; padding:12px 32px; border-radius:8px; text-decoration:none; font-weight:bold;">Open Flutterwave</a>
       </div>
     `);
+  }
+
+  /** A message from the public contact form, forwarded to the team inbox. Reply-To is the sender. */
+  async sendContactMessageToTeam(inbox: string, msg: { name: string; email: string; subject?: string; message: string; ticketId?: string }) {
+    const esc = (v: string) => String(v || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] || c);
+    return this.sendEmail(
+      inbox,
+      `New message from ${msg.name || msg.email}${msg.subject ? ` — ${msg.subject}` : ''}`,
+      `<p><strong>${esc(msg.name)}</strong> &lt;${esc(msg.email)}&gt; wrote through the website contact form:</p>
+       <blockquote style="margin:16px 0;padding:14px 18px;border-left:3px solid #6c63ff;background:#f6f5ff;border-radius:8px;white-space:pre-wrap">${esc(msg.message)}</blockquote>
+       <p style="color:#667">Reply to this email to answer them directly${msg.ticketId ? `, or open ticket <code>${esc(msg.ticketId)}</code> in Admin → Support` : ''}.</p>`,
+      { replyTo: msg.email },
+    );
   }
 
   // === HTML Email Template Wrapper ===

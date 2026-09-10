@@ -13,6 +13,19 @@ export enum UserRole {
   FINANCE = 'finance',
 }
 
+/** What a creator did in onboarding beyond their profile fields. */
+export type OnboardingState = {
+  /** Platform ids the creator says they followed Campaign Hubz on. */
+  followed?: string[];
+  /** The post they published about Campaign Hubz, awaiting admin review. */
+  post_url?: string;
+  post_platform?: string;
+  post_submitted_at?: string;
+  post_status?: 'pending' | 'approved' | 'rejected';
+  post_note?: string;
+  post_reviewed_at?: string;
+};
+
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -99,6 +112,34 @@ export class User {
 
   @Column({ type: 'boolean', default: false })
   is_banned: boolean;
+
+  /* ── Creator onboarding ──────────────────────────────────────────
+     A creator's first session is a short guided setup (channels →
+     follow & share → done) instead of the full dashboard. `null` means
+     they have not finished it yet; the portal keeps sending them back to
+     /onboarding until it is set. Accounts that already had social links
+     before this existed are auto-completed on their next /auth/me. */
+  @Column({ type: 'timestamp', nullable: true })
+  onboarding_completed_at: Date | null;
+
+  /* ── Terms acceptance — the legal record of the onboarding agreement.
+     Version + timestamp + where it came from, so a dispute can show exactly
+     which text the creator accepted and when. Never cleared. */
+  @Column({ type: 'timestamp', nullable: true })
+  terms_accepted_at: Date | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  terms_version: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true, select: false })
+  terms_accepted_ip: string | null;
+
+  @Column({ type: 'varchar', length: 512, nullable: true, select: false })
+  terms_accepted_user_agent: string | null;
+
+  /** Follow + welcome-post progress captured during onboarding. */
+  @Column({ type: 'simple-json', nullable: true })
+  onboarding: OnboardingState | null;
 
   @Column({ type: 'simple-json', nullable: true })
   permissions: Record<string, boolean> | null;

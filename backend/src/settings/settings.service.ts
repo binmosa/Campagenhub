@@ -51,6 +51,20 @@ export class SettingsService implements OnModuleInit {
       { key: 'contact_phone', value: '' },
       { key: 'contact_loc', value: '' },
       { key: 'showcase_demo_enabled', value: 'false' },
+      /* Campaign Hubz's own channels — shown to creators in onboarding
+         ("follow us") and empty until an admin fills them in Site control. */
+      { key: 'social_instagram', value: '' },
+      { key: 'social_tiktok', value: '' },
+      { key: 'social_youtube', value: '' },
+      { key: 'social_facebook', value: '' },
+      { key: 'social_twitter', value: '' },
+      { key: 'social_linkedin', value: '' },
+      { key: 'social_telegram', value: '' },
+      /* Onboarding "Follow & share" step — off until the channels exist. */
+      { key: 'onboarding_follow_enabled', value: 'false' },
+      { key: 'onboarding_post_enabled', value: 'false' },
+      /* Suggested caption for the creator's welcome post (blank = app default). */
+      { key: 'onboarding_post_text', value: '' },
     ];
 
     for (const setting of defaults) {
