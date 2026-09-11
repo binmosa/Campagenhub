@@ -100,7 +100,10 @@ test.describe('admin', () => {
     await page.getByRole('button', { name: /^All roles/ }).click();
     await expect(rows).toHaveCount(total);
 
+    // Server-paged: the account may not be on page one, so search for it.
+    await page.getByPlaceholder(/search by name, email or handle/i).fill(ACCOUNTS.creator2);
     const row = rows.filter({ hasText: ACCOUNTS.creator2 });
+    await expect(row).toHaveCount(1);
     await row.getByRole('button', { name: /require kyc/i }).click();
     await confirmDialog(page, /^Require KYC$/);
     await expect(toast(page)).toContainText(/KYC now required/);

@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, BadgeCheck, CheckCircle2, Circle, Clock, LayoutDashboard, Link2, MessageSquare, Pencil, Search, Send, XCircle } from 'lucide-react';
-import { Button } from '@heroui/react';
+import { ArrowRight, BadgeCheck, CheckCircle2, Circle, Clock, LayoutDashboard, Link2, MessageSquare, Pencil, Plus, Search, Send, XCircle } from 'lucide-react';
+import { Button, Chip } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { toast } from '../../lib/toast';
-import { formatCompact, parseSocialLinks, verifiedFollowers } from '../../lib/socialLinks';
+import { SOCIAL_PLATFORMS, formatCompact, parseSocialLinks, verifiedFollowers } from '../../lib/socialLinks';
+import PlatformIcon from '../../pages/landing/mocks/PlatformIcon';
+import { PLATFORM_ICON_KEY } from '../../pages/talent/shared';
 import { PageShell } from '../ui';
 import { fieldClass } from '../../pages/talent/shared';
+import { AddPlatformsModal } from './AddPlatformsModal';
 
 /**
  * StarterHome — what a creator sees instead of the full dashboard until
@@ -39,6 +42,7 @@ export const StarterHome: React.FC<{
   const [sending, setSending] = useState(false);
   /* The welcome-post ask is an admin switch; off until Campaign Hubz runs its own campaign for that. */
   const [postEnabled, setPostEnabled] = useState(false);
+  const [addingPlatforms, setAddingPlatforms] = useState(false);
   useEffect(() => {
     api.get('/public/settings').then((r) => setPostEnabled(r.data?.onboarding_post_enabled === 'true')).catch(() => {});
   }, []);
@@ -53,6 +57,35 @@ export const StarterHome: React.FC<{
     if (list.some((e) => e?.status === 'rejected')) return 'rejected';
     return channelCount ? 'pending' : 'todo';
   }, [socials, channelCount]);
+
+  /* Every linked platform with where its verification stands — a creator
+     who adds X after Instagram was verified sees both, not one summary. */
+  type ChannelState = 'verified' | 'waiting' | 'rejected';
+  const channels = useMemo(
+    () =>
+      SOCIAL_PLATFORMS.filter((p) => socials[p.id]?.url).map((p) => {
+        const st = socials[p.id]?.status;
+        const state: ChannelState = st === 'verified' ? 'verified' : st === 'rejected' ? 'rejected' : 'waiting';
+        return { id: p.id, label: p.label.replace(' / Twitter', ''), color: p.color, state };
+      }),
+    [socials],
+  );
+  const byState = (state: ChannelState) => channels.filter((c) => c.state === state).map((c) => c.label);
+  const waiting = byState('waiting');
+  const rejected = byState('rejected');
+  const verifiedNames = byState('verified');
+  const verifyDesc = [
+    rejected.length ? t('starter.rejectedOf', { list: rejected.join(', ') }) : '',
+    waiting.length ? t('starter.waitingFor', { list: waiting.join(', ') }) : '',
+    verifiedNames.length ? t('starter.verifiedOf', { list: verifiedNames.join(', '), n: formatCompact(verifiedTotal) }) : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const CHANNEL_CHIP: Record<ChannelState, { color: 'success' | 'warning' | 'danger'; icon: React.ReactNode; label: string }> = {
+    verified: { color: 'success', icon: <BadgeCheck size={10} />, label: t('social.status.verified') },
+    waiting: { color: 'warning', icon: <Clock size={10} />, label: t('starter.chipWaiting') },
+    rejected: { color: 'danger', icon: <XCircle size={10} />, label: t('social.status.rejected') },
+  };
 
   const onb = me?.onboarding || {};
   const postStatus: Status = !onb.post_url ? 'todo' : onb.post_status === 'approved' ? 'done' : onb.post_status === 'rejected' ? 'rejected' : 'pending';
@@ -89,9 +122,10 @@ export const StarterHome: React.FC<{
     { key: 'channels', s: channelCount ? 'done' : 'todo', title: t('starter.stepChannels'), desc: t('starter.stepChannelsDesc', { n: channelCount }) },
     {
       key: 'verify',
-      s: verifyStatus,
+      // Something still waiting keeps the step open even once one platform is verified.
+      s: rejected.length ? 'rejected' : waiting.length ? 'pending' : verifiedNames.length ? 'done' : 'todo',
       title: t('starter.stepVerify'),
-      desc: verifyStatus === 'done' ? t('starter.stepVerifyDone', { n: formatCompact(verifiedTotal) }) : verifyStatus === 'rejected' ? t('starter.stepVerifyRejected') : t('starter.stepVerifyPending'),
+      desc: verifyDesc || t('starter.stepVerifyPending'),
     },
     ...(showPost ? [{
       key: 'post',
@@ -175,7 +209,26 @@ export const StarterHome: React.FC<{
                 <div className="v-caption v-quiet" style={{ fontSize: 12.5 }}>
                   {s.desc}
                 </div>
+                {s.key === 'verify' && channels.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2" data-testid="starter-channel-states">
+                    {channels.map((c) => (
+                      <Chip key={c.id} color={CHANNEL_CHIP[c.state].color} variant="soft" size="sm" data-state={c.state} data-platform={c.id}>
+                        <span className="inline-flex" style={{ color: c.color }}>
+                          <PlatformIcon platform={PLATFORM_ICON_KEY[c.id]} size={11} />
+                        </span>
+                        <Chip.Label>
+                          {c.label} · {CHANNEL_CHIP[c.state].label}
+                        </Chip.Label>
+                      </Chip>
+                    ))}
+                  </div>
+                )}
               </div>
+              {s.key === 'channels' && (
+                <Button variant="ghost" size="sm" onPress={() => setAddingPlatforms(true)} data-testid="starter-add-platforms">
+                  <Plus size={12} /> {t('social.addPlatforms')}
+                </Button>
+              )}
             </li>
           ))}
         </ol>
@@ -199,6 +252,9 @@ export const StarterHome: React.FC<{
           </Button>
         </Link>
       </div>
+      {addingPlatforms && (
+        <AddPlatformsModal open onClose={() => setAddingPlatforms(false)} socialLinks={profile?.social_links} onSaved={onRefresh} />
+      )}
     </PageShell>
   );
 };
